@@ -17,9 +17,9 @@ local side_inner = 70
 
 -- if command line args given
 if arg and (#arg > 0) then
-	side = arg[1]
-	height = arg[2]
-	side_inner = arg[3]
+  side = arg[1]
+  height = arg[2]
+  side_inner = arg[3]
 end
 
 print("Pyramid Side: "..side)
@@ -64,14 +64,14 @@ local pyr = cad.pyramid(0,0,0, side, height)
 local pyr_cut_1 = cad.pyramid(d_x_cut,d_x_cut,0, cut_side, cut_h)
 
 local pyr_cut_2 = cad.polygon(0,0, {{0,0},{side_inner,0},{side_inner/2,height_inner}})
-	:linear_extrude(side)
-	:rotate(0,0,0, 90,0,0)
-	:translate(d_x,side,d_h)
+  :linear_extrude(side)
+  :rotate(0,0,0, 90,0,0)
+  :translate(d_x,side,d_h)
 local pyr_cut_3 = cad.polygon(0,0, {{0,0},{height_inner,side_inner/2},{0,side_inner}})
-	:linear_extrude(side)
-	:rotate(0,0,0, 0,-90,0)
-	:translate(side,d_x,d_h)
-	
+  :linear_extrude(side)
+  :rotate(0,0,0, 0,-90,0)
+  :translate(side,d_x,d_h)
+
 local pyr_cut = pyr - (pyr_cut_1 + pyr_cut_2 + pyr_cut_3)
 
 pyr_cut:export(cad_file)

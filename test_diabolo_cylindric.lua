@@ -22,7 +22,7 @@ local h = height
 local alpha = math.atan((h/2)/(radius_bottom-radius_middle))
 local alpha_deg = tonumber(string.format("%.2f",math.deg(alpha)))
 
-local cad_file = "Diabolo_Cylindric_[h="..height..",r1="..radius_bottom..",r2="..radius_middle..",d="..thickness..",frag="..frags..",angle="..alpha_deg.."].stl"
+local cad_file = "temp/diabolo_cylindric_[h="..height..",r1="..radius_bottom..",r2="..radius_middle..",d="..thickness..",frag="..frags..",angle="..alpha_deg.."].stl"
 
 print("Output = "..cad_file)
 
@@ -30,7 +30,7 @@ local cylinder = (cad.cylinder(0,0,0, h/2, radius_bottom, radius_middle)
 	- cad.cylinder(0,0,0, h/2, radius_bottom-thickness, radius_middle-thickness))
 	+ (cad.cylinder(0,0,h/2, h/2, radius_middle, radius_bottom)
 	- cad.cylinder(0,0,h/2, h/2, radius_middle-thickness, radius_bottom-thickness))
-	
-cylinder:set_circle_fragments(frags)
+
+-- cylinder:set_circle_fragments(frags)
 
 cylinder:export(cad_file)
