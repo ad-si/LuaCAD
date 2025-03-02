@@ -4,8 +4,8 @@
 -- and actual pyramid has a side length of 440 and a height of 280, or (110/70)
 
 --[[-----------------------------------
-	Author: Michael Lutz
-	Licensed under the same terms as Lua itself
+  Author: Michael Lutz
+  Licensed under the same terms as Lua itself
 --]]-----------------------------------
 
 require "lib_cad"
