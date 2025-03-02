@@ -1,20 +1,35 @@
-# Lua_CAD
+# LuaSCAD
 
-Lua CAD is a scripting library which uses OpenSCAD as engine to create 2D and 3D objects (coloring optional).
-Supported file exports are: dxf, svg, stl, obj, wrl
+LuaSCAD is a scripting library which uses [OpenSCAD] as engine
+to create 2D and 3D objects.
 
-The Lua CAD library creates scad code which is then used by OpenSCAD to create dxf, svg or an stl file.
-If the object should have a specific color then Lua CAD can take an stl file and convert it to obj or wrl with color.
+**Supported exports formats are:**
 
-Main Features:
-* using CAD objects
-* STL to WRL converter with color
-* STL to OBJ converter with color
+- [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
+- [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
+- [STL](https://en.wikipedia.org/wiki/STL_(file_format))
+- [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
+- [WRL](https://en.wikipedia.org/wiki/VRML)
 
-Installation:
-* copy all files to your Lua Home Directory
-* Install OpenSCAD if not already installed
-* Open the settings file and edit needed parameters
-* Enter correct paths for the settings file
+The LuaSCAD library creates [OpenSCAD] code
+which is then used to create DXF, SVG, or STL files.
+If the object should have a specific color then LuaSCAD can take an STL file
+and convert it to OBJ or WRL with color.
 
-Run some of the example files
+**Main Features:**
+
+- Using CAD objects
+- STL to WRL converter with color
+- STL to OBJ converter with color
+
+**Installation:**
+
+- Clone the repository: `git clone https://github.com/ad-si/LuaSCAD`
+- Install [OpenSCAD] if not already installed
+- Add a new `.lua` file to the root directory of the repository
+- Implement your model
+- ```sh
+  lua your_model.lua
+  ```
+
+[OpenSCAD]: https://www.openscad.org/
