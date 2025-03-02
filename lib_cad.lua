@@ -3,10 +3,10 @@
 	Lua CAD fuctions
 	provides simple useful functions to create stl files
 	built on usage of openscad
-	
+
 	updated version this one creates a scad file which then can be processed by open scad
 	Creates a cad obj that can be used, and imported by other cad objects
-	
+
 	cad.<function> returns a new cad object
 	<cad>:<function> always changes the current obj
 --]]--================================================================================
@@ -45,6 +45,10 @@ local default_segments = cad.settings.default_segments
 local executable = cad.settings.executable
 local scadfile = cad.settings.scadfile
 
+local function getExtension(path)
+	return "."..path:lower():match("%.([^%.]+)$")
+end
+
 local function intend_content(this, count)
 	this.intend_num = this.intend_num + count
 end
@@ -82,8 +86,13 @@ local function export_scad(obj, file)
 	fscad:write("$fn = "..obj.segments..";\n\n")
 	fscad:write(obj.scad_content)
 	fscad:close()
-	-- create native OpenSCAD output, dxf, svg, stl
-	os.execute(executable.." -o "..file.." "..scadfile)
+
+	if getExtension(file) == ".scad" then
+		os.rename(scadfile, file)
+	else
+		-- Execute OpenSCAD to create the final output file
+		os.execute(executable.." -o "..file.." "..scadfile)
+	end
 end
 
 --[[--------------------------------------------------------------------------------
@@ -92,7 +101,7 @@ end
 
 --[[----------------------------------------
 	function cad()
-	
+
 	returning new cad object
 --]]----------------------------------------
 local cad_meta = {}
@@ -105,7 +114,7 @@ setmetatable(cad, {__call = cad_obj })
 
 --[[----------------------------------------
 	function cad.setdefaultcirclefragments(num)
-	
+
 	optional $fn and $fs can be set (http://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Other_Language_Features#Special_variables)
 --]]----------------------------------------
 cad.setdefaultcirclefragments = function(fn)
@@ -119,13 +128,13 @@ end
 
 --[[--------------------------------------------------------------------------------
 	2D OBJECTS
-	
+
 	Only give x and y, z is obsolete since linear extrude moves the item back to zero z.
 --]]--------------------------------------------------------------------------------
 
 --[[----------------------------------------
 	function cad.rect(x, y, width, height [, center])
-	
+
 	draw rectangle width given width and height
 --]]----------------------------------------
 local scad_rect =[[
@@ -144,7 +153,7 @@ cad.square = rect
 
 --[[------------------------------------------
 	function cad.circle(x, y, radius)
-	
+
 	draw circle
 --]]------------------------------------------
 local scad_circle =[[
@@ -161,7 +170,7 @@ end
 
 --[[------------------------------------------
 	function cad.polygon(x, y, t_points [, t_paths])
-	
+
 	points have to be in counter clockwise direction
 	draw a polygon from given points {{x,y [,"<funcname>",{args}]},{x,y},...,{x,y}}
 	note angles are the outer angles measured
@@ -169,7 +178,7 @@ end
 		radius: radius one edge arg {radius [, segments]}, replaces current point with radius
 		belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
 		arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
-		
+
 	Note: if using special function t_paths will not work
 --]]------------------------------------------
 local scad_polygon =[[
@@ -206,7 +215,7 @@ end
 
 --[[----------------------------------------
 	function cad.rectround(x, y, width, height, radius [, center])
-	
+
 	draw rectangle width given width and height and rounded edges according to radius
 --]]----------------------------------------
 function cad.rectround(x,y, width,height, radius, center)
@@ -225,7 +234,7 @@ end
 
 --[[----------------------------------------
 	function cad.rectchamfer(x, y, width, height, chamfer [, center])
-	
+
 	draw rectangle width given width and height and chamfered edges
 --]]----------------------------------------
 function cad.rectchamfer(x,y, width,height, chamfer, center)
@@ -234,20 +243,20 @@ function cad.rectchamfer(x,y, width,height, chamfer, center)
 		y = y-height/2
 	end
 	local obj = cad_obj()
-	-- make 45° angle edges
+	-- make 45ï¿½ angle edges
 	local t_points = {{0,chamfer},{chamfer,0},
 		{width-chamfer,0}, {width, chamfer},
 		{width,height-chamfer}, {width-chamfer, height},
 		{chamfer, height}, {0, height-chamfer},
 		}
-		
+
 	local obj = cad.polygon(x,y, t_points)
 	return obj
 end
 
 --[[------------------------------------------
 	function cad.longhole(x1, y1, x2, y2, radius)
-	
+
 	draws a long hole
 --]]------------------------------------------
 local scad_longhole =[[
@@ -268,7 +277,7 @@ end
 
 --[[------------------------------------------
 	function cad.longholerelative(x, y, dx, dy, radius)
-	
+
 	x,y: first circle hole
 	dx,dy: coordinates of the second hole relative to x and y
 
@@ -285,7 +294,7 @@ end
 
 --[[------------------------------------------
 	function cad.sphere(x, y, z, radius)
-	
+
 	draw a sphere
 --]]------------------------------------------
 local scad_sphere =[[
@@ -301,7 +310,7 @@ end
 
 --[[------------------------------------------
 	function cad.cube(x, y, z, width, height, depth)
-	
+
 	draw a cube
 --]]------------------------------------------
 local scad_cube =[[
@@ -318,7 +327,7 @@ end
 --[[------------------------------------------
 	function cad.cylinder(x, y, z, h, r1, r2)
 	function cad.cylinder(x, y, z, h, r1)
-	
+
 	draw a cylinder
 --]]------------------------------------------
 local scad_cylinder =[[
@@ -335,7 +344,7 @@ end
 
 --[[------------------------------------------
 	function cad.polyhedron(x,y,z, t_points, t_faces)
-	
+
 	draw a polygon from given points {{x,y,z},{x,y,z},...,{x,y,z}}
 	t_faces: vector of point n-tuples with n >= 3. Each number is the 0-indexed point number from the point vector.
 		That is, faces=[ [0,1,4] ] specifies a triangle made from the first, second, and fifth point listed in points.
@@ -368,7 +377,7 @@ end
 --[[------------------------------------------------------------------------------------
 
 	function cad.text(x ,y, z, text [, height [, font [, style [, h_align [, v_align] ] ] ] ])
-	
+
 	height = height in mm or 10 by default
 	font = "Arial", "Courier New", "Liberation Sans", etc., default "Arial"
 	style = depending on the font, usually "Bold","Italic", etc. default normal
@@ -396,7 +405,7 @@ end
 --[[------------------------------------------------------------------------------------
 
 	function cad.text3d(x ,y, z, text [, height [, depth [, font [, style [, h_align [, v_align] ] ] ] ] ])
-	
+
 	height = height in mm or 1 by default
 	depth = 1 by default
 	font = "Arial", "Courier New", "Liberation Sans", etc., default "Arial"
@@ -418,7 +427,7 @@ end
 
 --[[----------------------------------------
 	function cad.pyramid(x,y,z, length, height)
-	
+
 	draws a pyramid with length as bottom side length and height
 --]]----------------------------------------
 function cad.pyramid(x,y,z, length, height)
@@ -444,7 +453,7 @@ cad_meta.__index = {}
 
 --[[----------------------------------------
 	function <cad>:init()
-	
+
 	resets the object
 --]]----------------------------------------
 cad_meta.__index.init = function(obj)
@@ -459,7 +468,7 @@ cad_meta.__index.reset = cad_meta.__index.init
 
 --[[----------------------------------------
 	function <cad>:copy()
-	
+
 	copies the object
 --]]----------------------------------------
 cad_meta.__index.copy = function(obj)
@@ -473,7 +482,7 @@ cad_meta.__index.clone = cad_meta.__index.copy
 
 --[[----------------------------------------
 	function <cad>:setcirclefragments(num)
-	
+
 	optional $fn and $fs can be set (http://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Other_Language_Features#Special_variables)
 --]]----------------------------------------
 cad_meta.__index.setcirclefragments = function(obj, fn)
@@ -485,7 +494,7 @@ end
 	function <cad>:setcolor(R, G, B)
 	function <cad>:setcolor(color_name)
 	function <cad>:setcolor({R, G, B})
-	
+
 	Set an object color, will work with obj and wrl format
 	R,G,B are in the range of [0,1]
 --]]----------------------------------------
@@ -507,14 +516,14 @@ end
 --[[----------------------------------------
 	function <cad>:export(file [, color [, verbose] ])
 	function <cad>:export(<file>.svg [, {width,height,{color_fill},{color_stroke},stroke_width} [, verbose] ])
-	
+
 	Export 2D: dxf, svg
 	Export 3D: stl
 	Export 3D color: wrl, x3d, obj
-	
+
 	Color is 8bit RGB
 	color[R,G,B] = {[0,1], [0,1], [0,1]}
-	
+
 	Export to dxf, svg, stl or obj with color color = {r,g,b}
 --]]----------------------------------------
 local t_ext = {
@@ -546,6 +555,9 @@ local t_ext = {
 		end
 	end,
 	-- 3D
+	[".scad"] = function(obj, file)
+		export_scad(obj, file)
+	end,
 	[".stl"] = function(obj, file)
 		export_scad(obj, file)
 	end,
@@ -576,21 +588,21 @@ cad_meta.__index.export = function(obj, file, verbose)
 		print("scad_file: "..scadfile)
 		print("---------------------------------")
 	end
-	
+
 	-- check extension
-	local ext = string.lower(string.sub(file, -4, -1))
-	
+	local ext = getExtension(file)
 	local f = t_ext[ext]
 	if not f then
 		error("<cad>:export, unknown extension "..ext)
 	end
+	print("Exporting to \""..file.."\"")
 	f(obj, file)
 	return obj
 end
 
 --[[----------------------------------------
 	function <cad>:native(code)
-	
+
 	-- for executing native code
 --]]----------------------------------------
 function cad_meta.__index.native(obj, str)
@@ -600,7 +612,7 @@ end
 
 --[[----------------------------------------
 	function <cad>:import(file)
-	
+
 	import an stl/dfx here
 --]]----------------------------------------
 function cad_meta.__index.import(obj, file)
@@ -614,7 +626,7 @@ end
 
 --[[----------------------------------------
 	function <cad>:union()
-	
+
 	union the cad object
 --]]----------------------------------------
 function cad_meta.__index.union(obj_1)
@@ -630,7 +642,7 @@ end
 
 --[[----------------------------------------
 	function <cad>:sub(obj_1 [, obj_2 [, ..., obj_n] ])
-	
+
 	substract multiple objects from the current object
 --]]----------------------------------------
 function cad_meta.__index.sub(obj_1, ...)
@@ -650,7 +662,7 @@ end
 
 --[[----------------------------------------
 	function <cad>:add(obj_1 [, obj_2 [, ..., obj_n] ])
-	
+
 	add multiple objects to the current object
 --]]----------------------------------------
 function cad_meta.__index.add(obj_1, ...)
@@ -666,7 +678,7 @@ end
 
 --[[----------------------------------------
 	function <cad>:intersect(obj_1 [, obj_2 [, ..., obj_n] ])
-	
+
 	intersect multiple objects with the current object
 --]]----------------------------------------
 function cad_meta.__index.intersect(obj_1, ...)
@@ -686,7 +698,7 @@ end
 
 --[[----------------------------------------
 	fuction <cad>:scale(x,y,z)
-	
+
 	scale an object in percent/100, 1=same size, 2=double, 0.5=half
 --]]----------------------------------------
 function cad_meta.__index.scale(obj_1, x,y,z)
@@ -702,7 +714,7 @@ end
 
 --[[----------------------------------------
 	fuction <cad>:resize(x,y,z)
-	
+
 	resize an object in x,y,z if any of the axes is zero will automatically scale
 --]]----------------------------------------
 function cad_meta.__index.resize(obj_1, x,y,z, auto_x,auto_y,auto_z)
@@ -721,7 +733,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:translate(x, y [, z])
-	
+
 	z is by default 0.
 	move the objects relative by x,y and z
 --]]------------------------------------------
@@ -739,7 +751,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:mirror(x, y, z)
-	
+
 	mirror the objects according to setup vector plane defined via x,y,z
 	z is 0 by default
 	values 1 or 0
@@ -758,7 +770,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:rotate(x, y, z, x_angle, y_angle, z_angle)
-	
+
 	x,y and z are the rotation point
 --]]------------------------------------------
 function cad_meta.__index.rotate(obj_1, x, y, z, x_angle, y_angle, z_angle)
@@ -775,7 +787,7 @@ end
 --[[------------------------------------------
 	function <cad>:rotate2d(x, y, angle)
 	function rotate2d_end()
-	
+
 	x and y are the rotation point
 --]]------------------------------------------
 function cad_meta.__index.rotate2d(obj_1, x,y, angle)
@@ -791,7 +803,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:rotateextrude()
-	
+
 	the object has to moved away from the center for rotate_extrude to succeed
 --]]------------------------------------------
 function cad_meta.__index.rotateextrude(obj_1)
@@ -807,7 +819,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:linearextrude(depth [, twist [, slices [, scale] ] ])
-	
+
 	note linear extrude moves the object back to the ground
 --]]------------------------------------------
 function cad_meta.__index.linearextrude(obj_1, depth, twist, slices, scale)
@@ -828,7 +840,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:hull()
-	
+
 	hull the cad object
 --]]------------------------------------------
 function cad_meta.__index.hull(obj_1)
@@ -844,7 +856,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:offset(d, chamfer)
-	
+
 	Offset the object with distance d
 --]]------------------------------------------
 function cad_meta.__index.offset(obj_1, d, chamfer)
@@ -861,7 +873,7 @@ end
 
 --[[------------------------------------------
 	function <cad>:offsetradius(r, chamfer)
-	
+
 	Offset the object with radius r
 --]]------------------------------------------
 function cad_meta.__index.offsetradius(obj_1, r, chamfer)
@@ -893,11 +905,11 @@ end
 --[[----------------------------------------
 	function cad.export(filename, obj_1 [, obj_2, obj_n])
 	exports all objects into one file
-	
+
 	Export 2D: dxf, svg
-	Export 3D: stl
+	Export 3D: scad, stl
 	Export 3D color: wrl, x3d, obj
-	
+
 	Export to dxf, svg, stl or obj with color color = {r,g,b}
 --]]----------------------------------------
 local f_ext = {
@@ -910,6 +922,13 @@ local f_ext = {
 		obj:export(file)
 	end,
 	[".svg"] = function(file, objs)
+		local obj = objs[1]
+		for i=2,#objs do
+			obj:add(objs[i])
+		end
+		obj:export(file)
+	end,
+	[".scad"] = function(file, objs)
 		local obj = objs[1]
 		for i=2,#objs do
 			obj:add(objs[i])
@@ -952,11 +971,12 @@ local f_ext = {
 		end
 	end,
 }
+
 function cad.export(filename, ...)
 	local objs = {...}
 	-- check extension
-	local ext = string.lower(string.sub(filename, -4, -1))
-	
+	local ext = getExtension(filename)
+	print("ext", ext)
 	local f = f_ext[ext]
 	if not f then
 		error("cad.export, unknown extension "..ext)
@@ -1058,9 +1078,9 @@ cad.stl.toobj = function(obj_filename, t_stl_filenames, t_colors)
 	for i,v in ipairs(t_stl_filenames) do
 		table.insert(t_faces, cad_import_stl(v))
 	end
-	
+
 	-- write obj
-	
+
 	local file,err = io.open(obj_filename, "w")
 	if err then error(err) end
 
@@ -1099,7 +1119,7 @@ cad.stl.toobj = function(obj_filename, t_stl_filenames, t_colors)
 	-- Face Definitions (see below)
 	local count = 0
 	for i,v in ipairs(t_mtl_color) do
-	
+
 		file:write("\n#########################################\n")
 		file:write("# Face definitions:\n\n")
 
@@ -1154,7 +1174,7 @@ cad.stl.towrl = function(wrl_filename, t_stl_filenames, t_colors)
 			file:write("\t\t}\n")
 			file:write("\t}\n")
 		end
-		
+
 		-- List of Vertices
 		file:write("\tgeometry IndexedFaceSet {\n\n")
 		file:write("#\t\tList of Coordinates:\n")
@@ -1185,7 +1205,7 @@ end
 function cad.stl.cube(x,y,z, width,height,depth)
 
 	local w,h,d = width,height,depth
-	
+
 	local vertex = {
 		{	{-1, 0, 0},
 			{0, 0, d},
@@ -1248,7 +1268,7 @@ function cad.stl.cube(x,y,z, width,height,depth)
 			{w,h,d},
 		}
 	}
-	
+
 	-- create stl string
 	local indent = "  "
 	local stl = "solid cube\n"
@@ -1261,6 +1281,6 @@ function cad.stl.cube(x,y,z, width,height,depth)
 		stl = stl..indent..indent.."endloop\n"
 	end
 	stl = stl.."ensolid cube\n"
-	
+
 	return stl
 end

@@ -33,3 +33,46 @@ and convert it to OBJ or WRL with color.
   ```
 
 [OpenSCAD]: https://www.openscad.org/
+
+
+## Example
+
+**OpenSCAD:**
+
+```openscad
+cube([1,2,3]);
+translate([5,0,0]) sphere(r = 2);
+```
+
+**LuaSCAD:**
+
+```lua
+require "lib_cad"
+
+local cube = cad.cube(0,0,0, 1,2,3)
+local sphere = cad.sphere(5,0,0, 2)
+
+local model = cube + sphere
+model:export("temp/model.scad")
+```
+
+
+## Why Lua?
+
+- Similar syntax as the OpenSCAD language, but better:
+  - More powerful
+  - More consistent
+  - Faster
+  - Easily embeddable and could therefore be directly integrated
+      into OpenSCAD or a fork
+- Already used in other CAD software like [LibreCAD] and [Autodesk Netfabb]
+
+[LibreCAD]: https://wiki.librecad.org/index.php/LibreCAD_3_-_Lua_Scripting
+[Autodesk Netfabb]:
+  https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A
+
+
+## History
+
+The initial work was done by Michael Lutz at
+[thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
