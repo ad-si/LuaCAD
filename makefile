@@ -15,6 +15,13 @@ test:
 	done
 
 
+.PHONY: benchmark
+benchmark:
+	hyperfine \
+		'lua test_diabolo_cylindric.lua' \
+		'luajit test_diabolo_cylindric.lua'
+
+
 .PHONY: clean
 clean:
 	rm -rf temp
