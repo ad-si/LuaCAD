@@ -3,7 +3,7 @@ help: makefile
 	@tail -n +4 makefile | grep ".PHONY"
 
 
-TEST_FILES = $(wildcard test_*.lua)
+TEST_FILES = $(wildcard tests/test_*.lua)
 
 
 .PHONY: test
@@ -30,8 +30,8 @@ test-single: fmt
 .PHONY: benchmark
 benchmark:
 	hyperfine \
-		'lua test_diabolo_cylindric.lua' \
-		'luajit test_diabolo_cylindric.lua'
+		'lua tests/test_diabolo_cylindric.lua' \
+		'luajit tests/test_diabolo_cylindric.lua'
 
 
 .PHONY: clean

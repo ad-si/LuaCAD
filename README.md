@@ -72,6 +72,12 @@ model:export("temp/model.scad")
   https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A
 
 
+## Tests
+
+Several test files are provided in the `tests/` directory
+to ensure functionality.
+
+
 ## History
 
 The initial work was done by Michael Lutz at
