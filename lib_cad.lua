@@ -355,7 +355,7 @@ end
 --]]
 ------------------------------------------
 local scad_cube = [[
-translate($X, $Y, $Z])
+translate([$X, $Y, $Z])
 cube([$WIDTH, $HEIGHT, $DEPTH]);
 ]]
 function cad.cube(args)
@@ -717,10 +717,13 @@ cad_meta.__index.export = function(obj, file, verbose)
     print("---------------------------------")
     print("cad.export: -> " .. file)
     print()
-    print(cad.openscad.include)
+    if cad.openscad and cad.openscad.include then
+      print(cad.openscad.include)
+    end
     print("$fn = " .. obj.segments .. ";")
     print(obj.scad_content)
     print()
+    local scadfile = file .. ".scad"
     print("scad_file: " .. scadfile)
     print("---------------------------------")
   end
