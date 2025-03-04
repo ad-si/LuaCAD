@@ -6,7 +6,7 @@ require "lib_cad"
 local cad_file = "test_export_wrl"
 
 -- create cad object
-local box = cad.cube(0,0,0, 10,20,30)
+local box = cad.cube{size={10, 20, 30}}
 -- export blue box
 box:export(cad_file.."_box.wrl", {0,0,1})
 -- export as stl

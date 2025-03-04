@@ -308,18 +308,31 @@ function cad.sphere(x, y, z, radius)
   return obj
 end
 
---[[------------------------------------------
-  function cad.cube(x, y, z, width, height, depth)
 
-  draw a cube
+--[[------------------------------------------
+  cad.cube{size = {x, y, z}, center = true/false}
+
+  Draw a cube or a cuboid
 --]]------------------------------------------
 local scad_cube =[[
-translate([$X,$Y,$Z])
-cube([$WIDTH,$HEIGHT,$DEPTH]);
+translate($X, $Y, $Z])
+cube([$WIDTH, $HEIGHT, $DEPTH]);
 ]]
-function cad.cube(x, y, z, width, height, depth)
+function cad.cube(args)
+  local xLen = args.size[1] or 1
+  local yLen = args.size[2] or 1
+  local zLen = args.size[3] or 1
+  local isCenter = args.center or false
+
   local obj = cad_obj()
-  local t = {X=x, Y=y, Z=z, WIDTH=width, HEIGHT=height, DEPTH=depth}
+  local t = {
+    X = (isCenter and -xLen/2) or 0,
+    Y = (isCenter and -yLen/2) or 0,
+    Z = (isCenter and -zLen/2) or 0,
+    WIDTH = xLen,
+    HEIGHT = zLen,
+    DEPTH = yLen
+  }
   update_content_t(obj, scad_cube, t)
   return obj
 end
