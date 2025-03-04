@@ -293,19 +293,29 @@ end
 --]]----------------------------------------------------------------------------
 
 --[[------------------------------------------
-  function cad.sphere(x, y, z, radius)
+  cad.sphere{r = radius, d = diameter}
 
-  draw a sphere
+  Draw a sphere
 --]]------------------------------------------
-local scad_sphere =[[
-translate([$X,$Y,$Z])
+local scad_sphere_radius =[[
 sphere(r = $RADIUS);
 ]]
-function cad.sphere(x, y, z, radius)
+local scad_sphere_diameter =[[
+sphere(d = $DIAMETER);
+]]
+function cad.sphere(args)
   local obj = cad_obj()
-  local t = {X=x, Y=y, Z=z, RADIUS=radius}
-  update_content_t(obj, scad_sphere, t)
-  return obj
+  if args.r then
+    local t = {RADIUS=args.r}
+    update_content_t(obj, scad_sphere_radius, t)
+    return obj
+  elseif args.d then
+    local t = {DIAMETER=args.d}
+    update_content_t(obj, scad_sphere_diameter, t)
+    return obj
+  else
+    error "No radius or diameter was given"
+  end
 end
 
 
