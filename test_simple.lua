@@ -1,5 +1,5 @@
-local luaunit = require('luaunit')
-require "lib_cad"
+local luaunit = require("luaunit")
+require("lib_cad")
 
 TestSimple = {}
 
@@ -9,28 +9,32 @@ function TestSimple:setUp()
 end
 
 function TestSimple:testCubeCreation()
-  local cube = cad.cube{size={1, 2, 3}}
+  local cube = cad.cube { size = { 1, 2, 3 } }
   cube:export("temp/test_simple_cube.scad")
 
   -- Verify file was created
   local file = io.open("temp/test_simple_cube.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for cube was not created")
-  if file then file:close() end
+  if file then
+    file:close()
+  end
 end
 
 function TestSimple:testSphereCreation()
-  local sphere = cad.sphere{r = 2}
+  local sphere = cad.sphere { r = 2 }
   sphere:export("temp/test_simple_sphere.scad")
 
   -- Verify file was created
   local file = io.open("temp/test_simple_sphere.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for sphere was not created")
-  if file then file:close() end
+  if file then
+    file:close()
+  end
 end
 
 function TestSimple:testCombiningShapes()
-  local cube = cad.cube{size={1, 2, 3}}
-  local sphere = cad.sphere{r = 2}
+  local cube = cad.cube { size = { 1, 2, 3 } }
+  local sphere = cad.sphere { r = 2 }
 
   local model = cube + sphere
   model:export("temp/test_simple_combined.scad")
@@ -38,7 +42,9 @@ function TestSimple:testCombiningShapes()
   -- Verify file was created
   local file = io.open("temp/test_simple_combined.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for combined shapes was not created")
-  if file then file:close() end
+  if file then
+    file:close()
+  end
 end
 
 -- Run the tests

@@ -7,7 +7,7 @@ TEST_FILES = $(wildcard test_*.lua)
 
 
 .PHONY: test
-test:
+test: fmt
 	mkdir -p temp
 	@for file in $(TEST_FILES); do \
 		echo "🎬 Running $$file"; \
@@ -17,7 +17,7 @@ test:
 
 
 .PHONY: test-single
-test-single:
+test-single: fmt
 	@if [ -z "$(file)" ]; then \
 		echo "Error: Please specify a test file with 'make test-single file=test_file.lua'"; \
 		exit 1; \
@@ -37,3 +37,9 @@ benchmark:
 .PHONY: clean
 clean:
 	rm -rf temp
+
+
+.PHONY: fmt
+fmt:
+	@echo "🎨 Formatting Lua code with StyLua"
+	@stylua .

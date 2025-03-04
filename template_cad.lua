@@ -1,6 +1,6 @@
 --// create stl or dxf file
 
-require "lib_cad"
+require("lib_cad")
 
 -- output file
 local cad_file = "template_design.stl"
@@ -9,9 +9,6 @@ local cad_file = "template_design.stl"
 local part = cad()
 
 -- part:setcirlcesegments(36)
-
-
-
 
 --part:setcolor("red")
 

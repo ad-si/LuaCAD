@@ -3,7 +3,7 @@ local openscad_settings_windows = {
   scadfile = [[D:\Temp\lua_openscad_tmp.scad]],
   tmpfile = [[D:\Temp\lua_cad_tmp]],
   default_segments = 12,
-  include= ""
+  include = "",
 }
 
 local openscad_settings_macos = {
@@ -11,20 +11,20 @@ local openscad_settings_macos = {
   scadfile = "/tmp/lua_openscad_tmp.scad",
   tmpfile = "/tmp/lua_cad_tmp",
   default_segments = 12,
-  include= ""
+  include = "",
 }
 
 -- Return the correct settings for the current OS
 local function get_openscad_settings()
-  local osName = package.config:sub(1,1) == '\\' and 'Windows' or
-                  io.popen('uname'):read('*l')
+  local osName = package.config:sub(1, 1) == "\\" and "Windows"
+    or io.popen("uname"):read("*l")
 
   if osName and string.match(osName, "Windows") then
     return openscad_settings_windows
   elseif osName and string.match(osName, "Darwin") then
     return openscad_settings_macos
   else
-    print("Error: OS "..osName.." not supported")
+    print("Error: OS " .. osName .. " not supported")
     return nil
   end
 end
