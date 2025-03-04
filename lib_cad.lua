@@ -378,21 +378,55 @@ function cad.cube(args)
 end
 
 --[[------------------------------------------
-  function cad.cylinder(x, y, z, h, r1, r2)
-  function cad.cylinder(x, y, z, h, r1)
+  cad.cylinder{h = height, r = radius, d = diameter, r1 = bottom_radius, r2 = top_radius, d1 = bottom_diameter, d2 = top_diameter, center = true/false}
 
-  draw a cylinder
+  Draw a cylinder or cone
 --]]
 ------------------------------------------
-local scad_cylinder = [[
+local scad_cylinder_standard = [[
 translate([$X,$Y,$Z])
-cylinder($H,$R1,$R2);
+cylinder(h = $H, r1 = $R1, r2 = $R2, center = $CENTER);
 ]]
-function cad.cylinder(x, y, z, h, r1, r2)
+local scad_cylinder_diameter = [[
+translate([$X,$Y,$Z])
+cylinder(h = $H, d1 = $D1, d2 = $D2, center = $CENTER);
+]]
+function cad.cylinder(args)
   local obj = cad_obj()
-  local r2 = r2 or r1
-  local t = { X = x, Y = y, Z = z, H = h, R1 = r1, R2 = r2 }
-  update_content_t(obj, scad_cylinder, t)
+  local isCenter = args.center or false
+  local height = args.h or 1
+  local translateZ = (isCenter and -height / 2) or 0
+
+  if args.d or args.d1 or args.d2 then
+    -- Use diameter version
+    local d1 = args.d1 or args.d or 1
+    local d2 = args.d2 or args.d or d1
+    local t = {
+      X = 0,
+      Y = 0,
+      Z = translateZ,
+      H = height,
+      D1 = d1,
+      D2 = d2,
+      CENTER = tostring(isCenter),
+    }
+    update_content_t(obj, scad_cylinder_diameter, t)
+  else
+    -- Use radius version
+    local r1 = args.r1 or args.r or 0.5
+    local r2 = args.r2 or args.r or r1
+    local t = {
+      X = 0,
+      Y = 0,
+      Z = translateZ,
+      H = height,
+      R1 = r1,
+      R2 = r2,
+      CENTER = tostring(isCenter),
+    }
+    update_content_t(obj, scad_cylinder_standard, t)
+  end
+
   return obj
 end
 
@@ -403,7 +437,6 @@ end
   t_faces: vector of point n-tuples with n >= 3. Each number is the 0-indexed point number from the point vector.
     That is, faces=[ [0,1,4] ] specifies a triangle made from the first, second, and fifth point listed in points.
     When referencing more than 3 points in a single tuple, the points must all be on the same plane.
-    defines the faces, the points have to be ordered in counter clock
   note angles are the outer angles measured
 --]]
 ------------------------------------------

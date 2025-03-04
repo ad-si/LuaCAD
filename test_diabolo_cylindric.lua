@@ -24,28 +24,38 @@ function TestDiaboloCylindric:testDiaboloCreation()
 
   local cad_file = "temp/diabolo_cylindric_test.stl"
 
-  -- Create the model
+  -- Create the model with updated table parameter style
   local cylinder = (
-    cad.cylinder(0, 0, 0, h / 2, self.radius_bottom, self.radius_middle)
-    - cad.cylinder(
-      0,
-      0,
-      0,
-      h / 2,
-      self.radius_bottom - self.thickness,
-      self.radius_middle - self.thickness
-    )
+    cad
+      .cylinder({
+        h = h / 2,
+        r1 = self.radius_bottom,
+        r2 = self.radius_middle,
+      })
+      :translate(0, 0, 0)
+    - cad
+      .cylinder({
+        h = h / 2,
+        r1 = self.radius_bottom - self.thickness,
+        r2 = self.radius_middle - self.thickness,
+      })
+      :translate(0, 0, 0)
   )
     + (
-      cad.cylinder(0, 0, h / 2, h / 2, self.radius_middle, self.radius_bottom)
-      - cad.cylinder(
-        0,
-        0,
-        h / 2,
-        h / 2,
-        self.radius_middle - self.thickness,
-        self.radius_bottom - self.thickness
-      )
+      cad
+        .cylinder({
+          h = h / 2,
+          r1 = self.radius_middle,
+          r2 = self.radius_bottom,
+        })
+        :translate(0, 0, h / 2)
+      - cad
+        .cylinder({
+          h = h / 2,
+          r1 = self.radius_middle - self.thickness,
+          r2 = self.radius_bottom - self.thickness,
+        })
+        :translate(0, 0, h / 2)
     )
 
   cylinder:export(cad_file)
@@ -67,14 +77,16 @@ function TestDiaboloCylindric:testCustomParameters()
 
   local cad_file = "temp/diabolo_cylindric_custom_test.stl"
 
-  -- Create the model with custom parameters
+  -- Create the model with custom parameters and table parameter style
   local cylinder = (
-    cad.cylinder(0, 0, 0, h / 2, rb, rm)
-    - cad.cylinder(0, 0, 0, h / 2, rb - t, rm - t)
+    cad.cylinder({ h = h / 2, r1 = rb, r2 = rm }):translate(0, 0, 0)
+    - cad.cylinder({ h = h / 2, r1 = rb - t, r2 = rm - t }):translate(0, 0, 0)
   )
     + (
-      cad.cylinder(0, 0, h / 2, h / 2, rm, rb)
-      - cad.cylinder(0, 0, h / 2, h / 2, rm - t, rb - t)
+      cad.cylinder({ h = h / 2, r1 = rm, r2 = rb }):translate(0, 0, h / 2)
+      - cad
+        .cylinder({ h = h / 2, r1 = rm - t, r2 = rb - t })
+        :translate(0, 0, h / 2)
     )
 
   cylinder:export(cad_file)
