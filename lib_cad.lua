@@ -146,9 +146,11 @@ end
 --------------------------------------------------------------------------------
 
 --[[----------------------------------------
-  function cad.rect(x, y, width, height [, center])
+  function cad.rect(args)
+  cad.square(args)
 
-  draw rectangle width given width and height
+  draw rectangle with given size and center options
+  args = {size = {width, height}, center = true/false}
 --]]
 ----------------------------------------
 local scad_rect = [[
@@ -156,29 +158,64 @@ local scad_rect = [[
 translate([$X,$Y,0])
 square([$WIDTH,$HEIGHT],center=$CENTER]);
 ]]
-function cad.rect(x, y, width, height, center)
+function cad.rect(args)
   local obj = cad_obj()
-  local center = center or false
-  local t = { X = x, Y = y, WIDTH = width, HEIGHT = height, CENTER = center }
+
+  local size = args.size or { 1, 1 }
+  local width = size[1] or 1
+  local height = size[2] or width
+  local isCenter = args.center or false
+
+  local x = (isCenter and -width / 2) or 0
+  local y = (isCenter and -height / 2) or 0
+
+  local t = {
+    X = x,
+    Y = y,
+    WIDTH = width,
+    HEIGHT = height,
+    CENTER = tostring(isCenter),
+  }
   update_content_t(obj, scad_rect, t)
+
   return obj
 end
-cad.square = rect
+cad.square = cad.rect
 
 --[[------------------------------------------
-  function cad.circle(x, y, radius)
+  function cad.circle(args)
 
   draw circle
+  args = {r = radius, d = diameter, center = true/false}
 --]]
 ------------------------------------------
 local scad_circle = [[
 // circle
 translate([$X,$Y,0])
-circle(r = $RADIUS);
+circle($RORD);
 ]]
-function cad.circle(x, y, radius)
+function cad.circle(args)
   local obj = cad_obj()
-  local t = { X = x, Y = y, RADIUS = radius }
+
+  local radius, diameter
+  local isCenter = args.center or false
+
+  if args.r then
+    radius = args.r
+    diameter = nil
+  elseif args.d then
+    diameter = args.d
+    radius = nil
+  else
+    error("No radius (r) or diameter (d) was given")
+  end
+
+  local x = (isCenter and 0) or 0
+  local y = (isCenter and 0) or 0
+
+  local rord = radius and ("r = " .. radius) or ("d = " .. diameter)
+
+  local t = { X = x, Y = y, RORD = rord }
   update_content_t(obj, scad_circle, t)
   return obj
 end
@@ -231,22 +268,28 @@ end
 --------------------------------------------------------------------------------
 
 --[[----------------------------------------
-  function cad.rectround(x, y, width, height, radius [, center])
+  function cad.rectround(args)
 
-  draw rectangle width given width and height and rounded edges according to radius
+  draw rectangle with rounded edges
+  args = {size = {width, height}, radius = r, center = true/false}
 --]]
 ----------------------------------------
-function cad.rectround(x, y, width, height, radius, center)
-  if center then
-    x = x - width / 2
-    y = y - height / 2
-  end
+function cad.rectround(args)
+  local size = args.size
+  local width = size[1]
+  local height = size[2]
+  local radius = args.radius
+  local isCenter = args.center or false
+
+  local x = (isCenter and -width / 2) or 0
+  local y = (isCenter and -height / 2) or 0
+
   local obj = cad_obj()
     :add(
-      cad.circle(radius, radius, radius),
-      cad.circle(width - radius, radius, radius),
-      cad.circle(width - radius, height - radius, radius),
-      cad.circle(radius, height - radius, radius)
+      cad.circle({ r = radius }):translate(radius, radius, 0),
+      cad.circle({ r = radius }):translate(width - radius, radius, 0),
+      cad.circle({ r = radius }):translate(width - radius, height - radius, 0),
+      cad.circle({ r = radius }):translate(radius, height - radius, 0)
     )
     :translate(x, y)
     :hull()
@@ -254,18 +297,23 @@ function cad.rectround(x, y, width, height, radius, center)
 end
 
 --[[----------------------------------------
-  function cad.rectchamfer(x, y, width, height, chamfer [, center])
+  function cad.rectchamfer(args)
 
-  draw rectangle width given width and height and chamfered edges
+  draw rectangle with chamfered edges
+  args = {size = {width, height}, chamfer = c, center = true/false}
 --]]
 ----------------------------------------
-function cad.rectchamfer(x, y, width, height, chamfer, center)
-  if center then
-    x = x - width / 2
-    y = y - height / 2
-  end
-  local obj = cad_obj()
-  -- make 45� angle edges
+function cad.rectchamfer(args)
+  local size = args.size
+  local width = size[1]
+  local height = size[2]
+  local chamfer = args.chamfer
+  local isCenter = args.center or false
+
+  local x = (isCenter and -width / 2) or 0
+  local y = (isCenter and -height / 2) or 0
+
+  -- make 45° angle edges
   local t_points = {
     { 0, chamfer },
     { chamfer, 0 },
@@ -282,38 +330,51 @@ function cad.rectchamfer(x, y, width, height, chamfer, center)
 end
 
 --[[------------------------------------------
-  function cad.longhole(x1, y1, x2, y2, radius)
+  function cad.longhole(args)
 
   draws a long hole
+  args = {points = {{x1, y1}, {x2, y2}}, r = radius}
 --]]
 ------------------------------------------
 local scad_longhole = [[
 hull()
 {
   translate([$X1,$Y1,0])
-  circle($RADIUS);
+  circle(r = $RADIUS);
   translate([$X2,$Y2,0])
-  circle($RADIUS);
+  circle(r = $RADIUS);
 }
 ]]
-function cad.longhole(x1, y1, x2, y2, radius)
+function cad.longhole(args)
   local obj = cad_obj()
+  local points = args.points
+  local x1, y1 = points[1][1], points[1][2]
+  local x2, y2 = points[2][1], points[2][2]
+  local radius = args.r
+
   local t = { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, RADIUS = radius }
   update_content_t(obj, scad_longhole, t)
   return obj
 end
 
 --[[------------------------------------------
-  function cad.longholerelative(x, y, dx, dy, radius)
+  function cad.longholerelative(args)
 
-  x,y: first circle hole
-  dx,dy: coordinates of the second hole relative to x and y
-
-  draws a long hole
+  draws a long hole using relative coordinates for the second point
+  args = {point = {x, y}, delta = {dx, dy}, r = radius}
 --]]
 ------------------------------------------
-function cad.longholerelative(x, y, dx, dy, radius)
-  return cad.longhole(x, y, x + dx, y + dy, radius)
+function cad.longholerelative(args)
+  local point = args.point
+  local delta = args.delta
+  local x, y = point[1], point[2]
+  local dx, dy = delta[1], delta[2]
+  local radius = args.r
+
+  return cad.longhole {
+    points = { { x, y }, { x + dx, y + dy } },
+    r = radius,
+  }
 end
 
 --[[----------------------------------------------------------------------------
@@ -843,7 +904,7 @@ function cad_meta.__index.intersect(obj_1, ...)
 end
 
 --[[----------------------------------------
-  fuction <cad>:scale(x,y,z)
+  function <cad>:scale(x,y,z)
 
   scale an object in percent/100, 1=same size, 2=double, 0.5=half
 --]]
@@ -860,7 +921,7 @@ function cad_meta.__index.scale(obj_1, x, y, z)
 end
 
 --[[----------------------------------------
-  fuction <cad>:resize(x,y,z)
+  function <cad>:resize(x,y,z)
 
   resize an object in x,y,z if any of the axes is zero will automatically scale
 --]]
