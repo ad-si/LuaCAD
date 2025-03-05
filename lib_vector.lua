@@ -123,15 +123,32 @@ end
 
 -- cross product, 2D if z is bigger 0 then b is left from a else otherwise
 vec_meta.__index.cross = function(a, b)
-  if not a[3] then
-    a, b = vector(a), vector(b)
-    a[3] = 0
-    b[3] = 0
+  if type(b) ~= "table" then
+    return nil
   end
-  local x = a[2] * b[3] - a[3] * b[2]
-  local y = a[3] * b[1] - a[1] * b[3]
-  local z = a[1] * b[2] - a[2] * b[1]
-  return vector(x, y, z)
+
+  -- Both vectors must have the same dimension (either 2D or 3D)
+  local a_len = a[3] and 3 or 2
+  local b_len = b[3] and 3 or 2
+
+  if a_len ~= b_len then
+    return nil
+  end
+
+  -- 3D cross product
+  if a_len == 3 and b_len == 3 then
+    local x = a[2] * b[3] - a[3] * b[2]
+    local y = a[3] * b[1] - a[1] * b[3]
+    local z = a[1] * b[2] - a[2] * b[1]
+    return vector(x, y, z)
+  end
+
+  -- 2D cross product (returns scalar)
+  if a_len == 2 and b_len == 2 then
+    return a[1] * b[2] - a[2] * b[1]
+  end
+
+  return nil
 end
 
 --[[------------------------------------------
