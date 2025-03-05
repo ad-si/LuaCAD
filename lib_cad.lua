@@ -1159,6 +1159,23 @@ function cad_meta.__index.hull(obj_1)
 end
 
 --[[------------------------------------------
+  function <cad>:minkowski()
+
+  apply minkowski operation to the cad object
+--]]
+------------------------------------------
+function cad_meta.__index.minkowski(obj_1)
+  local obj = cad_obj()
+  update_content(obj, "minkowski()\n{\n")
+  intend_content(obj, 1)
+  update_content(obj, obj_1.scad_content)
+  intend_content(obj, -1)
+  update_content(obj, "}\n")
+  obj_1.scad_content = obj.scad_content
+  return obj_1
+end
+
+--[[------------------------------------------
   function <cad>:offset(d, chamfer)
 
   Offset the object with distance d
@@ -1186,6 +1203,25 @@ function cad_meta.__index.offsetradius(obj_1, r, chamfer)
   local obj = cad_obj()
   local chamfer = (chamfer and true) or false
   update_content(obj, "offset(r=" .. r .. ",chamfer=" .. chamfer .. ")\n{\n")
+  intend_content(obj, 1)
+  update_content(obj, obj_1.scad_content)
+  intend_content(obj, -1)
+  update_content(obj, "}\n")
+  obj_1.scad_content = obj.scad_content
+  return obj_1
+end
+
+--[[------------------------------------------
+  function <cad>:projection(cut)
+
+  Creates a 2D projection of a 3D object
+  cut = true/false (default false) - Sets whether to project a cross-section (cut=true)
+--]]
+------------------------------------------
+function cad_meta.__index.projection(obj_1, cut)
+  local obj = cad_obj()
+  local cut_value = cut or false
+  update_content(obj, "projection(cut = " .. tostring(cut_value) .. ")\n{\n")
   intend_content(obj, 1)
   update_content(obj, obj_1.scad_content)
   intend_content(obj, -1)
