@@ -9,12 +9,6 @@
 --]]
 ------------------------------------------
 
---[[-----------------------------------
-  Author: Michael Lutz
-  Licensed under the same terms as Lua itself
---]]
------------------------------------
-
 local vec_meta = {}
 
 function vector(x, y, z)
@@ -153,7 +147,7 @@ end
 
 --[[------------------------------------------
   function <a>:rot(phi [, axis])
-  
+
   rotates a by angle <phi>, phi is in degrees
   axis is optional and defines the rotate axis by default = "z", other values, "x", "y"
   returns new rotated vector
@@ -182,7 +176,7 @@ end
 
 --[[------------------------------------------
   function <a>:angle(<b>)
-  
+
   calculates the angle between 2 vectors, it always calculates the smallest angle
   if angle is positive then <b> is left of <a> if angle is negative then <b> is right of <a>
   returns angle in degrees

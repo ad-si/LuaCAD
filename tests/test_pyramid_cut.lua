@@ -2,12 +2,6 @@
 -- which is cut from each sides and the bottom, side_inner is the pyramids cut side when using the pyramids_innercircumcenter not the bottom area
 -- and actual pyramid has a side length of 440 and a height of 280, or (110/70)
 
---[[-----------------------------------
-  Author: Michael Lutz
-  Licensed under the same terms as Lua itself
---]]
------------------------------------
-
 require("lib_cad")
 local luaunit = require("luaunit")
 

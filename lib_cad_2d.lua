@@ -4,12 +4,6 @@
 --]]
 --================================================================================
 
---[[--------------------------------------------------------------------------------
-  Author: Michael Lutz
-  Licensed under the same terms as Lua itself
---]]
---------------------------------------------------------------------------------
-
 -- This module will be loaded by lib_cad_core.lua
 local cad = cad or {}
 
@@ -99,7 +93,7 @@ end
   cad.polygon{points = {{x1, y1}, {x2, y2}, ...}, paths = {{0,1,2}, {2,3,0}, ...}, convexity = N}
 
   Create a polygon with the given points and optional paths
-  
+
   - points: Array of points in the form {{x1, y1}, {x2, y2}, ...}
   - paths: Optional array of point indices forming paths
   - convexity: Optional hint for OpenSCAD renderer

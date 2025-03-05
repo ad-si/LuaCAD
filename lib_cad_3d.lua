@@ -4,12 +4,6 @@
 --]]
 --================================================================================
 
---[[--------------------------------------------------------------------------------
-  Author: Michael Lutz
-  Licensed under the same terms as Lua itself
---]]
---------------------------------------------------------------------------------
-
 -- This module will be loaded by lib_cad_core.lua
 local cad = cad or {}
 
@@ -165,7 +159,7 @@ end
   Rotates a 2D shape around the Z-axis to form a solid
   - angle: optional angle in degrees for partial rotation (default: 360)
   - convexity: optional hint for OpenSCAD renderer (default: 10)
-  
+
   Note: The 2D shape must be on the positive X side of the Y axis.
 --]]
 ------------------------------------------

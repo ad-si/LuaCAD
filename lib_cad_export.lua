@@ -4,12 +4,6 @@
 --]]
 --================================================================================
 
---[[--------------------------------------------------------------------------------
-  Author: Michael Lutz
-  Licensed under the same terms as Lua itself
---]]
---------------------------------------------------------------------------------
-
 -- This module will be loaded by lib_cad_core.lua
 local cad = cad or {}
 
@@ -97,6 +91,7 @@ local t_ext = {
     os.remove(file .. ".stl")
   end,
 }
+
 function cad._helpers.cad_meta.__index.export(obj, file, verbose)
   if verbose then
     print("---------------------------------")
