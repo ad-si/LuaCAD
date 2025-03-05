@@ -296,20 +296,46 @@ dxf_index.curved_arrow_cc = function(obj, x, y, radius, s, layer)
 end
 
 --[[------------------------------------------
-  function <dxf>:polygon(x, y, t_points [, layer])
+  function <dxf>:polygon(args)
   
-  points have to be in counter clockwise direction, a line is drawn between each point
-  draw a polygon from given points {{x,y [,"<funcname>", {args}]},{x,y},...,{x,y}}
-  note angles are the outer angles measured
-  special functions:
-    radius: radius one edge arg {radius [, segments]}, replaces current point with a round edge
-    belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
-    arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
-    
-  Note: if using special function t_paths will not work
+  Draw a polygon with the given points and optional parameters
+  
+  args = {
+    points = {{x1, y1}, {x2, y2}, ...}, -- Required: Array of points
+    pos = {x, y},                        -- Optional: Position offset (default: {0, 0})
+    layer = "layername"                  -- Optional: Layer name (default: "0")
+  }
+  
+  Note: Points must be in counter-clockwise direction
+  Special functions in points array {{x,y,"funcname",{args}},...} include:
+    - radius: radius one edge arg {radius [, segments]}
+    - belly: draw a belly between current and next point {distance [, segments]}
+    - arc: arc where current point is center and previous/next points are limits {radius [, segments]}
 --]]
 ------------------------------------------
-dxf_index.polygon = function(obj, x, y, t_points, layer)
+dxf_index.polygon = function(obj, args)
+  if type(args) ~= "table" then
+    error("polygon() requires a table argument with points")
+  end
+
+  if not args.points then
+    error("polygon() requires points parameter")
+  end
+
+  local t_points = args.points
+  local x = 0
+  local y = 0
+  local layer = "0"
+
+  if args.pos then
+    x = args.pos[1] or 0
+    y = args.pos[2] or 0
+  end
+
+  if args.layer then
+    layer = args.layer
+  end
+
   local t_p = geometry.polygon(t_points)
   local prev = t_p[1]
   for i = 2, #t_p do

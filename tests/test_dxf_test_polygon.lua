@@ -31,7 +31,10 @@ function TestDxfPolygon:testBasicPolygon()
     { 0, 0 },
   }
 
-  dxf_obj:polygon(0, 0, points)
+  dxf_obj:polygon {
+    points = points,
+    pos = { 0, 0 },
+  }
   dxf_obj:save("temp/dxf_test_basic_polygon.dxf")
 
   -- Verify file was created
@@ -64,7 +67,10 @@ function TestDxfPolygon:testPolygonWithSpecialPoints()
     { 0, 0 },
   }
 
-  dxf_obj:polygon(0, 0, points)
+  dxf_obj:polygon {
+    points = points,
+    pos = { 0, 0 },
+  }
   dxf_obj:save("temp/dxf_test_special_polygon.dxf")
 
   -- Verify file was created
@@ -97,8 +103,14 @@ function TestDxfPolygon:testMultiplePolygons()
     { 0, 0 },
   }
 
-  dxf_obj:polygon(0, 0, points1)
-  dxf_obj:polygon(3 * self.dist, 0, points2)
+  dxf_obj:polygon {
+    points = points1,
+    pos = { 0, 0 },
+  }
+  dxf_obj:polygon {
+    points = points2,
+    pos = { 3 * self.dist, 0 },
+  }
   dxf_obj:save("temp/dxf_test_multiple_polygons.dxf")
 
   -- Verify file was created

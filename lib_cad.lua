@@ -221,45 +221,68 @@ function cad.circle(args)
 end
 
 --[[------------------------------------------
-  function cad.polygon(x, y, t_points [, t_paths])
+  cad.polygon{points = {{x1, y1}, {x2, y2}, ...}, paths = {{0,1,2}, {2,3,0}, ...}, convexity = N}
 
-  points have to be in counter clockwise direction
-  draw a polygon from given points {{x,y [,"<funcname>",{args}]},{x,y},...,{x,y}}
-  note angles are the outer angles measured
-  special functions:
-    radius: radius one edge arg {radius [, segments]}, replaces current point with radius
-    belly: draw a belly between current and next point, the belly function follows a circle {distance [, segments]}
-    arc: draws an arc where current point is the center and previous point and next point are the limits {radius [, segments]}
+  Create a polygon with the given points and optional paths
+  
+  - points: Array of points in the form {{x1, y1}, {x2, y2}, ...}
+  - paths: Optional array of point indices forming paths
+  - convexity: Optional hint for OpenSCAD renderer
 
-  Note: if using special function t_paths will not work
+  Note: Points must be in counter-clockwise direction
+  Special functions in points array {{x,y,"funcname",{args}},...} include:
+    - radius: radius one edge arg {radius [, segments]}
+    - belly: draw a belly between current and next point {distance [, segments]}
+    - arc: arc where current point is center and previous/next points are limits {radius [, segments]}
 --]]
 ------------------------------------------
 local scad_polygon = [[
-translate([$X,$Y,0])
-polygon(points=$COORDINATES);
+polygon(points=$COORDINATES$PATHS$CONVEXITY);
 ]]
-local polygon_raw = function(x, y, t_points, t_paths)
+function cad.polygon(args)
+  if type(args) ~= "table" then
+    error("polygon() requires a table argument with points")
+  end
+
+  if not args.points then
+    error("polygon() requires points parameter")
+  end
+
   local obj = cad_obj()
+
+  -- Process special functions in points if needed
+  local t_points = geometry.polygon(args.points)
+  local t_paths = args.paths
+  local convexity = args.convexity
+
   -- create coordinates string
   local coor = "["
   for i, v in ipairs(t_points) do
     coor = coor .. "[" .. v[1] .. "," .. v[2] .. "],"
   end
   coor = string.sub(coor, 1, -2) .. "]"
+
+  local paths = ""
   if t_paths then
-    coor = coor .. ",paths=["
+    paths = ", paths=["
     for i, v in ipairs(t_paths) do
-      coor = coor .. "[" .. table.concat(v, ",") .. "],"
+      paths = paths .. "[" .. table.concat(v, ",") .. "],"
     end
-    coor = string.sub(coor, 1, -2) .. "]"
+    paths = string.sub(paths, 1, -2) .. "]"
   end
-  local t = { X = x, Y = y, COORDINATES = coor }
+
+  local conv = ""
+  if convexity then
+    conv = ", convexity=" .. convexity
+  end
+
+  local t = {
+    COORDINATES = coor,
+    PATHS = paths,
+    CONVEXITY = conv,
+  }
   update_content_t(obj, scad_polygon, t)
   return obj
-end
-function cad.polygon(x, y, t_points, t_paths)
-  local t_p = geometry.polygon(t_points)
-  return polygon_raw(x, y, t_p, t_paths)
 end
 
 --[[--------------------------------------------------------------------------------
@@ -325,7 +348,12 @@ function cad.rectchamfer(args)
     { 0, height - chamfer },
   }
 
-  local obj = cad.polygon(x, y, t_points)
+  local obj = cad.polygon {
+    points = t_points,
+  }
+  if x ~= 0 or y ~= 0 then
+    obj:translate(x, y)
+  end
   return obj
 end
 
