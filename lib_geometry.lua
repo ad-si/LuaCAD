@@ -6,6 +6,34 @@ require("lib_vector")
 
 geometry = {}
 
+--[[------------------------------------------
+  function geometry.round(x)
+--]]
+geometry.round = function(x)
+  return math.floor(x + 0.5)
+end
+
+--[[------------------------------------------
+  function geometry.sign(x)
+
+  Returns the sign of a number:
+   1 when x > 0
+   0 when x = 0
+  -1 when x < 0
+
+  Compatible with OpenSCAD's sign() function
+--]]
+------------------------------------------
+geometry.sign = function(x)
+  if x > 0 then
+    return 1
+  elseif x < 0 then
+    return -1
+  else
+    return 0
+  end
+end
+
 -- Variables
 geometry.default_segments = 120
 
@@ -31,8 +59,8 @@ geometry.gettrianglefromsides = function(side_a, side_b, side_c)
   )
 
   -- calc point C
-  y = math.round(math.sin(alpha) * side_b)
-  x = math.round(math.cos(alpha) * side_b)
+  y = geometry.round(math.sin(alpha) * side_b)
+  x = geometry.round(math.cos(alpha) * side_b)
 
   return { 0, 0 }, { side_c, 0 }, { x, y }, math.deg(alpha)
 end

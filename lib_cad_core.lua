@@ -105,6 +105,21 @@ cad.setdefaultcirclefragments = function(fn)
   default_segments = fn
 end
 
+--[[----------------------------------------
+  function cad.sign(x)
+
+  Returns the sign of a number:
+   1 when x > 0
+   0 when x = 0
+  -1 when x < 0
+
+  OpenSCAD compatibility function
+--]]
+----------------------------------------
+cad.sign = function(x)
+  return geometry.sign(x)
+end
+
 --[[--------------------------------------------------------------------------------
   GLOBAL OBJ FUNCTIONS via METATABLE
 --]]

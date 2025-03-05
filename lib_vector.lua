@@ -186,7 +186,19 @@ vec_meta.__index.angle = function(a, b)
   local scalar = a:scalar(b)
   local cos_alpha = scalar / (#a * #b)
   local angle = math.deg(math.acos(cos_alpha))
-  local cross_product_z = a:cross(b):getz()
+
+  -- Handle both 2D and 3D vectors
+  local cross_product_z
+
+  -- Get the Z component of the cross product
+  -- For 2D vectors, the cross product itself is the Z component
+  local cross_result = a:cross(b)
+  if type(cross_result) == "number" then
+    cross_product_z = cross_result -- For 2D vectors, cross returns a scalar
+  else
+    cross_product_z = cross_result[3] or 0 -- For 3D vectors, get the Z component
+  end
+
   if cross_product_z < 0 then
     return -angle
   end
