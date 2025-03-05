@@ -86,6 +86,50 @@ function TestSimple:testCombiningShapes()
   end
 end
 
+function TestSimple:testShowOnlyModifier()
+  -- Create objects
+  local cube1 = cad.cube { size = { 10, 10, 10 } }
+  local cube2 =
+    cad.cube({ size = { 5, 5, 5 } }):translate { x = 20, y = 0, z = 0 }
+  local sphere1 = cad.sphere({ r = 7 }):translate { x = 0, y = 20, z = 0 }
+
+  -- Test normal export (should export all objects)
+  local testFile1 = "temp/test_show_only_all.scad"
+  cad.export(testFile1, cube1, cube2, sphere1)
+
+  -- Verify file was created
+  local file1 = io.open(testFile1, "r")
+  luaunit.assertNotNil(file1, "SCAD file for all objects was not created")
+  if file1 then
+    file1:close()
+  end
+
+  -- Test with one showOnly object (should only export the sphere)
+  local testFile2 = "temp/test_show_only_sphere.scad"
+  cad.export(testFile2, cube1, cube2, cad.s(sphere1))
+
+  -- Verify file was created
+  local file2 = io.open(testFile2, "r")
+  luaunit.assertNotNil(file2, "SCAD file for show-only sphere was not created")
+  if file2 then
+    file2:close()
+  end
+
+  -- Test with multiple showOnly objects
+  local testFile3 = "temp/test_show_only_multiple.scad"
+  cad.export(testFile3, cube1, cad.s(cube2), cad.s(sphere1))
+
+  -- Verify file was created
+  local file3 = io.open(testFile3, "r")
+  luaunit.assertNotNil(
+    file3,
+    "SCAD file for multiple show-only objects was not created"
+  )
+  if file3 then
+    file3:close()
+  end
+end
+
 -- Run the tests
 if not ... then
   os.exit(luaunit.LuaUnit.run())

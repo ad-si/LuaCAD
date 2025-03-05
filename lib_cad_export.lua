@@ -202,5 +202,19 @@ function cad.export(filename, ...)
   if not f then
     error("cad.export, unknown extension " .. ext)
   end
-  f(filename, objs)
+
+  -- Check if any objects have showOnly flag set
+  local showOnlyObjs = {}
+  for _, obj in ipairs(objs) do
+    if obj.showOnly then
+      table.insert(showOnlyObjs, obj)
+    end
+  end
+
+  -- If there are objects with showOnly flag, only export those
+  if #showOnlyObjs > 0 then
+    f(filename, showOnlyObjs)
+  else
+    f(filename, objs)
+  end
 end

@@ -48,3 +48,10 @@ end
 cad.cross = function(a, b)
   return a:cross(b)
 end
+
+-- OpenSCAD's "show only" modifier (equivalent to ! in OpenSCAD)
+function cad.s(obj)
+  local result = obj:clone()
+  result.showOnly = true
+  return result
+end
