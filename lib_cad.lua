@@ -610,6 +610,48 @@ function cad.text3d(x, y, z, text, height, depth, font, style, h_align, v_align)
   return obj
 end
 
+--[[------------------------------------------
+  cad.rotate_extrude{angle = angle, convexity = convexity}
+
+  Rotates a 2D shape around the Z-axis to form a solid
+  - angle: optional angle in degrees for partial rotation (default: 360)
+  - convexity: optional hint for OpenSCAD renderer (default: 10)
+  
+  Note: The 2D shape must be on the positive X side of the Y axis.
+--]]
+------------------------------------------
+function cad.rotate_extrude(args)
+  local obj = cad_obj()
+  local params = "()"
+
+  if args.angle or args.convexity then
+    params = "("
+    local paramCount = 0
+
+    if args.angle then
+      params = params .. "angle = " .. args.angle
+      paramCount = paramCount + 1
+    end
+
+    if args.convexity then
+      if paramCount > 0 then
+        params = params .. ", "
+      end
+      params = params .. "convexity = " .. args.convexity
+    end
+
+    params = params .. ")"
+  end
+
+  update_content(obj, "rotate_extrude" .. params .. "\n{\n")
+  intend_content(obj, 1)
+  -- This will be empty until objects are added to it
+  intend_content(obj, -1)
+  update_content(obj, "}\n")
+
+  return obj
+end
+
 --[[--------------------------------------------------------------------------------
   GEOMETRIC 3D OBJECTS
 --]]
@@ -1092,14 +1134,34 @@ function cad_meta.__index.rotate2d(obj_1, x, y, angle)
 end
 
 --[[------------------------------------------
-  function <cad>:rotateextrude()
+  function <cad>:rotateextrude(angle, convexity)
 
   the object has to moved away from the center for rotate_extrude to succeed
+  angle: optional angle in degrees for partial rotation (default: 360)
+  convexity: optional hint for OpenSCAD renderer (default: 10)
 --]]
 ------------------------------------------
-function cad_meta.__index.rotateextrude(obj_1)
+function cad_meta.__index.rotateextrude(obj_1, angle, convexity)
   local obj = cad_obj()
-  update_content(obj, "rotate_extrude()\n{\n")
+  local params = "()"
+
+  if angle or convexity then
+    params = "("
+    if angle then
+      params = params .. "angle = " .. angle
+    end
+
+    if angle and convexity then
+      params = params .. ", "
+    end
+
+    if convexity then
+      params = params .. "convexity = " .. convexity
+    end
+    params = params .. ")"
+  end
+
+  update_content(obj, "rotate_extrude" .. params .. "\n{\n")
   intend_content(obj, 1)
   update_content(obj, obj_1.scad_content)
   intend_content(obj, -1)
