@@ -1212,6 +1212,47 @@ function cad_meta.__index.offsetradius(obj_1, r, chamfer)
 end
 
 --[[------------------------------------------
+  function <cad>:multmatrix(matrix)
+
+  Apply a 4x4 transformation matrix to the object
+  matrix should be a table with 16 elements representing a 4x4 matrix in row-major order
+--]]
+------------------------------------------
+function cad_meta.__index.multmatrix(obj_1, matrix)
+  -- Validate matrix has 16 elements
+  if #matrix ~= 16 then
+    error("multmatrix requires a 4x4 matrix (16 elements)")
+  end
+
+  local obj = cad_obj()
+
+  -- Format the matrix in OpenSCAD format [[a,b,c,d], [e,f,g,h], [i,j,k,l], [m,n,o,p]]
+  local matrix_str = "["
+  for i = 0, 3 do
+    matrix_str = matrix_str .. "["
+    for j = 0, 3 do
+      matrix_str = matrix_str .. matrix[i * 4 + j + 1]
+      if j < 3 then
+        matrix_str = matrix_str .. ","
+      end
+    end
+    matrix_str = matrix_str .. "]"
+    if i < 3 then
+      matrix_str = matrix_str .. ","
+    end
+  end
+  matrix_str = matrix_str .. "]"
+
+  update_content(obj, "multmatrix(" .. matrix_str .. ")\n{\n")
+  intend_content(obj, 1)
+  update_content(obj, obj_1.scad_content)
+  intend_content(obj, -1)
+  update_content(obj, "}\n")
+  obj_1.scad_content = obj.scad_content
+  return obj_1
+end
+
+--[[------------------------------------------
   function <cad>:projection(cut)
 
   Creates a 2D projection of a 3D object
