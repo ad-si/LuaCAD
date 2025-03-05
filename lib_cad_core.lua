@@ -72,7 +72,12 @@ local function export_scad(obj, file)
     os.rename(scadfile, file)
   else
     -- Execute OpenSCAD to create the final output file
-    os.execute(executable .. " -o " .. file .. " " .. scadfile)
+    os.execute(
+      executable
+        .. (" -o " .. file)
+        .. (" " .. scadfile)
+        .. (isTesting and " > /dev/null 2>&1" or "")
+    )
   end
 end
 

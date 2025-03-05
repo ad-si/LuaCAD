@@ -16,10 +16,6 @@ function TestPyramidCut:testPyramidCut()
   local height = 80 -- change to 80 for 45 degree angle, original pyramid would be 70
   local side_inner = 70
 
-  print("Pyramid Side: " .. side)
-  print("Pyramid Height: " .. height)
-  print("Pyramid Side Cut: " .. side_inner)
-
   -- Do some calculation
   -- calc ration and height_inner
   local ratio = side / height
@@ -29,10 +25,9 @@ function TestPyramidCut:testPyramidCut()
   local cross = math.sqrt((side * side) + (side * side))
   local angle = math.atan((height * 2) / cross)
   local angle_deg = tonumber(string.format("%.2f", math.deg(angle)))
-  print("Max Angle = " .. angle_deg .. " deg")
 
   -- output file
-  local cad_file = "temp/Pyramid_Cut_["
+  local cad_file = "temp/pyramid_cut_["
     .. side
     .. ","
     .. height
@@ -41,27 +36,21 @@ function TestPyramidCut:testPyramidCut()
     .. ","
     .. angle_deg
     .. "-deg].stl"
-  print("Output file: " .. cad_file)
 
   -- calc distance of second pyramid
   local d_x = (side - side_inner) / 2
-  --print("d_x = "..d_x)
   local cc_inner =
     geometry.getpyramidinnercircumcenter(side_inner, height_inner)
   local cc = geometry.getpyramidcircumcenter(side, height)
-  --print("cc = "..cc)
   local d_h = cc - cc_inner
-  --print("d_h: "..d_h)
 
   -- calc cut pyramid height + d_h
   -- get resulting bottom cut length
   local cut_h = height_inner + d_h
   local cut_side = cut_h * ratio
   local d_x_cut = (side - cut_side) / 2
-  --print("cut Pyramid(side, height): "..cut_side..", "..cut_h)
 
   -- Create the Pyramid
-
   local pyr = cad.pyramid(0, 0, 0, side, height)
 
   local pyr_cut_1 = cad.pyramid(d_x_cut, d_x_cut, 0, cut_side, cut_h)

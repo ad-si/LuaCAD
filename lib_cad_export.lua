@@ -93,7 +93,7 @@ local t_ext = {
 }
 
 function cad._helpers.cad_meta.__index.export(obj, file, verbose)
-  if verbose then
+  if verbose and not isTesting then
     print("---------------------------------")
     print("cad.export: -> " .. file)
     print()
@@ -114,7 +114,12 @@ function cad._helpers.cad_meta.__index.export(obj, file, verbose)
   if not f then
     error("<cad>:export, unknown extension " .. ext)
   end
-  print('Exporting to "' .. file .. '"')
+
+  -- Don't log during testing
+  if not isTesting then
+    print('Exporting to "' .. file .. '"')
+  end
+
   f(obj, file)
   return obj
 end
@@ -192,9 +197,7 @@ local f_ext = {
 
 function cad.export(filename, ...)
   local objs = { ... }
-  -- check extension
   local ext = cad._helpers.getExtension(filename)
-  print("ext", ext)
   local f = f_ext[ext]
   if not f then
     error("cad.export, unknown extension " .. ext)

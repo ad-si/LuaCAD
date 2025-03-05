@@ -9,11 +9,7 @@ TEST_FILES = $(wildcard tests/test_*.lua)
 .PHONY: test
 test: fmt
 	mkdir -p temp
-	@for file in $(TEST_FILES); do \
-		echo "🎬 Running $$file"; \
-		lua $$file; \
-		echo ""; \
-	done
+	lua tests/run_tests.lua
 
 
 .PHONY: test-single
