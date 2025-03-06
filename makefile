@@ -10,6 +10,11 @@ TEST_FILES = $(wildcard tests/test_*.lua)
 test:
 	mkdir -p tests/temp
 	lua tests/run_tests.lua
+	@echo "📋 Running example files"
+	@for file in examples/*.lua; do \
+		echo "⏳ Running $$file"; \
+		luajit $$file; \
+	done
 
 
 .PHONY: test-single
@@ -33,6 +38,7 @@ benchmark:
 .PHONY: clean
 clean:
 	rm -rf tests/temp
+	rm -f examples/*.scad
 
 
 .PHONY: fmt
