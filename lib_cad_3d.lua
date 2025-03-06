@@ -58,24 +58,42 @@ cube([$WIDTH, $HEIGHT, $DEPTH]);
 function cad.cube(argsOrX, y, z)
   local xLen, yLen, zLen, isCenter
 
-  -- Table-as-array syntax: cad.cube{3, 3, 5}
-  if type(argsOrX) == "table" and #argsOrX == 3 then
-    xLen = argsOrX[1] or 1
-    yLen = argsOrX[2] or 1
-    zLen = argsOrX[3] or 1
-    isCenter = argsOrX.center or false
-  elseif type(argsOrX) == "table" and argsOrX.size then
-    -- Traditional syntax: cad.cube{size = {x, y, z}, center = true/false}
-    xLen = argsOrX.size[1] or 1
-    yLen = argsOrX.size[2] or 1
-    zLen = argsOrX.size[3] or 1
-    isCenter = argsOrX.center or false
-  else
+  if argsOrX and y and z then
     -- Function call syntax: cad.cube(x, y, z)
     xLen = argsOrX or 1
     yLen = y or 1
     zLen = z or 1
     isCenter = false
+  elseif type(argsOrX) == "table" then
+    if #argsOrX == 3 then
+      -- Table-as-array syntax: cad.cube{3, 3, 5}
+      xLen = argsOrX[1] or 1
+      yLen = argsOrX[2] or 1
+      zLen = argsOrX[3] or 1
+      isCenter = argsOrX.center or false
+    elseif argsOrX.size then
+      -- Traditional syntax: cad.cube{size = {x, y, z}, center = true/false}
+      xLen = argsOrX.size[1] or 1
+      yLen = argsOrX.size[2] or 1
+      zLen = argsOrX.size[3] or 1
+      isCenter = argsOrX.center or false
+    elseif type(argsOrX[1]) == "table" then
+      -- Table-as-array syntax: cad.cube{{3, 3, 5}, center = true}
+      xLen = argsOrX[1][1] or 1
+      yLen = argsOrX[1][2] or 1
+      zLen = argsOrX[1][3] or 1
+      isCenter = argsOrX.center or false
+    end
+  else
+    print(
+      "cad.cube: Invalid arguments: "
+        .. tableToStr(argsOrX)
+        .. ", "
+        .. tableToStr(y)
+        .. ", "
+        .. tableToStr(z)
+    )
+    return
   end
 
   xLen = valOrName(xLen)
@@ -103,31 +121,31 @@ end
 --]]
 ------------------------------------------
 local scad_cylinder_standard = [[
-translate([$X,$Y,$Z])
-cylinder(h = $H, r1 = $R1, r2 = $R2, center = $CENTER);
+cylinder(h = $H, r1 = $R1, r2 = $R2$CENTER);
 ]]
 local scad_cylinder_diameter = [[
-translate([$X,$Y,$Z])
-cylinder(h = $H, d1 = $D1, d2 = $D2, center = $CENTER);
+cylinder(h = $H, d1 = $D1, d2 = $D2$CENTER);
 ]]
 function cad.cylinder(args)
   local obj = cad._helpers.cad_obj()
-  local isCenter = args.center or false
+  local center = args.center and ", center = true" or ""
   local height = args.h or 1
-  local translateZ = (isCenter and -height / 2) or 0
+
+  -- Store parameters for __tostring
+  obj.cylinder_params = {
+    h = height,
+    center = args.center or false,
+  }
 
   if args.d or args.d1 or args.d2 then
     -- Use diameter version
     local d1 = args.d1 or args.d or 1
     local d2 = args.d2 or args.d or d1
     local t = {
-      X = 0,
-      Y = 0,
-      Z = translateZ,
       H = height,
       D1 = d1,
       D2 = d2,
-      CENTER = tostring(isCenter),
+      CENTER = center,
     }
     cad._helpers.update_content_t(obj, scad_cylinder_diameter, t)
   else
@@ -141,7 +159,7 @@ function cad.cylinder(args)
       H = height,
       R1 = r1,
       R2 = r2,
-      CENTER = tostring(isCenter),
+      CENTER = center,
     }
     cad._helpers.update_content_t(obj, scad_cylinder_standard, t)
   end

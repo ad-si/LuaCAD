@@ -260,36 +260,55 @@ end
 ------------------------------------------
 function cad._helpers.cad_meta.__index.rotate(
   obj_1,
-  x,
-  y,
-  z,
+  x_or_angle,
+  y_or_y_angle,
+  z_or_z_angle,
   x_angle,
   y_angle,
   z_angle
 )
   local obj = cad._helpers.cad_obj()
-  cad._helpers.update_content(
-    obj,
-    "translate(["
-      .. x
-      .. ","
-      .. y
-      .. ","
-      .. z
-      .. "])\nrotate(["
-      .. x_angle
-      .. ","
-      .. y_angle
-      .. ","
-      .. z_angle
-      .. "])\ntranslate(["
-      .. -x
-      .. ","
-      .. -y
-      .. ","
-      .. -z
-      .. "])\n{\n"
-  )
+
+  -- Check if this is a simple rotation (just angles, no center point)
+  if x_angle == nil then
+    -- Simple rotation: rotate(x_angle, y_angle, z_angle)
+    local x_angle = x_or_angle or 0
+    local y_angle = y_or_y_angle or 0
+    local z_angle = z_or_z_angle or 0
+
+    cad._helpers.update_content(
+      obj,
+      "rotate([" .. x_angle .. "," .. y_angle .. "," .. z_angle .. "])\n{\n"
+    )
+  else
+    -- Full rotation with center point: rotate(x, y, z, x_angle, y_angle, z_angle)
+    local x = x_or_angle or 0
+    local y = y_or_y_angle or 0
+    local z = z_or_z_angle or 0
+
+    cad._helpers.update_content(
+      obj,
+      "translate(["
+        .. x
+        .. ","
+        .. y
+        .. ","
+        .. z
+        .. "])\nrotate(["
+        .. x_angle
+        .. ","
+        .. y_angle
+        .. ","
+        .. z_angle
+        .. "])\ntranslate(["
+        .. -x
+        .. ","
+        .. -y
+        .. ","
+        .. -z
+        .. "])\n{\n"
+    )
+  end
   cad._helpers.intend_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
   cad._helpers.intend_content(obj, -1)

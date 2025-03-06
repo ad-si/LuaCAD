@@ -263,6 +263,14 @@ function tableToStr(t)
   return str .. "}"
 end
 
+function isArrayOnly(t)
+  local count = 0
+  for _ in pairs(t) do
+    count = count + 1
+  end
+  return count == #t
+end
+
 -- Export helper functions for other modules
 cad._helpers = {
   getExtension = getExtension,
@@ -275,6 +283,7 @@ cad._helpers = {
   cad_meta = cad_meta,
   valOrName = valOrName,
   tableToStr = tableToStr,
+  isArrayOnly = isArrayOnly,
 }
 
 -- Load other modules
