@@ -147,6 +147,13 @@ function cad.cylinder(args)
       D2 = d2,
       CENTER = center,
     }
+    -- Store diameter values for __tostring
+    obj.cylinder_params.d1 = d1
+    obj.cylinder_params.d2 = d2
+    if d1 == d2 then
+      obj.cylinder_params.d = d1
+    end
+
     cad._helpers.update_content_t(obj, scad_cylinder_diameter, t)
   else
     -- Use radius version
@@ -161,6 +168,13 @@ function cad.cylinder(args)
       R2 = r2,
       CENTER = center,
     }
+    -- Store radius values for __tostring
+    obj.cylinder_params.r1 = r1
+    obj.cylinder_params.r2 = r2
+    if r1 == r2 then
+      obj.cylinder_params.r = r1
+    end
+
     cad._helpers.update_content_t(obj, scad_cylinder_standard, t)
   end
 

@@ -49,7 +49,12 @@ local function update_content_t(obj, scad_template, t)
 
   local _scad_content = string.gsub(scad_template, "%$(%w+)", function(key)
     if type(t[key]) == "table" then
-      return t[key]
+      -- For tables, create a string representation
+      local result = "["
+      for i, v in ipairs(t[key]) do
+        result = result .. (i > 1 and ", " or "") .. tostring(v)
+      end
+      return result .. "]"
     end
     return t[key] or "ERROR: " .. key
   end)
@@ -317,6 +322,130 @@ end
 
 cad_meta.__sub = function(a, b)
   return a:sub(b)
+end
+
+cad_meta.__tostring = function(obj)
+  local info = {}
+
+  -- Try to determine the object type from its SCAD content
+  if obj.scad_content then
+    local content = obj.scad_content
+
+    -- Extract actual shape type based on content analysis
+    local type = "unknown"
+
+    -- Parse the most significant shape aspect from the content
+    -- First look for CSG operations
+    if content:match("difference") then
+      type = "difference"
+    elseif content:match("union") then
+      type = "union"
+    elseif content:match("intersection") then
+      type = "intersection"
+    elseif content:match("hull") then
+      type = "hull"
+    elseif content:match("minkowski") then
+      type = "minkowski"
+    -- Check for primitives
+    elseif content:match("cube") then
+      type = "cube"
+    elseif content:match("sphere") then
+      type = "sphere"
+    elseif content:match("cylinder") then
+      type = "cylinder"
+    elseif content:match("polyhedron") then
+      type = "polyhedron"
+    elseif content:match("circle") then
+      type = "circle"
+    elseif content:match("square") then
+      type = "square"
+    elseif content:match("polygon") then
+      type = "polygon"
+    elseif content:match("text") then
+      type = "text"
+    elseif content:match("import") then
+      type = "import"
+    -- Check for common transformations
+    elseif content:match("translate") then
+      type = "translated"
+    elseif content:match("scale") then
+      type = "scaled"
+    elseif content:match("rotate") then
+      type = "rotated"
+    elseif content:match("mirror") then
+      type = "mirrored"
+    elseif content:match("color") then
+      type = "colored"
+    end
+
+    table.insert(info, type)
+  end
+
+  -- Add shape-specific parameters if available
+  if obj.cylinder_params then
+    local params = obj.cylinder_params
+    local param_str = "h=" .. params.h
+
+    -- Add radius or diameter info
+    if params.r then
+      param_str = param_str .. ", r=" .. params.r
+    elseif params.r1 and params.r2 then
+      if params.r1 == params.r2 then
+        param_str = param_str .. ", r=" .. params.r1
+      else
+        param_str = param_str .. ", r1=" .. params.r1 .. ", r2=" .. params.r2
+      end
+    elseif params.d then
+      param_str = param_str .. ", d=" .. params.d
+    elseif params.d1 and params.d2 then
+      if params.d1 == params.d2 then
+        param_str = param_str .. ", d=" .. params.d1
+      else
+        param_str = param_str .. ", d1=" .. params.d1 .. ", d2=" .. params.d2
+      end
+    end
+
+    -- Add center info if true
+    if params.center then
+      param_str = param_str .. ", center=true"
+    end
+
+    table.insert(info, param_str)
+  end
+
+  -- Add segments information
+  if obj.segments and obj.segments ~= cad.settings.default_segments then
+    table.insert(info, "segments: " .. obj.segments)
+  end
+
+  -- Add color information if set to non-default
+  if
+    obj.color and (obj.color[1] ~= 1 or obj.color[2] ~= 1 or obj.color[3] ~= 1)
+  then
+    local r, g, b = obj.color[1], obj.color[2], obj.color[3]
+
+    -- Try to identify named colors
+    local color_name = nil
+    for name, rgb in pairs(cad._helpers.color_rgb) do
+      if
+        math.abs(r - rgb[1]) < 0.01
+        and math.abs(g - rgb[2]) < 0.01
+        and math.abs(b - rgb[3]) < 0.01
+      then
+        color_name = name
+        break
+      end
+    end
+
+    if color_name then
+      table.insert(info, "color: " .. color_name)
+    else
+      table.insert(info, string.format("color: [%.1f, %.1f, %.1f]", r, g, b))
+    end
+  end
+
+  -- Join all info with commas
+  return table.concat(info, ", ")
 end
 
 -- Get the value of a variable or its variable name
