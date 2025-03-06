@@ -5,7 +5,7 @@ TestProjection = {}
 
 function TestProjection:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestProjection:testSimpleProjection()
@@ -15,7 +15,7 @@ function TestProjection:testSimpleProjection()
   projected:export("temp/test_projection_simple.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_projection_simple.scad", "r")
+  local file = io.open("tests/temp/test_projection_simple.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for simple projection was not created")
   if file then
     local content = file:read("*all")
@@ -40,7 +40,7 @@ function TestProjection:testCutProjection()
   projected:export("temp/test_projection_cut.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_projection_cut.scad", "r")
+  local file = io.open("tests/temp/test_projection_cut.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for cut projection was not created")
   if file then
     local content = file:read("*all")
@@ -67,7 +67,7 @@ function TestProjection:testComplexProjection()
   projected:export("temp/test_projection_complex.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_projection_complex.scad", "r")
+  local file = io.open("tests/temp/test_projection_complex.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for complex projection was not created")
   if file then
     local content = file:read("*all")

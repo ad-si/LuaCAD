@@ -5,7 +5,7 @@ TestCube = {}
 
 function TestCube:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestCube:testCubeCreation()
@@ -13,7 +13,7 @@ function TestCube:testCubeCreation()
   cube:export("temp/test_cube_basic.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_cube_basic.scad", "r")
+  local file = io.open("tests/temp/test_cube_basic.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for basic cube was not created")
   if file then
     local content = file:read("*all")
@@ -32,7 +32,7 @@ function TestCube:testCubeWithCustomSize()
   cube:export("temp/test_cube_custom.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_cube_custom.scad", "r")
+  local file = io.open("tests/temp/test_cube_custom.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for custom-sized cube was not created")
   if file then
     local content = file:read("*all")
@@ -51,7 +51,7 @@ function TestCube:testCubeWithCenter()
   cube:export("temp/test_cube_centered.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_cube_centered.scad", "r")
+  local file = io.open("tests/temp/test_cube_centered.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for centered cube was not created")
   if file then
     local content = file:read("*all")
@@ -80,7 +80,7 @@ function TestCube:testCubeWithArraySyntax()
   cube:export("temp/test_cube_array_syntax.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_cube_array_syntax.scad", "r")
+  local file = io.open("tests/temp/test_cube_array_syntax.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for array syntax cube was not created")
   if file then
     local content = file:read("*all")
@@ -100,7 +100,7 @@ function TestCube:testCubeWithArraySyntaxAndCenter()
   cube:export("temp/test_cube_array_syntax_centered.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_cube_array_syntax_centered.scad", "r")
+  local file = io.open("tests/temp/test_cube_array_syntax_centered.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for centered array syntax cube was not created"

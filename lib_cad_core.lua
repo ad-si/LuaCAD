@@ -68,11 +68,84 @@ local color_rgb = {
   ["yellow"] = { 1.0, 1.0, 0 },
 }
 
+-- Function to get the directory of the currently executing Lua script
+local function get_script_path()
+  -- Walk the call stack to find the original script
+  local level = 1
+  local main_info
+  repeat
+    local info = debug.getinfo(level, "S")
+    if not info then
+      break
+    end
+
+    -- Check if this is a main chunk (the top-level script file)
+    if info.what == "main" and info.source:sub(1, 1) == "@" then
+      main_info = info
+      break
+    end
+    level = level + 1
+  until level > 20 -- Limit the search depth
+
+  -- If we found the main script, use it; otherwise fall back to caller
+  local info = main_info or debug.getinfo(3, "S")
+
+  local source = info.source
+  -- Remove the @ prefix if present
+  if source:sub(1, 1) == "@" then
+    source = source:sub(2)
+  end
+
+  -- Determine the directory part of the script path
+  local directory
+
+  if source:match("^/") then
+    -- It's an absolute path, get the directory part
+    directory = source:match("(.*/)")
+  else
+    -- It's a relative path
+    -- If it contains directory separators, extract the directory part
+    if source:find("/") then
+      directory = source:match("^(.-)[^/]+$")
+    else
+      -- It's just a filename with no path, use the current directory
+      directory = "./"
+    end
+  end
+
+  return directory or ""
+end
+
 local function export_scad(obj, file)
-  -- create native SCAD file
-  local fscad = io.open(scadfile, "w")
+  -- If file is not an absolute path, make it relative to the script path
+  if file:sub(1, 1) ~= "/" and file:sub(1, 1) ~= "\\" then
+    local script_dir = get_script_path() or ""
+    file = script_dir .. file
+  end
+
+  -- Debug output removed
+
+  -- Get the directory part of the file path to ensure it exists
+  local file_dir = file:match("(.*/)")
+  if file_dir then
+    -- Try to create the directory if it doesn't exist (will fail silently if it already exists)
+    os.execute("mkdir -p " .. file_dir)
+  end
+
+  -- Create a temp file in the same directory as the output file
+  local temp_scadfile
+  if file:match("^/") then
+    -- For absolute paths, put the temp file in the same directory
+    temp_scadfile = file .. ".tmp.scad"
+  else
+    -- Otherwise use the global temp location
+    temp_scadfile = scadfile
+  end
+
+  -- Create native SCAD file
+  local fscad = io.open(temp_scadfile, "w")
   if not fscad then
-    error("Failed to write to scad file: " .. scadfile)
+    error("Failed to write to scad file: " .. temp_scadfile)
   end
   fscad:write(cad.settings.include .. "\n")
   fscad:write("$fn = " .. obj.segments .. ";\n\n")
@@ -86,15 +159,17 @@ local function export_scad(obj, file)
   fscad:close()
 
   if getExtension(file) == ".scad" then
-    os.rename(scadfile, file)
+    os.rename(temp_scadfile, file)
   else
     -- Execute OpenSCAD to create the final output file
     os.execute(
       executable
         .. (" -o " .. file)
-        .. (" " .. scadfile)
+        .. (" " .. temp_scadfile)
         .. (isTesting and " > /dev/null 2>&1" or "")
     )
+    -- Clean up the temporary file
+    os.remove(temp_scadfile)
   end
 end
 

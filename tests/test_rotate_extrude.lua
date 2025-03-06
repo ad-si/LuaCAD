@@ -12,7 +12,7 @@ end
 
 function TestRotateExtrude:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestRotateExtrude:testSimpleRotateExtrude()
@@ -23,7 +23,7 @@ function TestRotateExtrude:testSimpleRotateExtrude()
   torus:export("temp/test_rotate_extrude_simple.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rotate_extrude_simple.scad", "r")
+  local file = io.open("tests/temp/test_rotate_extrude_simple.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for simple rotate_extrude was not created"
@@ -46,7 +46,7 @@ function TestRotateExtrude:testRotateExtrudeWithAngle()
   partial_torus:export("temp/test_rotate_extrude_angle.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rotate_extrude_angle.scad", "r")
+  local file = io.open("tests/temp/test_rotate_extrude_angle.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for rotate_extrude with angle was not created"
@@ -82,7 +82,7 @@ function TestRotateExtrude:testRotateExtrudeWithConvexity()
   complex_solid:export("temp/test_rotate_extrude_convexity.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rotate_extrude_convexity.scad", "r")
+  local file = io.open("tests/temp/test_rotate_extrude_convexity.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for rotate_extrude with convexity was not created"
@@ -118,7 +118,8 @@ function TestRotateExtrude:testRotateExtrudeWithAngleAndConvexity()
   complex_partial:export("temp/test_rotate_extrude_angle_convexity.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rotate_extrude_angle_convexity.scad", "r")
+  local file =
+    io.open("tests/temp/test_rotate_extrude_angle_convexity.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for rotate_extrude with angle and convexity was not created"
@@ -144,7 +145,7 @@ function TestRotateExtrude:testGlobalRotateExtrudeFunction()
   torus:export("temp/test_rotate_extrude_global.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rotate_extrude_global.scad", "r")
+  local file = io.open("tests/temp/test_rotate_extrude_global.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for global rotate_extrude function was not created"

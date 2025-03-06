@@ -28,7 +28,7 @@ end
 -- Test use in a simple CAD model that uses sign function
 function TestSign:testSignInCADModel()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 
   -- Create a model where height depends on sign
   local value = -3
@@ -37,7 +37,7 @@ function TestSign:testSignInCADModel()
   model:export("temp/test_sign_model.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_sign_model.scad", "r")
+  local file = io.open("tests/temp/test_sign_model.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for sign model was not created")
   if file then
     file:close()

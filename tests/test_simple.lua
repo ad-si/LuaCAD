@@ -1,3 +1,8 @@
+--[[--================================================================================
+  Test file for testing simple CAD operations
+--]]
+--================================================================================
+
 local luaunit = require("luaunit")
 require("lib_cad")
 
@@ -5,7 +10,7 @@ TestSimple = {}
 
 function TestSimple:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestSimple:testCubeCreation()
@@ -13,10 +18,17 @@ function TestSimple:testCubeCreation()
   cube:export("temp/test_simple_cube.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_simple_cube.scad", "r")
+  local file = io.open("tests/temp/test_simple_cube.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for cube was not created")
   if file then
+    local content = file:read("*all")
     file:close()
+    luaunit.assertStrContains(
+      content,
+      "cube",
+      false,
+      "Cube command not found in generated SCAD file"
+    )
   end
 end
 
@@ -25,10 +37,17 @@ function TestSimple:testSphereCreation()
   sphere:export("temp/test_simple_sphere.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_simple_sphere.scad", "r")
+  local file = io.open("tests/temp/test_simple_sphere.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for sphere was not created")
   if file then
+    local content = file:read("*all")
     file:close()
+    luaunit.assertStrContains(
+      content,
+      "sphere",
+      false,
+      "Sphere command not found in generated SCAD file"
+    )
   end
 end
 
@@ -49,7 +68,7 @@ function TestSimple:testCylinderCreation()
   cad.cylinder({ h = 10, r = 5, center = true }):export(files[5])
 
   for _, filepath in ipairs(files) do
-    local file = io.open(filepath, "r")
+    local file = io.open("tests/" .. filepath, "r")
     luaunit.assertNotNil(file, "SCAD file " .. filepath .. " was not created")
     if file then
       file:close()
@@ -65,7 +84,7 @@ function TestSimple:testCombiningShapes()
   model:export("temp/test_simple_combined.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_simple_combined.scad", "r")
+  local file = io.open("tests/temp/test_simple_combined.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for combined shapes was not created")
   if file then
     file:close()

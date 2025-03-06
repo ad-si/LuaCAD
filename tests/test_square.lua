@@ -10,7 +10,7 @@ TestSquare = {}
 
 function TestSquare:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestSquare:testSquareCreation()
@@ -19,7 +19,7 @@ function TestSquare:testSquareCreation()
   obj:export("temp/test_square.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_square.scad", "r")
+  local file = io.open("tests/temp/test_square.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for square was not created")
   if file then
     local content = file:read("*all")
@@ -43,7 +43,7 @@ function TestSquare:testSquareWithSingleSize()
   obj:export("temp/test_square_single.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_square_single.scad", "r")
+  local file = io.open("tests/temp/test_square_single.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for single-sized square was not created"
@@ -65,7 +65,7 @@ function TestSquare:testRectAlias()
   obj:export("temp/test_rect.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rect.scad", "r")
+  local file = io.open("tests/temp/test_rect.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for rect was not created")
   if file then
     local content = file:read("*all")

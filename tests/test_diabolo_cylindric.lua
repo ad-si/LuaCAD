@@ -13,7 +13,7 @@ function TestDiaboloCylindric:setUp()
   self.frags = 6
 
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestDiaboloCylindric:testDiaboloCreation()
@@ -61,7 +61,7 @@ function TestDiaboloCylindric:testDiaboloCreation()
   cylinder:export(cad_file)
 
   -- Verify file was created
-  local file = io.open(cad_file, "r")
+  local file = io.open("tests/" .. cad_file, "r")
   luaunit.assertNotNil(file, "STL file was not created")
   if file then
     file:close()
@@ -92,7 +92,7 @@ function TestDiaboloCylindric:testCustomParameters()
   cylinder:export(cad_file)
 
   -- Verify file was created
-  local file = io.open(cad_file, "r")
+  local file = io.open("tests/" .. cad_file, "r")
   luaunit.assertNotNil(file, "STL file with custom parameters was not created")
   if file then
     file:close()

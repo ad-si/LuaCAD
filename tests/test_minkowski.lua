@@ -5,7 +5,7 @@ TestMinkowski = {}
 
 function TestMinkowski:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestMinkowski:testMinkowskiBasic()
@@ -15,7 +15,7 @@ function TestMinkowski:testMinkowskiBasic()
   obj:export("temp/test_minkowski_basic.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_minkowski_basic.scad", "r")
+  local file = io.open("tests/temp/test_minkowski_basic.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for basic minkowski was not created")
   if file then
     local content = file:read("*all")
@@ -45,7 +45,7 @@ function TestMinkowski:test2DMinkowski()
   obj:export("temp/test_minkowski_2d.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_minkowski_2d.scad", "r")
+  local file = io.open("tests/temp/test_minkowski_2d.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for 2D minkowski was not created")
   if file then
     local content = file:read("*all")
@@ -75,7 +75,7 @@ function TestMinkowski:testMinkowskiRounded()
   obj:export("temp/test_minkowski_rounded.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_minkowski_rounded.scad", "r")
+  local file = io.open("tests/temp/test_minkowski_rounded.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for rounded cube was not created")
   if file then
     local content = file:read("*all")

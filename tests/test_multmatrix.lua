@@ -5,7 +5,7 @@ TestMultMatrix = {}
 
 function TestMultMatrix:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestMultMatrix:testBasicMultMatrix()
@@ -37,7 +37,7 @@ function TestMultMatrix:testBasicMultMatrix()
   transformed:export("temp/test_multmatrix_identity.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_multmatrix_identity.scad", "r")
+  local file = io.open("tests/temp/test_multmatrix_identity.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for identity multmatrix was not created"
@@ -87,7 +87,7 @@ function TestMultMatrix:testScaleWithMultMatrix()
   transformed:export("temp/test_multmatrix_scale.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_multmatrix_scale.scad", "r")
+  local file = io.open("tests/temp/test_multmatrix_scale.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for scale multmatrix was not created")
   if file then
     local content = file:read("*all")
@@ -134,7 +134,7 @@ function TestMultMatrix:testTranslationWithMultMatrix()
   transformed:export("temp/test_multmatrix_translation.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_multmatrix_translation.scad", "r")
+  local file = io.open("tests/temp/test_multmatrix_translation.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for translation multmatrix was not created"
@@ -188,7 +188,7 @@ function TestMultMatrix:testRotationWithMultMatrix()
   transformed:export("temp/test_multmatrix_rotation.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_multmatrix_rotation.scad", "r")
+  local file = io.open("tests/temp/test_multmatrix_rotation.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for rotation multmatrix was not created"
@@ -243,7 +243,7 @@ function TestMultMatrix:testCombinationWithMultMatrix()
   transformed:export("temp/test_multmatrix_combined.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_multmatrix_combined.scad", "r")
+  local file = io.open("tests/temp/test_multmatrix_combined.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for combined multmatrix was not created"

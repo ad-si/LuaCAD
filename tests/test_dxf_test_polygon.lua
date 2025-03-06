@@ -5,7 +5,7 @@ TestDxfPolygon = {}
 
 function TestDxfPolygon:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
   self.dist = 20
 end
 
@@ -35,10 +35,10 @@ function TestDxfPolygon:testBasicPolygon()
     points = points,
     pos = { 0, 0 },
   }
-  dxf_obj:save("temp/dxf_test_basic_polygon.dxf")
+  dxf_obj:save("tests/temp/dxf_test_basic_polygon.dxf")
 
   -- Verify file was created
-  local file = io.open("temp/dxf_test_basic_polygon.dxf", "r")
+  local file = io.open("tests/temp/dxf_test_basic_polygon.dxf", "r")
   luaunit.assertNotNil(file, "DXF file for basic polygon was not created")
   if file then
     file:close()
@@ -71,10 +71,10 @@ function TestDxfPolygon:testPolygonWithSpecialPoints()
     points = points,
     pos = { 0, 0 },
   }
-  dxf_obj:save("temp/dxf_test_special_polygon.dxf")
+  dxf_obj:save("tests/temp/dxf_test_special_polygon.dxf")
 
   -- Verify file was created
-  local file = io.open("temp/dxf_test_special_polygon.dxf", "r")
+  local file = io.open("tests/temp/dxf_test_special_polygon.dxf", "r")
   luaunit.assertNotNil(
     file,
     "DXF file for polygon with special points was not created"
@@ -111,10 +111,10 @@ function TestDxfPolygon:testMultiplePolygons()
     points = points2,
     pos = { 3 * self.dist, 0 },
   }
-  dxf_obj:save("temp/dxf_test_multiple_polygons.dxf")
+  dxf_obj:save("tests/temp/dxf_test_multiple_polygons.dxf")
 
   -- Verify file was created
-  local file = io.open("temp/dxf_test_multiple_polygons.dxf", "r")
+  local file = io.open("tests/temp/dxf_test_multiple_polygons.dxf", "r")
   luaunit.assertNotNil(file, "DXF file for multiple polygons was not created")
   if file then
     file:close()

@@ -92,7 +92,13 @@ local t_ext = {
   end,
 }
 
+-- Define the function at the top level
+local get_export_script_path
+
 function cad._helpers.cad_meta.__index.export(obj, file, verbose)
+  -- For example files like car.lua, the path is already relative to the right directory,
+  -- so we don't need to modify it. Only cad.export() should prepend the script directory.
+
   if verbose and not isTesting then
     print("---------------------------------")
     print("cad.export: -> " .. file)
@@ -195,7 +201,61 @@ local f_ext = {
   end,
 }
 
+-- Helper function to get script path
+get_export_script_path = function()
+  -- Walk the call stack to find the original script
+  local level = 1
+  local main_info
+  repeat
+    local info = debug.getinfo(level, "S")
+    if not info then
+      break
+    end
+
+    -- Check if this is a main chunk (the top-level script file)
+    if info.what == "main" and info.source:sub(1, 1) == "@" then
+      main_info = info
+      break
+    end
+    level = level + 1
+  until level > 20 -- Limit the search depth
+
+  -- If we found the main script, use it; otherwise fall back to caller
+  local info = main_info or debug.getinfo(3, "S")
+
+  local source = info.source
+  -- Remove the @ prefix if present
+  if source:sub(1, 1) == "@" then
+    source = source:sub(2)
+  end
+
+  -- Determine the directory part of the script path
+  local directory
+
+  if source:match("^/") then
+    -- It's an absolute path, get the directory part
+    directory = source:match("(.*/)")
+  else
+    -- It's a relative path
+    -- If it contains directory separators, extract the directory part
+    if source:find("/") then
+      directory = source:match("^(.-)[^/]+$")
+    else
+      -- It's just a filename with no path, use the current directory
+      directory = "./"
+    end
+  end
+
+  return directory or ""
+end
+
 function cad.export(filename, ...)
+  -- If file is not an absolute path, make it relative to the script path
+  if filename:sub(1, 1) ~= "/" and filename:sub(1, 1) ~= "\\" then
+    local script_dir = get_export_script_path() or ""
+    filename = script_dir .. filename
+  end
+
   local objs = { ... }
   local ext = cad._helpers.getExtension(filename)
   local f = f_ext[ext]

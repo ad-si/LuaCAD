@@ -9,7 +9,7 @@ TestPyramidCut = {}
 
 function TestPyramidCut:testPyramidCut()
   -- Create the test directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 
   -- input variables
   local side = 110
@@ -75,7 +75,7 @@ function TestPyramidCut:testPyramidCut()
   pyr_cut:export(cad_file)
 
   -- Verify file exists
-  local file = io.open(cad_file)
+  local file = io.open("tests/" .. cad_file)
   luaunit.assertNotNil(file, "STL file for pyramid was not created")
   if file then
     file:close()

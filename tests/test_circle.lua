@@ -10,7 +10,7 @@ TestCircle = {}
 
 function TestCircle:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestCircle:testCircleCreationWithRadius()
@@ -19,7 +19,7 @@ function TestCircle:testCircleCreationWithRadius()
   obj:export("temp/test_circle_radius.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_circle_radius.scad", "r")
+  local file = io.open("tests/temp/test_circle_radius.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for circle was not created")
   if file then
     local content = file:read("*all")
@@ -43,7 +43,7 @@ function TestCircle:testCircleCreationWithDiameter()
   obj:export("temp/test_circle_diameter.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_circle_diameter.scad", "r")
+  local file = io.open("tests/temp/test_circle_diameter.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for circle was not created")
   if file then
     local content = file:read("*all")

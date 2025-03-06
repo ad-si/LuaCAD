@@ -5,7 +5,7 @@ TestTranslate = {}
 
 function TestTranslate:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestTranslate:testDirectParameters()
@@ -14,7 +14,7 @@ function TestTranslate:testDirectParameters()
   translated:export("temp/test_translate_direct.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_translate_direct.scad", "r")
+  local file = io.open("tests/temp/test_translate_direct.scad", "r")
   luaunit.assertNotNil(file, "SCAD file was not created")
   if file then
     local content = file:read("*all")
@@ -36,7 +36,7 @@ function TestTranslate:testObjectParameter()
   translated:export("temp/test_translate_object.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_translate_object.scad", "r")
+  local file = io.open("tests/temp/test_translate_object.scad", "r")
   luaunit.assertNotNil(file, "SCAD file was not created")
   if file then
     local content = file:read("*all")
@@ -58,7 +58,7 @@ function TestTranslate:testArrayParameter()
   translated:export("temp/test_translate_array.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_translate_array.scad", "r")
+  local file = io.open("tests/temp/test_translate_array.scad", "r")
   luaunit.assertNotNil(file, "SCAD file was not created")
   if file then
     local content = file:read("*all")
@@ -80,7 +80,7 @@ function TestTranslate:testVectorParameter()
   translated:export("temp/test_translate_vector.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_translate_vector.scad", "r")
+  local file = io.open("tests/temp/test_translate_vector.scad", "r")
   luaunit.assertNotNil(file, "SCAD file was not created")
   if file then
     local content = file:read("*all")

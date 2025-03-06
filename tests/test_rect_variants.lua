@@ -10,7 +10,7 @@ TestRectVariants = {}
 
 function TestRectVariants:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestRectVariants:testRectroundCreation()
@@ -23,7 +23,7 @@ function TestRectVariants:testRectroundCreation()
   obj:export("temp/test_rectround.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rectround.scad", "r")
+  local file = io.open("tests/temp/test_rectround.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for rounded rectangle was not created")
   if file then
     local content = file:read("*all")
@@ -51,7 +51,7 @@ function TestRectVariants:testRectchamferCreation()
   obj:export("temp/test_rectchamfer.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_rectchamfer.scad", "r")
+  local file = io.open("tests/temp/test_rectchamfer.scad", "r")
   luaunit.assertNotNil(
     file,
     "SCAD file for chamfered rectangle was not created"

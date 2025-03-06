@@ -10,7 +10,7 @@ TestLonghole = {}
 
 function TestLonghole:setUp()
   -- Create temp directory if it doesn't exist
-  os.execute("mkdir -p temp")
+  os.execute("mkdir -p tests/temp")
 end
 
 function TestLonghole:testLongholeCreation()
@@ -22,7 +22,7 @@ function TestLonghole:testLongholeCreation()
   obj:export("temp/test_longhole.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_longhole.scad", "r")
+  local file = io.open("tests/temp/test_longhole.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for longhole was not created")
   if file then
     local content = file:read("*all")
@@ -50,7 +50,7 @@ function TestLonghole:testLongholeRelative()
   obj:export("temp/test_longhole_relative.scad")
 
   -- Verify file was created
-  local file = io.open("temp/test_longhole_relative.scad", "r")
+  local file = io.open("tests/temp/test_longhole_relative.scad", "r")
   luaunit.assertNotNil(file, "SCAD file for relative longhole was not created")
   if file then
     local content = file:read("*all")

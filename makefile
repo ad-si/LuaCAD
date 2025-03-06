@@ -7,18 +7,18 @@ TEST_FILES = $(wildcard tests/test_*.lua)
 
 
 .PHONY: test
-test: fmt
-	mkdir -p temp
+test:
+	mkdir -p tests/temp
 	lua tests/run_tests.lua
 
 
 .PHONY: test-single
-test-single: fmt
+test-single:
 	@if [ -z "$(file)" ]; then \
 		echo "Error: Please specify a test file with 'make test-single file=test_file.lua'"; \
 		exit 1; \
 	fi
-	mkdir -p temp
+	mkdir -p tests/temp
 	@echo "🎬 Running $(file)"
 	@lua $(file)
 
@@ -32,7 +32,7 @@ benchmark:
 
 .PHONY: clean
 clean:
-	rm -rf temp
+	rm -rf tests/temp
 
 
 .PHONY: fmt
