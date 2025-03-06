@@ -40,8 +40,19 @@ local function update_content(this, str)
   this.scad_content = this.scad_content .. str
 end
 
-local function update_content_t(obj, scad_func, t)
-  local _scad_content = string.gsub(scad_func, "%$(%w+)", t)
+local function update_content_t(obj, scad_template, t)
+  local replacementValue = (
+    type(t) == "table"
+    and t.tableType == "var"
+    and t.value
+  ) or t
+
+  local _scad_content = string.gsub(scad_template, "%$(%w+)", function(key)
+    if type(t[key]) == "table" then
+      return t[key]
+    end
+    return t[key] or "ERROR: " .. key
+  end)
   update_content(obj, _scad_content)
 end
 
@@ -65,6 +76,12 @@ local function export_scad(obj, file)
   end
   fscad:write(cad.settings.include .. "\n")
   fscad:write("$fn = " .. obj.segments .. ";\n\n")
+
+  -- Include variable assignments if they exist
+  if cad.scad_variables and cad.scad_variables ~= "" then
+    fscad:write(cad.scad_variables .. "\n")
+  end
+
   fscad:write(obj.scad_content)
   fscad:close()
 
@@ -227,6 +244,25 @@ cad_meta.__sub = function(a, b)
   return a:sub(b)
 end
 
+-- Get the value of a variable or its variable name
+function valOrName(var)
+  if type(var) == "table" and var.tableType == "var" then
+    return var.name or var.value
+  end
+  return var
+end
+
+function tableToStr(t)
+  if type(t) ~= "table" then
+    return "ERROR: " .. type(t) .. " " .. tostring(t)
+  end
+  local str = "TABLE_TO_STR {"
+  for k, v in pairs(t) do
+    str = str .. k .. "=" .. tableToStr(v) .. ","
+  end
+  return str .. "}"
+end
+
 -- Export helper functions for other modules
 cad._helpers = {
   getExtension = getExtension,
@@ -237,6 +273,8 @@ cad._helpers = {
   export_scad = export_scad,
   cad_obj = cad_obj,
   cad_meta = cad_meta,
+  valOrName = valOrName,
+  tableToStr = tableToStr,
 }
 
 -- Load other modules

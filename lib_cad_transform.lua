@@ -101,7 +101,13 @@ function cad._helpers.cad_meta.__index.scale(obj_1, x, y, z)
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,
-    "scale([" .. x .. "," .. y .. "," .. z .. "])\n{\n"
+    "scale(["
+      .. tostring(valOrName(x or 0))
+      .. ","
+      .. tostring(valOrName(y or 0))
+      .. ","
+      .. tostring(valOrName(z or 0))
+      .. "])\n{\n"
   )
   cad._helpers.intend_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
@@ -166,7 +172,13 @@ function cad._helpers.cad_meta.__index.translate(obj_1, x, y, z)
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,
-    "translate([" .. x .. "," .. y .. "," .. z .. "])\n{\n"
+    "translate(["
+      .. valOrName(x)
+      .. ","
+      .. valOrName(y)
+      .. ","
+      .. valOrName(z)
+      .. "])\n{\n"
   )
   cad._helpers.intend_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)

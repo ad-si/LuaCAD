@@ -27,11 +27,11 @@ sphere(d = $DIAMETER);
 function cad.sphere(args)
   local obj = cad._helpers.cad_obj()
   if args.r then
-    local t = { RADIUS = args.r }
+    local t = { RADIUS = valOrName(args.r) }
     cad._helpers.update_content_t(obj, scad_sphere_radius, t)
     return obj
   elseif args.d then
-    local t = { DIAMETER = args.d }
+    local t = { DIAMETER = valOrName(args.d) }
     cad._helpers.update_content_t(obj, scad_sphere_diameter, t)
     return obj
   else

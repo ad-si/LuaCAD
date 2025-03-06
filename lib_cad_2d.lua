@@ -127,7 +127,7 @@ function cad.polygon(args)
   -- create coordinates string
   local coor = "["
   for i, v in ipairs(t_points) do
-    coor = coor .. "[" .. v[1] .. "," .. v[2] .. "],"
+    coor = coor .. "[" .. valOrName(v[1]) .. "," .. valOrName(v[2]) .. "],"
   end
   coor = string.sub(coor, 1, -2) .. "]"
 
@@ -135,7 +135,7 @@ function cad.polygon(args)
   if t_paths then
     paths = ", paths=["
     for i, v in ipairs(t_paths) do
-      paths = paths .. "[" .. table.concat(v, ",") .. "],"
+      paths = paths .. "[" .. table.concat(valOrName(v), ",") .. "],"
     end
     paths = string.sub(paths, 1, -2) .. "]"
   end
