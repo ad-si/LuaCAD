@@ -2,7 +2,8 @@
 
 ## Build & Test Commands
 - Run all tests: `make test`
-- Run single test: `make test-single file=tests/test_file.lua` (e.g., `make test-single file=tests/test_cube.lua`)
+- Run single test: `make test-single file=tests/test_file.lua`
+    (e.g., `make test-single file=tests/test_cube.lua`)
 - Clean temp files: `make clean`
 - Benchmark Lua vs LuaJIT: `make benchmark`
 

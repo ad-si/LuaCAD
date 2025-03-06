@@ -38,4 +38,4 @@ clean:
 .PHONY: fmt
 fmt:
 	@echo "🎨 Formatting Lua code with StyLua"
-	@stylua .
+	@stylua . luascad

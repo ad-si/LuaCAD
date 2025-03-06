@@ -1,0 +1,122 @@
+#!/usr/bin/env luajit
+
+local isWindows = package.config:sub(1, 1) == "\\"
+
+-- Get the filename from the command-line argument
+local filename = arg[1]
+if not filename then
+  print("Usage: luascad <file.lua>")
+  os.exit(1)
+end
+
+-- Add script directory to package.path to ensure libraries are found
+local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
+if not script_path:match("/$") then
+  script_path = script_path .. "/"
+end
+package.path = script_path .. "?.lua;" .. package.path
+
+-- Get absolute path of the input file
+local function get_absolute_path(path)
+  if path:sub(1, 1) == "/" then
+    return path -- Already absolute
+  else
+    local current_dir = os.getenv("PWD") or io.popen("pwd"):read("*l")
+    return current_dir .. "/" .. path
+  end
+end
+
+filename = get_absolute_path(filename)
+
+-- Save current directory and change to file's directory when executing
+local current_dir = os.getenv("PWD") or io.popen("pwd"):read("*l")
+local file_dir = filename:match("(.*/)") or "./"
+
+-- Function to execute a file in its directory
+local function execute_file(file)
+  local old_dir = os.getenv("PWD") or io.popen("pwd"):read("*l")
+  os.execute("cd " .. file_dir)
+
+  -- Reset the cad module to clear accumulated variable definitions
+  for k, _ in pairs(package.loaded) do
+    if k:match("^lib_cad") then
+      package.loaded[k] = nil
+    end
+  end
+
+  -- Execute the file with clean environment
+  local status, err = pcall(dofile, file)
+  os.execute("cd " .. old_dir)
+
+  -- Print errors if any occurred
+  if not status then
+    print("\n❌ Error: " .. tostring(err))
+  end
+
+  return status, err
+end
+
+-- Function to get the file modification time using system commands
+local function get_mtime(file)
+  local cmd
+  if isWindows then
+    -- Windows: use `for %A in (file) do @echo %~tA`
+    cmd = 'for %A in ("' .. file .. '") do @echo %~tA'
+  else
+    -- Detect OS: macOS uses `stat -f %m`, Linux uses `stat -c %Y`
+    local uname = io.popen("uname"):read("*l")
+    if uname == "Darwin" then
+      cmd = 'stat -f %m "' .. file .. '"'
+    else
+      cmd = 'stat -c %Y "' .. file .. '"'
+    end
+  end
+  local handle = io.popen(cmd)
+  local result = handle:read("*a")
+  handle:close()
+  return tonumber(result) or 0
+end
+
+-- Reset modules on startup to ensure clean environment
+for k, _ in pairs(package.loaded) do
+  if k:match("^lib_cad") then
+    package.loaded[k] = nil
+  end
+end
+
+-- Initial execution
+print("Executing: " .. filename)
+execute_file(filename)
+
+-- Watch loop
+local last_mtime = get_mtime(filename)
+
+print("\nWatching for changes... (press ctrl+c to exit)")
+local ok, err = pcall(function()
+  while true do
+    local current_mtime = get_mtime(filename)
+    if current_mtime ~= last_mtime then
+      last_mtime = current_mtime
+      print('\n🔄 Re-executing "' .. filename .. '"')
+      local success, error_msg = execute_file(filename)
+      if not success then
+        print("Fix the error and save to try again.")
+      end
+    end
+    -- Sleep to reduce CPU usage
+    if isWindows then
+      os.execute("timeout /t 1 >nul")
+    else
+      -- Sleep with timeout in a way that can be interrupted
+      local exit_code = os.execute("sleep 0.1")
+      if exit_code ~= 0 and exit_code ~= true then
+        print("\nExiting...")
+        break
+      end
+    end
+  end
+end)
+
+if not ok then
+  print("\nExiting... " .. (err or ""))
+end
