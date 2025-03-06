@@ -97,7 +97,19 @@ end
   scale an object in percent/100, 1=same size, 2=double, 0.5=half
 --]]
 ----------------------------------------
-function cad._helpers.cad_meta.__index.scale(obj_1, x, y, z)
+function cad._helpers.cad_meta.__index.scale(obj_1, argsOrX, y, z)
+  if type(argsOrX) == "table" then
+    if argsOrX.v then
+      x, y, z = argsOrX.v[1], argsOrX.v[2], argsOrX.v[3]
+    elseif #argsOrX == 3 then
+      x, y, z = argsOrX[1], argsOrX[2], argsOrX[3]
+    elseif argsOrX.x then
+      x, y, z = argsOrX.x, argsOrX.y, argsOrX.z
+    end
+  else
+    x = argsOrX
+  end
+
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,
@@ -161,14 +173,43 @@ function cad._helpers.cad_meta.__index.resize(
 end
 
 --[[------------------------------------------
-  function <cad>:translate(x, y [, z])
+  <cad>:translate(x, y [, z]) or
+  <cad>:translate({x=x, y=y, z=z}) or
+  <cad>:translate({x, y, z}) or
+  <cad>:translate({v = {x, y, z}})
 
   z is by default 0.
   move the objects relative by x,y and z
 --]]
 ------------------------------------------
-function cad._helpers.cad_meta.__index.translate(obj_1, x, y, z)
-  local z = z or 0
+function cad._helpers.cad_meta.__index.translate(obj_1, param1, param2, param3)
+  local x, y, z = 0, 0, 0
+
+  -- Handle table-style parameter
+  if type(param1) == "table" and param1.tableType ~= "var" then
+    if param1.v ~= nil then
+      -- Vector-style: translate({v = {x, y, z}})
+      x = param1.v[1] or 0
+      y = param1.v[2] or 0
+      z = param1.v[3] or 0
+    elseif param1.x ~= nil then
+      -- Object-style: translate({x=x, y=y, z=z})
+      x = param1.x or 0
+      y = param1.y or 0
+      z = param1.z or 0
+    else
+      -- Array-style: translate({x, y, z})
+      x = param1[1] or 0
+      y = param1[2] or 0
+      z = param1[3] or 0
+    end
+  else
+    -- Handle direct parameters: translate(x, y, z)
+    x = param1 or 0
+    y = param2 or 0
+    z = param3 or 0
+  end
+
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,

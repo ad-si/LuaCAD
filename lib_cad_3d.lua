@@ -25,6 +25,10 @@ local scad_sphere_diameter = [[
 sphere(d = $DIAMETER);
 ]]
 function cad.sphere(args)
+  if not args then
+    return cad.sphere { r = 1 }
+  end
+
   local obj = cad._helpers.cad_obj()
   if args.r then
     local t = { RADIUS = valOrName(args.r) }
@@ -41,6 +45,8 @@ end
 
 --[[------------------------------------------
   cad.cube{size = {x, y, z}, center = true/false}
+  cad.cube(x, y, z)  -- Function call syntax
+  cad.cube{x, y, z}  -- Table as array syntax
 
   Draw a cube or a cuboid
 --]]
@@ -49,11 +55,33 @@ local scad_cube = [[
 translate([$X, $Y, $Z])
 cube([$WIDTH, $HEIGHT, $DEPTH]);
 ]]
-function cad.cube(args)
-  local xLen = args.size[1] or 1
-  local yLen = args.size[2] or 1
-  local zLen = args.size[3] or 1
-  local isCenter = args.center or false
+function cad.cube(argsOrX, y, z)
+  local xLen, yLen, zLen, isCenter
+
+  -- Table-as-array syntax: cad.cube{3, 3, 5}
+  if type(argsOrX) == "table" and #argsOrX == 3 then
+    xLen = argsOrX[1] or 1
+    yLen = argsOrX[2] or 1
+    zLen = argsOrX[3] or 1
+    isCenter = argsOrX.center or false
+  elseif type(argsOrX) == "table" and argsOrX.size then
+    -- Traditional syntax: cad.cube{size = {x, y, z}, center = true/false}
+    xLen = argsOrX.size[1] or 1
+    yLen = argsOrX.size[2] or 1
+    zLen = argsOrX.size[3] or 1
+    isCenter = argsOrX.center or false
+  else
+    -- Function call syntax: cad.cube(x, y, z)
+    xLen = argsOrX or 1
+    yLen = y or 1
+    zLen = z or 1
+    isCenter = false
+  end
+
+  xLen = valOrName(xLen)
+  yLen = valOrName(yLen)
+  zLen = valOrName(zLen)
+  isCenter = valOrName(isCenter)
 
   local obj = cad._helpers.cad_obj()
   local t = {
@@ -61,8 +89,8 @@ function cad.cube(args)
     Y = (isCenter and -yLen / 2) or 0,
     Z = (isCenter and -zLen / 2) or 0,
     WIDTH = xLen,
-    HEIGHT = zLen,
-    DEPTH = yLen,
+    HEIGHT = yLen,
+    DEPTH = zLen,
   }
   cad._helpers.update_content_t(obj, scad_cube, t)
   return obj

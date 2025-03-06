@@ -21,6 +21,7 @@ function TestCube:testCubeCreation()
     luaunit.assertStrContains(
       content,
       "cube",
+      false,
       "Cube command not found in generated SCAD file"
     )
   end
@@ -39,6 +40,7 @@ function TestCube:testCubeWithCustomSize()
     luaunit.assertStrContains(
       content,
       "cube",
+      false,
       "Cube command not found in generated SCAD file"
     )
   end
@@ -57,6 +59,7 @@ function TestCube:testCubeWithCenter()
     luaunit.assertStrContains(
       content,
       "cube",
+      false,
       "Cube command not found in generated SCAD file"
     )
     -- The implementation might handle centering with translate instead of the center parameter
@@ -65,9 +68,61 @@ function TestCube:testCubeWithCenter()
       luaunit.assertStrContains(
         content,
         "translate",
+        false,
         "Neither center nor translate found in generated SCAD file"
       )
     end
+  end
+end
+
+function TestCube:testCubeWithArraySyntax()
+  local cube = cad.cube { 3, 3, 5 }
+  cube:export("temp/test_cube_array_syntax.scad")
+
+  -- Verify file was created
+  local file = io.open("temp/test_cube_array_syntax.scad", "r")
+  luaunit.assertNotNil(file, "SCAD file for array syntax cube was not created")
+  if file then
+    local content = file:read("*all")
+    file:close()
+    -- Check for the dimensions in the SCAD output
+    luaunit.assertStrContains(
+      content,
+      "cube([3, 3, 5])",
+      false,
+      "Cube with correct dimensions not found in SCAD file"
+    )
+  end
+end
+
+function TestCube:testCubeWithArraySyntaxAndCenter()
+  local cube = cad.cube { 4, 4, 6, center = true }
+  cube:export("temp/test_cube_array_syntax_centered.scad")
+
+  -- Verify file was created
+  local file = io.open("temp/test_cube_array_syntax_centered.scad", "r")
+  luaunit.assertNotNil(
+    file,
+    "SCAD file for centered array syntax cube was not created"
+  )
+  if file then
+    local content = file:read("*all")
+    file:close()
+    -- Check for the dimensions in the SCAD output
+    luaunit.assertStrContains(
+      content,
+      "cube([4, 4, 6])",
+      false,
+      "Cube with correct dimensions not found in SCAD file"
+    )
+    -- The implementation might handle centering with translate instead of the center parameter
+    -- So we'll check that the file contains a translation that centers the cube
+    luaunit.assertStrContains(
+      content,
+      "translate([-2.0, -2.0, -3.0])",
+      false,
+      "Translation for centering not found in generated SCAD file"
+    )
   end
 end
 

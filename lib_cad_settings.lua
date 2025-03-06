@@ -2,7 +2,7 @@ local openscad_settings_windows = {
   executable = [["C:\Program Files\OpenSCAD\openscad.com"]],
   scadfile = [[D:\Temp\lua_openscad_tmp.scad]],
   tmpfile = [[D:\Temp\lua_cad_tmp]],
-  default_segments = 12,
+  default_segments = 18,
   include = "",
 }
 
@@ -10,7 +10,7 @@ local openscad_settings_macos = {
   executable = "/opt/homebrew/bin/openscad",
   scadfile = "/tmp/lua_openscad_tmp.scad",
   tmpfile = "/tmp/lua_cad_tmp",
-  default_segments = 12,
+  default_segments = 18,
   include = "",
 }
 
