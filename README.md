@@ -3,6 +3,8 @@
 LuaSCAD is a scripting library which uses [OpenSCAD] as engine
 to create 2D and 3D objects.
 
+[OpenSCAD]: https://www.openscad.org/
+
 **Supported exports formats are:**
 
 - [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
@@ -15,24 +17,22 @@ The LuaSCAD library creates [OpenSCAD] code
 which is then used to create DXF, SVG, or STL files.
 If the object should have a specific color then LuaSCAD can take an STL file
 and convert it to OBJ or WRL with color.
+Full support or [Belfry OpenSCAD Library v2][BOLS2] library is planned.
 
-**Main Features:**
+[BOLS2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
-- Using CAD objects
-- STL to WRL converter with color
-- STL to OBJ converter with color
 
-**Installation:**
+## Installation
 
-- Clone the repository: `git clone https://github.com/ad-si/LuaSCAD`
 - Install [OpenSCAD] if not already installed
-- Add a new `.lua` file to the root directory of the repository
-- Implement your model
-- ```sh
-  lua your_model.lua
-  ```
-
-[OpenSCAD]: https://www.openscad.org/
+- [Download the project](https://github.com/ad-si/LuaSCAD/archive/refs/heads/main.zip)
+- Unzip the project
+- Add a new `.lua` file to the root directory
+- Implement your model as LusSCAD code
+- Execute code to produce output:
+    ```sh
+    lua your_model.lua
+    ```
 
 
 ## Example
@@ -47,14 +47,36 @@ translate([5,0,0]) sphere(r = 2);
 **LuaSCAD:**
 
 ```lua
-require "lib_cad"
+require "luascad"
 
-local cube = cad.cube{size={1, 2, 3}}
-local sphere = cad.sphere{r = 2}
+local cube_model = cube{size={1, 2, 3}}
+local sphere_model = sphere{r = 2}
 
-local model = cube + sphere
+local model = cube_model + sphere_model
 model:export("temp/model.scad")
 ```
+
+## Additional Functions
+
+In comparison to OpenSCAD, LuaSCAD provides several additional functions
+that make it easier to create complex models:
+
+- 2D Objects
+  - `ellipse()`
+  - `regular_polygon()`
+- 3D Objects
+  - `cone()` (can use cylinder with different radii)
+  - `prism()`
+  - `wedge()`
+  - `torus()`
+  - `surface()`
+- Extrusions
+  - `rotate_extrude()` with angle parameter
+- Mathematical/Programming
+  - Most math functions (`cross()`, `norm()`, trigonometric functions)
+  - List operations (`len()`, `each`, `range()`)
+- Special
+  - `import_3mf()`, `rands()`, `search()`
 
 
 ## Why Lua?
@@ -72,6 +94,14 @@ model:export("temp/model.scad")
   https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A
 
 
+## OpenSCAD to  LuaSCAD
+
+- `*` -> `s()` (skip)
+- `!` -> `o()` (only)
+- `#` -> `d()` (debug)
+- `%` -> `t()` (transparent)
+
+
 ## Tests
 
 Several test files are provided in the `tests/` directory
@@ -82,3 +112,26 @@ to ensure functionality.
 
 The initial work was done by Michael Lutz at
 [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
+
+
+## Related
+
+Other CAD software that support programmatic creation of 3D models:
+
+- [BlocksCAD] - Blockly-based CAD software
+- [FreeCAD] - Python scripting
+- [ImplicitCAD] - Haskell-based CAD software
+- [LibreCAD] - Lua scripting
+- [OpenSCAD] - OpenSCAD language
+- [ManifoldCAD] - Online CAD software using JavaScript
+- https://github.com/twitchyliquid64/liquid-cad
+- https://github.com/Michael-F-Bryan/scad-rs
+
+[BlocksCAD]: https://www.blockscad3d.com/editor/
+[FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
+[ImplicitCAD]: https://implicitcad.org/
+[ManifoldCAD]: https://manifoldcad.org/
+
+
+[BOSL2]: https://github.com/BelfrySCAD/BOSL2
+
