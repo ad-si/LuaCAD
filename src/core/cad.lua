@@ -5,7 +5,7 @@
 --================================================================================
 
 -- Load all CAD modules
-require("lib_cad_core")
+require("src.core.cad_core")
 
 -- Global variable for storing OpenSCAD variable assignments
 cad.scad_variables = ""

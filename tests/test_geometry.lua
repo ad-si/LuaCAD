@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_geometry")
+require("src.core.geometry")
 
 TestGeometry = {}
 

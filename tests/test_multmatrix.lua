@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestMultMatrix = {}
 
@@ -10,7 +10,7 @@ end
 
 function TestMultMatrix:testBasicMultMatrix()
   -- Create a simple cube
-  local cube = cad.cube { size = { 2, 2, 2 } }
+  local cube = cube { size = { 2, 2, 2 } }
 
   -- Identity matrix - should not change the cube
   local identity_matrix = {
@@ -60,7 +60,7 @@ end
 
 function TestMultMatrix:testScaleWithMultMatrix()
   -- Create a simple cube
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
 
   -- Scale matrix - scale 2x in all dimensions
   local scale_matrix = {
@@ -107,7 +107,7 @@ end
 
 function TestMultMatrix:testTranslationWithMultMatrix()
   -- Create a simple cube
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
 
   -- Translation matrix - move 3 units in x, 2 in y, 1 in z
   local translation_matrix = {
@@ -157,7 +157,7 @@ end
 
 function TestMultMatrix:testRotationWithMultMatrix()
   -- Create a simple cube
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
 
   -- Rotation matrix - rotate 45 degrees around Z axis
   -- sin(45°) = cos(45°) = 0.7071067811865475
@@ -212,7 +212,7 @@ end
 
 function TestMultMatrix:testCombinationWithMultMatrix()
   -- Create a simple cube
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
 
   -- Combined matrix - scale, rotate, and translate
   -- First scale by 2, then rotate 45° around Z, then translate by (3,2,1)
@@ -261,7 +261,7 @@ end
 
 function TestMultMatrix:testInvalidMatrixSize()
   -- Create a simple cube
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
 
   -- Invalid matrix with only 9 elements
   local invalid_matrix = {

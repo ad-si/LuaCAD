@@ -1,6 +1,6 @@
 --// create stl or dxf file
 
-require("lib_cad")
+require("luascad")
 local luaunit = require("luaunit")
 
 -- output file
@@ -16,7 +16,7 @@ end
 
 function TestExportWrl:testBoxExport()
   -- create cad object
-  local box = cad.cube { size = { 10, 20, 30 } }
+  local box = cube { size = { 10, 20, 30 } }
   -- export box as STL first, since WRL requires STL conversion
   box:export(self.cad_file .. "_box.stl", { 0, 0, 1 })
   -- Verify file exists
@@ -28,7 +28,7 @@ function TestExportWrl:testBoxExport()
 end
 
 function TestExportWrl:testCylinderExport()
-  local cyl = cad.cylinder { h = 50, r = 10 }
+  local cyl = cylinder { h = 50, r = 10 }
   -- export as stl
   cyl:export(self.cad_file .. "_cylinder.stl")
   -- Verify file exists

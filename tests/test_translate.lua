@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestTranslate = {}
 
@@ -9,7 +9,7 @@ function TestTranslate:setUp()
 end
 
 function TestTranslate:testDirectParameters()
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
   local translated = cube:translate(10, 20, 30)
   translated:export("temp/test_translate_direct.scad")
 
@@ -31,7 +31,7 @@ function TestTranslate:testDirectParameters()
 end
 
 function TestTranslate:testObjectParameter()
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
   local translated = cube:translate { x = 10, y = 20, z = 30 }
   translated:export("temp/test_translate_object.scad")
 
@@ -53,7 +53,7 @@ function TestTranslate:testObjectParameter()
 end
 
 function TestTranslate:testArrayParameter()
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
   local translated = cube:translate { 10, 20, 30 }
   translated:export("temp/test_translate_array.scad")
 
@@ -75,7 +75,7 @@ function TestTranslate:testArrayParameter()
 end
 
 function TestTranslate:testVectorParameter()
-  local cube = cad.cube { size = { 1, 1, 1 } }
+  local cube = cube { size = { 1, 1, 1 } }
   local translated = cube:translate { v = { 10, 20, 30 } }
   translated:export("temp/test_translate_vector.scad")
 

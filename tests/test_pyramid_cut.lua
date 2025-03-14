@@ -2,7 +2,7 @@
 -- which is cut from each sides and the bottom, side_inner is the pyramids cut side when using the pyramids_innercircumcenter not the bottom area
 -- and actual pyramid has a side length of 440 and a height of 280, or (110/70)
 
-require("lib_cad")
+require("luascad")
 local luaunit = require("luaunit")
 
 TestPyramidCut = {}
@@ -51,9 +51,9 @@ function TestPyramidCut:testPyramidCut()
   local d_x_cut = (side - cut_side) / 2
 
   -- Create the Pyramid
-  local pyr = cad.pyramid(0, 0, 0, side, height)
+  local pyr = pyramid(0, 0, 0, side, height)
 
-  local pyr_cut_1 = cad.pyramid(d_x_cut, d_x_cut, 0, cut_side, cut_h)
+  local pyr_cut_1 = pyramid(d_x_cut, d_x_cut, 0, cut_side, cut_h)
 
   local pyr_cut_2 = cad
     .polygon({

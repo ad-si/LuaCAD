@@ -175,29 +175,15 @@
 
   <div class="landing-container">
     <h2>Create 2D and 3D Objects with Lua</h2>
-    
-    <p>LuaSCAD is a scripting library which uses <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> as an engine
-    to create 2D and 3D objects with the power and flexibility of Lua.</p>
-    
-    <h3>Supported Export Formats</h3>
-    <ul class="feature-list">
-      <li><strong>DXF</strong> - 2D CAD format</li>
-      <li><strong>SVG</strong> - Scalable Vector Graphics</li>
-      <li><strong>STL</strong> - Standard Triangle Language for 3D printing</li>
-      <li><strong>OBJ</strong> - Wavefront 3D object format</li>
-      <li><strong>WRL</strong> - VRML format</li>
-    </ul>
-    
+
+    <p>LuaSCAD is a scripting library which uses <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> as an
+      engine
+      to create 2D and 3D objects with the power and flexibility of Lua.</p>
+
     <p>The LuaSCAD library creates OpenSCAD code which is then used to create DXF, SVG, or STL files.
-    If the object should have a specific color then LuaSCAD can take an STL file and convert it to OBJ or WRL with color.</p>
-    
-    <h3>Main Features</h3>
-    <ul class="feature-list">
-      <li>Using CAD objects</li>
-      <li>STL to WRL converter with color</li>
-      <li>STL to OBJ converter with color</li>
-    </ul>
-    
+      If the object should have a specific color then LuaSCAD can take an STL file and convert it to OBJ or WRL with
+      color.</p>
+
     <h3>Why Lua?</h3>
     <ul class="feature-list">
       <li>Similar syntax as the OpenSCAD language, but better:
@@ -210,23 +196,23 @@
       </li>
       <li>Already used in other CAD software like LibreCAD and Autodesk Netfabb</li>
     </ul>
-    
+
     <h3>Example</h3>
     <div class="example-code">
       <h4>OpenSCAD:</h4>
       <pre><code>cube([1,2,3]);
 translate([5,0,0]) sphere(r = 2);</code></pre>
-      
+
       <h4>LuaSCAD:</h4>
-      <pre><code>require "lib_cad"
+      <pre><code>require "luascad"
 
-local cube = cad.cube{size={1, 2, 3}}
-local sphere = cad.sphere{r = 2}
+local cube_model = cube{size={1, 2, 3}}
+local sphere_model = sphere{r = 2}
 
-local model = cube + sphere
+local model = cube_model + sphere_model
 model:export("temp/model.scad")</code></pre>
     </div>
-    
+
     <h3>Getting Started</h3>
     <ol class="feature-list">
       <li>Clone the repository: <code>git clone https://github.com/ad-si/LuaSCAD</code></li>
@@ -235,7 +221,21 @@ model:export("temp/model.scad")</code></pre>
       <li>Implement your model</li>
       <li>Run with: <code>lua your_model.lua</code></li>
     </ol>
-    
+
+    <h3>Main Features</h3>
+    <ul class="feature-list">
+      <li>Using CAD objects</li>
+    </ul>
+
+    <h3>Supported Export Formats</h3>
+    <ul class="feature-list">
+      <li><strong>DXF</strong> - 2D CAD format</li>
+      <li><strong>SVG</strong> - Scalable Vector Graphics</li>
+      <li><strong>STL</strong> - Standard Triangle Language for 3D printing</li>
+      <li><strong>OBJ</strong> - Wavefront 3D object format</li>
+      <li><strong>WRL</strong> - VRML format</li>
+    </ul>
+
     <div class="cta-buttons">
       <a href="https://github.com/ad-si/LuaSCAD" class="cta-button" target="_blank">GitHub Repository</a>
       <a href="cheatsheet.html" class="cta-button secondary">View Cheatsheet</a>

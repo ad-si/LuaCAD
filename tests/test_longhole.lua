@@ -4,7 +4,7 @@
 --================================================================================
 
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestLonghole = {}
 
@@ -15,7 +15,7 @@ end
 
 function TestLonghole:testLongholeCreation()
   -- Test creating a longhole
-  local obj = cad.longhole {
+  local obj = longhole {
     points = { { 10, 20 }, { 30, 40 } },
     r = 5,
   }
@@ -42,7 +42,7 @@ end
 
 function TestLonghole:testLongholeRelative()
   -- Test creating a relative longhole
-  local obj = cad.longholerelative {
+  local obj = longholerelative {
     point = { 5, 10 },
     delta = { 20, 15 },
     r = 3,

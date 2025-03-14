@@ -1,9 +1,9 @@
-require("lib_cad")
+require("luascad")
 
-cad.var("x", 1)
+var("x", 1)
 
-model = cad.cube { size = { 3, 3, 5 } }
-  + cad.cube { size = { 1, 2, 3 }, center = true }
-  + cad.sphere({ r = "x" }):translate(8, 8, 0) -- Direct parameters
+model = cube { size = { 3, 3, 5 } }
+  + cube { size = { 1, 2, 3 }, center = true }
+  + sphere({ r = "x" }):translate(8, 8, 0) -- Direct parameters
 
 model:export("test.scad")

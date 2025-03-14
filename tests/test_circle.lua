@@ -4,7 +4,7 @@
 --================================================================================
 
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestCircle = {}
 
@@ -15,7 +15,7 @@ end
 
 function TestCircle:testCircleCreationWithRadius()
   -- Test creating a circle with radius parameter
-  local obj = cad.circle { r = 10 }
+  local obj = circle { r = 10 }
   obj:export("temp/test_circle_radius.scad")
 
   -- Verify file was created
@@ -39,7 +39,7 @@ end
 
 function TestCircle:testCircleCreationWithDiameter()
   -- Test creating a circle with diameter parameter
-  local obj = cad.circle { d = 20 }
+  local obj = circle { d = 20 }
   obj:export("temp/test_circle_diameter.scad")
 
   -- Verify file was created

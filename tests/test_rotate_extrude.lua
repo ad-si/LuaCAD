@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestRotateExtrude = {}
 
@@ -17,7 +17,7 @@ end
 
 function TestRotateExtrude:testSimpleRotateExtrude()
   -- Create a circle that will be rotated to form a torus
-  local circle = cad.circle({ r = 2 }):translate(5, 0, 0)
+  local circle = circle({ r = 2 }):translate(5, 0, 0)
   local torus = circle:rotateextrude()
 
   torus:export("temp/test_rotate_extrude_simple.scad")
@@ -40,7 +40,7 @@ end
 
 function TestRotateExtrude:testRotateExtrudeWithAngle()
   -- Create a circle that will be rotated only 180 degrees
-  local circle = cad.circle({ r = 2 }):translate(5, 0, 0)
+  local circle = circle({ r = 2 }):translate(5, 0, 0)
   local partial_torus = circle:rotateextrude(180)
 
   partial_torus:export("temp/test_rotate_extrude_angle.scad")
@@ -135,9 +135,9 @@ function TestRotateExtrude:testRotateExtrudeWithAngleAndConvexity()
 end
 
 function TestRotateExtrude:testGlobalRotateExtrudeFunction()
-  -- Test the global function cad.rotate_extrude
-  local circle = cad.circle({ r = 2 }):translate(5, 0, 0)
-  local torus = cad.rotate_extrude { angle = 180, convexity = 5 }
+  -- Test the global function rotate_extrude
+  local circle = circle({ r = 2 }):translate(5, 0, 0)
+  local torus = rotate_extrude { angle = 180, convexity = 5 }
 
   -- Add the circle to the rotate_extrude operation
   torus:add(circle)

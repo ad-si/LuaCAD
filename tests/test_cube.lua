@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestCube = {}
 
@@ -9,7 +9,7 @@ function TestCube:setUp()
 end
 
 function TestCube:testCubeCreation()
-  local cube = cad.cube { size = { 3, 3, 3 } }
+  local cube = cube { size = { 3, 3, 3 } }
   cube:export("temp/test_cube_basic.scad")
 
   -- Verify file was created
@@ -28,7 +28,7 @@ function TestCube:testCubeCreation()
 end
 
 function TestCube:testCubeWithCustomSize()
-  local cube = cad.cube { size = { 1, 2, 3 } }
+  local cube = cube { size = { 1, 2, 3 } }
   cube:export("temp/test_cube_custom.scad")
 
   -- Verify file was created
@@ -47,7 +47,7 @@ function TestCube:testCubeWithCustomSize()
 end
 
 function TestCube:testCubeWithCenter()
-  local cube = cad.cube { size = { 2, 2, 2 }, center = true }
+  local cube = cube { size = { 2, 2, 2 }, center = true }
   cube:export("temp/test_cube_centered.scad")
 
   -- Verify file was created
@@ -76,7 +76,7 @@ function TestCube:testCubeWithCenter()
 end
 
 function TestCube:testCubeWithArraySyntax()
-  local cube = cad.cube { 3, 3, 5 }
+  local cube = cube { 3, 3, 5 }
   cube:export("temp/test_cube_array_syntax.scad")
 
   -- Verify file was created
@@ -96,7 +96,7 @@ function TestCube:testCubeWithArraySyntax()
 end
 
 function TestCube:testCubeWithArraySyntaxAndCenter()
-  local cube = cad.cube { 4, 4, 6, center = true }
+  local cube = cube { 4, 4, 6, center = true }
   cube:export("temp/test_cube_array_syntax_centered.scad")
 
   -- Verify file was created

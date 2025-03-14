@@ -4,7 +4,7 @@
 --]]
 --================================================================================
 
-require("lib_geometry") -- includes lib_vector
+require("src.core.geometry") -- includes vector
 
 --[[--------------------------------------------------------------------------------
   GLOBAL CAD TABLE
@@ -13,7 +13,7 @@ require("lib_geometry") -- includes lib_vector
 cad = {}
 
 -- OpenSCAD settings
-cad.settings = require("lib_cad_settings")
+cad.settings = require("src.core.cad_settings")
 
 --[[--------------------------------------------------------------------------------
   LOCAL OBJ HELPER FUNCTIONS
@@ -491,8 +491,8 @@ cad._helpers = {
 }
 
 -- Load other modules
-require("lib_cad_2d")
-require("lib_cad_3d")
-require("lib_cad_transform")
-require("lib_cad_export")
-require("lib_cad_stl")
+require("src.primitives.cad_2d")
+require("src.primitives.cad_3d")
+require("src.operations.cad_transform")
+require("src.export.cad_export")
+require("src.export.cad_stl")

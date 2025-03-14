@@ -1,6 +1,6 @@
 --// create stl or dxf file
 
-require("lib_cad")
+require("src.core.cad")
 
 -- output file
 local cad_file = "template_design.stl"

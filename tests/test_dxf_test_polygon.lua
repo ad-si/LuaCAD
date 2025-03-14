@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_dxf")
+require("src.export.dxf")
 
 TestDxfPolygon = {}
 

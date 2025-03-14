@@ -1,7 +1,7 @@
-require("lib_cad")
+require("luascad")
 
 function gear(num_teeth, height, radius)
-  local model = cad.cylinder { h = height, r = radius * 0.7 }
+  local model = cylinder { h = height, r = radius * 0.7 }
 
   -- Create teeth
   for i = 1, num_teeth do

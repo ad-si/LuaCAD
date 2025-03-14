@@ -4,7 +4,7 @@
 --================================================================================
 
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestSquare = {}
 
@@ -15,7 +15,7 @@ end
 
 function TestSquare:testSquareCreation()
   -- Test creating a square with the new signature
-  local obj = cad.square { size = { 10, 20 }, center = true }
+  local obj = square { size = { 10, 20 }, center = true }
   obj:export("temp/test_square.scad")
 
   -- Verify file was created
@@ -39,7 +39,7 @@ end
 
 function TestSquare:testSquareWithSingleSize()
   -- Test creating a square with just one size value (should make a square)
-  local obj = cad.square { size = { 15 }, center = false }
+  local obj = square { size = { 15 }, center = false }
   obj:export("temp/test_square_single.scad")
 
   -- Verify file was created
@@ -61,7 +61,7 @@ end
 
 function TestSquare:testRectAlias()
   -- Test that rect is working the same way
-  local obj = cad.rect { size = { 30, 40 }, center = true }
+  local obj = rect { size = { 30, 40 }, center = true }
   obj:export("temp/test_rect.scad")
 
   -- Verify file was created

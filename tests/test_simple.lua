@@ -4,7 +4,7 @@
 --================================================================================
 
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestSimple = {}
 
@@ -14,7 +14,7 @@ function TestSimple:setUp()
 end
 
 function TestSimple:testCubeCreation()
-  local cube = cad.cube { size = { 1, 2, 3 } }
+  local cube = cube { size = { 1, 2, 3 } }
   cube:export("temp/test_simple_cube.scad")
 
   -- Verify file was created
@@ -33,7 +33,7 @@ function TestSimple:testCubeCreation()
 end
 
 function TestSimple:testSphereCreation()
-  local sphere = cad.sphere { r = 2 }
+  local sphere = sphere { r = 2 }
   sphere:export("temp/test_simple_sphere.scad")
 
   -- Verify file was created
@@ -61,11 +61,11 @@ function TestSimple:testCylinderCreation()
   }
 
   -- Create the cylinders
-  cad.cylinder({ h = 10, r = 5 }):export(files[1])
-  cad.cylinder({ h = 10, d = 10 }):export(files[2])
-  cad.cylinder({ h = 15, r1 = 5, r2 = 2 }):export(files[3])
-  cad.cylinder({ h = 15, d1 = 10, d2 = 4 }):export(files[4])
-  cad.cylinder({ h = 10, r = 5, center = true }):export(files[5])
+  cylinder({ h = 10, r = 5 }):export(files[1])
+  cylinder({ h = 10, d = 10 }):export(files[2])
+  cylinder({ h = 15, r1 = 5, r2 = 2 }):export(files[3])
+  cylinder({ h = 15, d1 = 10, d2 = 4 }):export(files[4])
+  cylinder({ h = 10, r = 5, center = true }):export(files[5])
 
   for _, filepath in ipairs(files) do
     local file = io.open("tests/" .. filepath, "r")
@@ -77,8 +77,8 @@ function TestSimple:testCylinderCreation()
 end
 
 function TestSimple:testCombiningShapes()
-  local cube = cad.cube { size = { 1, 2, 3 } }
-  local sphere = cad.sphere { r = 2 }
+  local cube = cube { size = { 1, 2, 3 } }
+  local sphere = sphere { r = 2 }
 
   local model = cube + sphere
   model:export("temp/test_simple_combined.scad")
@@ -93,8 +93,8 @@ end
 
 function TestSimple:testShowOnlyModifier()
   -- Test the showOnly functionality in a more direct manner
-  local obj = cad.cube { size = { 10, 10, 10 } }
-  local obj_show = cad.s(obj)
+  local obj = cube { size = { 10, 10, 10 } }
+  local obj_show = s(obj)
 
   -- Basic test of showOnly property
   luaunit.assertTrue(obj_show.showOnly, "showOnly property not set correctly")

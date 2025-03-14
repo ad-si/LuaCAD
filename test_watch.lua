@@ -1,4 +1,4 @@
-require("lib_cad")
+require("luascad")
 
 -- Add a global counter to track executions
 if not _G.counter then
@@ -6,13 +6,13 @@ if not _G.counter then
 end
 _G.counter = _G.counter + 1
 
--- Create a variable definition using cad.var
-local x = cad.var("x", _G.counter)
+-- Create a variable definition using var
+local x = var("x", _G.counter)
 
 print("Execution #" .. _G.counter .. ", x = " .. x)
 
 -- Create a simple model
-model = cad.cube { size = { 3, 3, 5 } }
+model = cube { size = { 3, 3, 5 } }
 model:export("test.scad")
 
 -- Check the content of the SCAD file to verify no duplication

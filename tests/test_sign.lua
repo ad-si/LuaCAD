@@ -1,21 +1,21 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestSign = {}
 
 function TestSign:testSignFunction()
   -- Test positive values
-  luaunit.assertEquals(cad.sign(5), 1)
-  luaunit.assertEquals(cad.sign(0.1), 1)
-  luaunit.assertEquals(cad.sign(1e100), 1)
+  luaunit.assertEquals(sign(5), 1)
+  luaunit.assertEquals(sign(0.1), 1)
+  luaunit.assertEquals(sign(1e100), 1)
 
   -- Test zero
-  luaunit.assertEquals(cad.sign(0), 0)
+  luaunit.assertEquals(sign(0), 0)
 
   -- Test negative values
-  luaunit.assertEquals(cad.sign(-5), -1)
-  luaunit.assertEquals(cad.sign(-0.1), -1)
-  luaunit.assertEquals(cad.sign(-1e100), -1)
+  luaunit.assertEquals(sign(-5), -1)
+  luaunit.assertEquals(sign(-0.1), -1)
+  luaunit.assertEquals(sign(-1e100), -1)
 end
 
 -- Test direct use of geometry.sign
@@ -32,8 +32,8 @@ function TestSign:testSignInCADModel()
 
   -- Create a model where height depends on sign
   local value = -3
-  local height = 2 * math.abs(value) * cad.sign(value)
-  local model = cad.cube { size = { 10, 10, math.abs(height) } }
+  local height = 2 * math.abs(value) * sign(value)
+  local model = cube { size = { 10, 10, math.abs(height) } }
   model:export("temp/test_sign_model.scad")
 
   -- Verify file was created

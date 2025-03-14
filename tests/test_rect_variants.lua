@@ -4,7 +4,7 @@
 --================================================================================
 
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestRectVariants = {}
 
@@ -15,7 +15,7 @@ end
 
 function TestRectVariants:testRectroundCreation()
   -- Test creating a rounded rectangle
-  local obj = cad.rectround {
+  local obj = rectround {
     size = { 30, 20 },
     radius = 5,
     center = true,
@@ -43,7 +43,7 @@ end
 
 function TestRectVariants:testRectchamferCreation()
   -- Test creating a chamfered rectangle
-  local obj = cad.rectchamfer {
+  local obj = rectchamfer {
     size = { 40, 25 },
     chamfer = 8,
     center = false,

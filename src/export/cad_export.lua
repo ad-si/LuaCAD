@@ -4,7 +4,7 @@
 --]]
 --================================================================================
 
--- This module will be loaded by lib_cad_core.lua
+-- This module will be loaded by src.core.cad_core.lua
 local cad = cad or {}
 
 --[[----------------------------------------

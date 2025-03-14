@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestSphere = {}
 
@@ -9,7 +9,7 @@ function TestSphere:setUp()
 end
 
 function TestSphere:testSphereCreationWithRadius()
-  local sphere = cad.sphere { r = 5 }
+  local sphere = sphere { r = 5 }
   sphere:export("temp/test_sphere_radius.scad")
 
   -- Verify file was created
@@ -32,7 +32,7 @@ function TestSphere:testSphereCreationWithRadius()
 end
 
 function TestSphere:testSphereCreationWithDiameter()
-  local sphere = cad.sphere { d = 10 }
+  local sphere = sphere { d = 10 }
   sphere:export("temp/test_sphere_diameter.scad")
 
   -- Verify file was created
@@ -58,7 +58,7 @@ function TestSphere:testSphereCreationWithDiameter()
 end
 
 function TestSphere:testSphereTranslation()
-  local sphere = cad.sphere { r = 3 }
+  local sphere = sphere { r = 3 }
   sphere:translate(10, 10, 10)
   sphere:export("temp/test_sphere_translated.scad")
 
@@ -87,7 +87,7 @@ function TestSphere:testSphereTranslation()
 end
 
 function TestSphere:testSphereColorSetting()
-  local sphere = cad.sphere { r = 4 }
+  local sphere = sphere { r = 4 }
   sphere:setcolor("red")
   sphere:export("temp/test_sphere_colored.scad")
 
@@ -108,7 +108,7 @@ end
 function TestSphere:testMissingParameters()
   -- Should raise an error when neither radius nor diameter is provided
   luaunit.assertErrorMsgContains("No radius or diameter was given", function()
-    cad.sphere {}
+    sphere {}
   end)
 end
 

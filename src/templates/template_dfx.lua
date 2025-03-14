@@ -1,6 +1,6 @@
 --// create stl or dxf file
 
-require("lib_dxf")
+require("src.export.dxf")
 
 -- output file
 local dxf_file = "template.dxf"

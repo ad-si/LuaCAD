@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestMinkowski = {}
 
@@ -10,9 +10,10 @@ end
 
 function TestMinkowski:testMinkowskiBasic()
   -- Create a basic minkowski example: cube + sphere
-  local obj = cad.cube { size = { 10, 10, 10 }, center = true }
-  obj:add(cad.sphere { r = 2 }):minkowski()
-  obj:export("temp/test_minkowski_basic.scad")
+  cube({ size = { 10, 10, 10 }, center = true })
+    :add(sphere { r = 2 })
+    :minkowski()
+    :export("temp/test_minkowski_basic.scad")
 
   -- Verify file was created
   local file = io.open("tests/temp/test_minkowski_basic.scad", "r")
@@ -40,9 +41,10 @@ end
 
 function TestMinkowski:test2DMinkowski()
   -- Create a 2D minkowski example: square + circle
-  local obj = cad.square { size = { 10, 10 }, center = true }
-  obj:add(cad.circle { r = 2 }):minkowski()
-  obj:export("temp/test_minkowski_2d.scad")
+  square({ size = { 10, 10 }, center = true })
+    :add(circle { r = 2 })
+    :minkowski()
+    :export("temp/test_minkowski_2d.scad")
 
   -- Verify file was created
   local file = io.open("tests/temp/test_minkowski_2d.scad", "r")
@@ -70,9 +72,10 @@ end
 
 function TestMinkowski:testMinkowskiRounded()
   -- Create a rounded cube using minkowski
-  local obj = cad.cube { size = { 10, 10, 10 }, center = true }
-  obj:add(cad.sphere { r = 1 }):minkowski()
-  obj:export("temp/test_minkowski_rounded.scad")
+  cube({ size = { 10, 10, 10 }, center = true })
+    :add(sphere { r = 1 })
+    :minkowski()
+    :export("temp/test_minkowski_rounded.scad")
 
   -- Verify file was created
   local file = io.open("tests/temp/test_minkowski_rounded.scad", "r")

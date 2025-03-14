@@ -1,6 +1,6 @@
 -- Test creating a diabolo shape with cylinders at the ends
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestDiaboloCylindric = {}
 
@@ -79,11 +79,11 @@ function TestDiaboloCylindric:testCustomParameters()
 
   -- Create the model with custom parameters and table parameter style
   local cylinder = (
-    cad.cylinder({ h = h / 2, r1 = rb, r2 = rm }):translate(0, 0, 0)
-    - cad.cylinder({ h = h / 2, r1 = rb - t, r2 = rm - t }):translate(0, 0, 0)
+    cylinder({ h = h / 2, r1 = rb, r2 = rm }):translate(0, 0, 0)
+    - cylinder({ h = h / 2, r1 = rb - t, r2 = rm - t }):translate(0, 0, 0)
   )
     + (
-      cad.cylinder({ h = h / 2, r1 = rm, r2 = rb }):translate(0, 0, h / 2)
+      cylinder({ h = h / 2, r1 = rm, r2 = rb }):translate(0, 0, h / 2)
       - cad
         .cylinder({ h = h / 2, r1 = rm - t, r2 = rb - t })
         :translate(0, 0, h / 2)

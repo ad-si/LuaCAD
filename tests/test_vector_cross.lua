@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_vector")
+require("src.core.vector")
 
 -- Global cross function for testing
 function cross(a, b)

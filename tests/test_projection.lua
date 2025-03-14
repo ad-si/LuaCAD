@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("lib_cad")
+require("luascad")
 
 TestProjection = {}
 
@@ -10,7 +10,7 @@ end
 
 function TestProjection:testSimpleProjection()
   -- Create a cube and project it
-  local cube = cad.cube { size = { 10, 10, 10 } }
+  local cube = cube { size = { 10, 10, 10 } }
   local projected = cube:projection()
   projected:export("temp/test_projection_simple.scad")
 
@@ -35,7 +35,7 @@ end
 
 function TestProjection:testCutProjection()
   -- Create a cube and project it with cut=true
-  local cube = cad.cube { size = { 10, 10, 10 } }
+  local cube = cube { size = { 10, 10, 10 } }
   local projected = cube:projection(true)
   projected:export("temp/test_projection_cut.scad")
 
@@ -60,8 +60,8 @@ end
 
 function TestProjection:testComplexProjection()
   -- Create a more complex 3D shape (cylinder on top of cube) and project it
-  local cube = cad.cube { size = { 20, 20, 10 } }
-  local cylinder = cad.cylinder({ h = 15, r = 5 }):translate(10, 10, 10)
+  local cube = cube { size = { 20, 20, 10 } }
+  local cylinder = cylinder({ h = 15, r = 5 }):translate(10, 10, 10)
   local combined = cube:add(cylinder)
   local projected = combined:projection()
   projected:export("temp/test_projection_complex.scad")

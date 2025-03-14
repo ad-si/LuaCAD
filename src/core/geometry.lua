@@ -1,4 +1,4 @@
-require("lib_vector")
+require("src.core.vector")
 
 --[[----------------------------------------------------------------------------
   GEOMETRY TABLE

@@ -8,8 +8,8 @@
 --]]
 -----------------------------------
 
-require("lib_vector")
-require("lib_geometry")
+require("src.core.vector")
+require("src.core.geometry")
 
 -- simple function to modify a dxf file
 

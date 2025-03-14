@@ -276,10 +276,10 @@
         <div class="code-column">
           <div class="code-title">LuaSCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"lib_cad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
 
-<span class="keyword">local</span> cube = <span class="function">cad.cube</span>{<span class="parameter">size</span>={<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>}}
-<span class="keyword">local</span> sphere = <span class="function">cad.sphere</span>{<span class="parameter">r</span> = <span class="number">2</span>}
+<span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>}}
+<span class="keyword">local</span> sphere = <span class="function">sphere</span>{<span class="parameter">r</span> = <span class="number">2</span>}
 sphere:<span class="function">translate</span>(<span class="number">5</span>, <span class="number">0</span>, <span class="number">0</span>)
 
 <span class="keyword">local</span> model = cube + sphere
@@ -307,10 +307,10 @@ translate([5,0,0]) sphere(r = 2);</code></pre>
         <div class="code-column">
           <div class="code-title">LuaSCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"lib_cad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
 
-<span class="keyword">local</span> cube = <span class="function">cad.cube</span>{<span class="parameter">size</span>={<span class="number">10</span>, <span class="number">10</span>, <span class="number">10</span>}, <span class="parameter">center</span>=<span class="keyword">true</span>}
-<span class="keyword">local</span> cylinder = <span class="function">cad.cylinder</span>{<span class="parameter">h</span>=<span class="number">20</span>, <span class="parameter">r</span>=<span class="number">3</span>, <span class="parameter">center</span>=<span class="keyword">true</span>}
+<span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">10</span>, <span class="number">10</span>, <span class="number">10</span>}, <span class="parameter">center</span>=<span class="keyword">true</span>}
+<span class="keyword">local</span> cylinder = <span class="function">cylinder</span>{<span class="parameter">h</span>=<span class="number">20</span>, <span class="parameter">r</span>=<span class="number">3</span>, <span class="parameter">center</span>=<span class="keyword">true</span>}
 
 <span class="comment">-- Create a hole through the cube</span>
 <span class="keyword">local</span> model = cube - cylinder
@@ -341,16 +341,16 @@ model:<span class="function">export</span>(<span class="string">"temp/difference
         <div class="code-column">
           <div class="code-title">LuaSCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"lib_cad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
 
 <span class="keyword">function</span> <span class="function">gear</span>(teeth, height, radius)
   <span class="keyword">local</span> gear = <span class="function">cad</span>()
-  <span class="keyword">local</span> base = <span class="function">cad.cylinder</span>{<span class="parameter">h</span>=height, <span class="parameter">r</span>=radius*<span class="number">0.7</span>}
+  <span class="keyword">local</span> base = <span class="function">cylinder</span>{<span class="parameter">h</span>=height, <span class="parameter">r</span>=radius*<span class="number">0.7</span>}
   
   <span class="comment">-- Create teeth</span>
   <span class="keyword">for</span> i = <span class="number">1</span>, teeth <span class="keyword">do</span>
     <span class="keyword">local</span> angle = (i-<span class="number">1</span>) * (<span class="number">360</span>/teeth)
-    <span class="keyword">local</span> tooth = <span class="function">cad.cube</span>{<span class="parameter">size</span>={radius*<span class="number">0.3</span>, radius*<span class="number">0.2</span>, height}}
+    <span class="keyword">local</span> tooth = <span class="function">cube</span>{<span class="parameter">size</span>={radius*<span class="number">0.3</span>, radius*<span class="number">0.2</span>, height}}
     tooth:<span class="function">translate</span>(radius*<span class="number">0.7</span>, <span class="number">0</span>, <span class="number">0</span>)
     tooth:<span class="function">rotate</span>(<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, angle)
     gear = gear + tooth
@@ -397,7 +397,7 @@ gear(8, 5, 10);</code></pre>
         <div class="code-column">
           <div class="code-title">LuaSCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"lib_cad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
 
 <span class="comment">-- Create a rounded rectangle</span>
 <span class="keyword">local</span> base = <span class="function">cad.rectround</span>{
@@ -450,14 +450,14 @@ rounded_rect([20, 10], 2);</code></pre>
         <div class="code-column">
           <div class="code-title">LuaSCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"lib_cad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
 
 <span class="keyword">function</span> <span class="function">create_box</span>(width, depth, height, thickness)
   <span class="comment">-- Outer shell</span>
-  <span class="keyword">local</span> outer = <span class="function">cad.cube</span>{<span class="parameter">size</span>={width, depth, height}}
+  <span class="keyword">local</span> outer = <span class="function">cube</span>{<span class="parameter">size</span>={width, depth, height}}
   
   <span class="comment">-- Inner cavity</span>
-  <span class="keyword">local</span> inner = <span class="function">cad.cube</span>{
+  <span class="keyword">local</span> inner = <span class="function">cube</span>{
     <span class="parameter">size</span>={
       width - thickness*<span class="number">2</span>, 
       depth - thickness*<span class="number">2</span>, 

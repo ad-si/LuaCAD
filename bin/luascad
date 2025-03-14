@@ -39,7 +39,7 @@ local function execute_file(file)
 
   -- Reset the cad module to clear accumulated variable definitions
   for k, _ in pairs(package.loaded) do
-    if k:match("^lib_cad") then
+    if k:match("^src%.") then
       package.loaded[k] = nil
     end
   end
