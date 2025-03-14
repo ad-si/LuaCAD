@@ -5,14 +5,6 @@ to create 2D and 3D objects.
 
 [OpenSCAD]: https://www.openscad.org/
 
-**Supported exports formats are:**
-
-- [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
-- [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
-- [STL](https://en.wikipedia.org/wiki/STL_(file_format))
-- [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
-- [WRL](https://en.wikipedia.org/wiki/VRML)
-
 The LuaCAD library creates [OpenSCAD] code
 which is then used to create DXF, SVG, or STL files.
 If the object should have a specific color then LuaCAD can take an STL file
@@ -102,16 +94,14 @@ that make it easier to create complex models:
 - `%` -> `t()` (transparent)
 
 
-## Tests
+## Supported Export Formats
 
-Several test files are provided in the `tests/` directory
-to ensure functionality.
-
-
-## History
-
-The initial work was done by Michael Lutz at
-[thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
+- [3MF](https://en.wikipedia.org/wiki/3D_Manufacturing_Format)
+- [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
+- [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
+- [STL](https://en.wikipedia.org/wiki/STL_(file_format))
+- [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
+- [WRL](https://en.wikipedia.org/wiki/VRML)
 
 
 ## Related
@@ -122,15 +112,23 @@ Other CAD software that support programmatic creation of 3D models:
 - [FreeCAD] - Python scripting
 - [ImplicitCAD] - Haskell-based CAD software
 - [LibreCAD] - Lua scripting
-- [OpenSCAD] - OpenSCAD language
+- [Liquid CAD] - 2D constraint-solving CAD for rapid prototyping
 - [ManifoldCAD] - Online CAD software using JavaScript
-- https://github.com/twitchyliquid64/liquid-cad
-- https://github.com/Michael-F-Bryan/scad-rs
+- [OpenSCAD Rust] - Rust implementation of the OpenSCAD virtual machine
+- [OpenSCAD] - OpenSCAD language
 
 [BlocksCAD]: https://www.blockscad3d.com/editor/
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
 [ImplicitCAD]: https://implicitcad.org/
+[Liquid CAD]: https://github.com/twitchyliquid64/liquid-cad
 [ManifoldCAD]: https://manifoldcad.org/
+[OpenSCAD Rust]: https://github.com/Michael-F-Bryan/scad-rs
+
+
+## History
+
+The initial work was done by Michael Lutz at
+[thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
 
 
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2
