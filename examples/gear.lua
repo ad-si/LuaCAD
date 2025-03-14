@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 function gear(num_teeth, height, radius)
   local model = cylinder { h = height, r = radius * 0.7 }

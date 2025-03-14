@@ -5,7 +5,7 @@ local isWindows = package.config:sub(1, 1) == "\\"
 -- Get the filename from the command-line argument
 local filename = arg[1]
 if not filename then
-  print("Usage: luascad <file.lua>")
+  print("Usage: luacad <file.lua>")
   os.exit(1)
 end
 

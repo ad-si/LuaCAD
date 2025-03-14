@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LuaSCAD Examples</title>
+  <title>LuaCAD Examples</title>
   <style>
     :root {
       --primary-color: #5c66ce;
@@ -178,7 +178,7 @@
       .example-content {
         grid-template-columns: 1fr 1fr;
       }
-      
+
       .preview-column {
         grid-column: span 2;
       }
@@ -188,7 +188,7 @@
       .example-content {
         grid-template-columns: 1fr;
       }
-      
+
       .preview-column {
         grid-column: span 1;
       }
@@ -265,7 +265,8 @@
   </div>
 
   <p class="intro">
-    Below are examples showing how LuaSCAD compares to OpenSCAD. Each example shows the equivalent code in both languages and a preview of the resulting model.
+    Below are examples showing how LuaCAD compares to OpenSCAD. Each example shows the equivalent code in both languages
+    and a preview of the resulting model.
   </p>
 
   <div class="example-container">
@@ -274,9 +275,9 @@
       <div class="example-header">Basic Shapes: Cube and Sphere</div>
       <div class="example-content">
         <div class="code-column">
-          <div class="code-title">LuaSCAD</div>
+          <div class="code-title">LuaCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
 
 <span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>}}
 <span class="keyword">local</span> sphere = <span class="function">sphere</span>{<span class="parameter">r</span> = <span class="number">2</span>}
@@ -305,9 +306,9 @@ translate([5,0,0]) sphere(r = 2);</code></pre>
       <div class="example-header">Boolean Operations: Difference</div>
       <div class="example-content">
         <div class="code-column">
-          <div class="code-title">LuaSCAD</div>
+          <div class="code-title">LuaCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
 
 <span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">10</span>, <span class="number">10</span>, <span class="number">10</span>}, <span class="parameter">center</span>=<span class="keyword">true</span>}
 <span class="keyword">local</span> cylinder = <span class="function">cylinder</span>{<span class="parameter">h</span>=<span class="number">20</span>, <span class="parameter">r</span>=<span class="number">3</span>, <span class="parameter">center</span>=<span class="keyword">true</span>}
@@ -339,14 +340,14 @@ model:<span class="function">export</span>(<span class="string">"temp/difference
       <div class="example-header">Complex Shape: Gear</div>
       <div class="example-content">
         <div class="code-column">
-          <div class="code-title">LuaSCAD</div>
+          <div class="code-title">LuaCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
 
 <span class="keyword">function</span> <span class="function">gear</span>(teeth, height, radius)
   <span class="keyword">local</span> gear = <span class="function">cad</span>()
   <span class="keyword">local</span> base = <span class="function">cylinder</span>{<span class="parameter">h</span>=height, <span class="parameter">r</span>=radius*<span class="number">0.7</span>}
-  
+
   <span class="comment">-- Create teeth</span>
   <span class="keyword">for</span> i = <span class="number">1</span>, teeth <span class="keyword">do</span>
     <span class="keyword">local</span> angle = (i-<span class="number">1</span>) * (<span class="number">360</span>/teeth)
@@ -355,7 +356,7 @@ model:<span class="function">export</span>(<span class="string">"temp/difference
     tooth:<span class="function">rotate</span>(<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, angle)
     gear = gear + tooth
   <span class="keyword">end</span>
-  
+
   <span class="keyword">return</span> base + gear
 <span class="keyword">end</span>
 
@@ -369,7 +370,7 @@ my_gear:<span class="function">export</span>(<span class="string">"temp/gear_mod
             <pre><code>module gear(teeth, height, radius) {
   union() {
     cylinder(h=height, r=radius*0.7);
-    
+
     // Create teeth
     for (i = [0:teeth-1]) {
       angle = i * (360/teeth);
@@ -395,9 +396,9 @@ gear(8, 5, 10);</code></pre>
       <div class="example-header">Rounded Shapes</div>
       <div class="example-content">
         <div class="code-column">
-          <div class="code-title">LuaSCAD</div>
+          <div class="code-title">LuaCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
 
 <span class="comment">-- Create a rounded rectangle</span>
 <span class="keyword">local</span> base = <span class="function">cad.rectround</span>{
@@ -419,20 +420,20 @@ module rounded_rect(size, radius) {
   hull() {
     translate([radius, radius, 0])
     circle(r = radius);
-    
+
     translate([size[0] - radius, radius, 0])
     circle(r = radius);
-    
+
     translate([radius, size[1] - radius, 0])
     circle(r = radius);
-    
+
     translate([size[0] - radius, size[1] - radius, 0])
     circle(r = radius);
   }
 }
 
 // Extrude it to create a 3D shape
-linear_extrude(height = 5) 
+linear_extrude(height = 5)
 rounded_rect([20, 10], 2);</code></pre>
           </div>
         </div>
@@ -448,24 +449,24 @@ rounded_rect([20, 10], 2);</code></pre>
       <div class="example-header">Parametric Box</div>
       <div class="example-content">
         <div class="code-column">
-          <div class="code-title">LuaSCAD</div>
+          <div class="code-title">LuaCAD</div>
           <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luascad"</span>
+            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
 
 <span class="keyword">function</span> <span class="function">create_box</span>(width, depth, height, thickness)
   <span class="comment">-- Outer shell</span>
   <span class="keyword">local</span> outer = <span class="function">cube</span>{<span class="parameter">size</span>={width, depth, height}}
-  
+
   <span class="comment">-- Inner cavity</span>
   <span class="keyword">local</span> inner = <span class="function">cube</span>{
     <span class="parameter">size</span>={
-      width - thickness*<span class="number">2</span>, 
-      depth - thickness*<span class="number">2</span>, 
+      width - thickness*<span class="number">2</span>,
+      depth - thickness*<span class="number">2</span>,
       height - thickness
     }
   }
   inner:<span class="function">translate</span>(thickness, thickness, thickness)
-  
+
   <span class="comment">-- Create box by subtracting inner from outer</span>
   <span class="keyword">return</span> outer - inner
 <span class="keyword">end</span>
@@ -481,12 +482,12 @@ box:<span class="function">export</span>(<span class="string">"temp/parametric_b
   difference() {
     // Outer shell
     cube([width, depth, height]);
-    
+
     // Inner cavity
     translate([thickness, thickness, thickness])
     cube([
-      width - thickness*2, 
-      depth - thickness*2, 
+      width - thickness*2,
+      depth - thickness*2,
       height - thickness
     ]);
   }
@@ -504,8 +505,8 @@ create_box(30, 20, 15, 2);</code></pre>
   </div>
 
   <footer>
-    <p>LuaSCAD Examples - Learn by comparing LuaSCAD and OpenSCAD equivalents</p>
-    <p>Find more at <a href="https://github.com/ad-si/LuaSCAD">GitHub Repository</a></p>
+    <p>LuaCAD Examples - Learn by comparing LuaCAD and OpenSCAD equivalents</p>
+    <p>Find more at <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
   </footer>
 
   <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>

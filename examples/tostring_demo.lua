@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 -- Create and print some basic shapes
 print("Basic shapes:")

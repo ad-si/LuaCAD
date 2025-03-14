@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 var("x", 1)
 

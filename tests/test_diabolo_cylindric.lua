@@ -1,6 +1,6 @@
 -- Test creating a diabolo shape with cylinders at the ends
 local luaunit = require("luaunit")
-require("luascad")
+require("luacad")
 
 TestDiaboloCylindric = {}
 

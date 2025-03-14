@@ -1,6 +1,6 @@
 --// create stl or dxf file
 
-require("luascad")
+require("luacad")
 local luaunit = require("luaunit")
 
 -- output file

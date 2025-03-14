@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 local model = cube { { 60, 20, 10 }, center = true }
   + cube({ { 30, 20, 10 }, center = true }):translate(5, 0, 10 - 0.001)

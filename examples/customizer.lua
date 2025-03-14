@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 local r = var("Radius of sphere", 9)
 local t = var("Translation of sphere", 3)

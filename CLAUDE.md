@@ -1,4 +1,4 @@
-# LuaSCAD Development Guide
+# LuaCAD Development Guide
 
 ## Build & Test Commands
 - Run all tests: `make test`

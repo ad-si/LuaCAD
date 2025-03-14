@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 function rounded_rect(width, height, radius)
   local model = circle({ r = radius }):translate(radius, radius, 0)

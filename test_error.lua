@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 -- This will cause an error due to invalid variable name
 var("1invalid", 10)

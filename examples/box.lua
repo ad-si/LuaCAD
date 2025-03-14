@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 function create_box(width, depth, height, thickness)
   local outer_shell = cube(width, depth, height)

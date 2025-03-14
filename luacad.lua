@@ -1,6 +1,6 @@
 --[[--================================================================================
-  LuaSCAD Main Entry Point
-  This is the main entry point for the LuaSCAD library
+  LuaCAD Main Entry Point
+  This is the main entry point for the LuaCAD library
 --]]
 --================================================================================
 

@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-require("luascad")
+require("luacad")
 
 TestRotateExtrude = {}
 

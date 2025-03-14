@@ -1,4 +1,4 @@
-require("luascad")
+require("luacad")
 
 -- Add a global counter to track executions
 if not _G.counter then
