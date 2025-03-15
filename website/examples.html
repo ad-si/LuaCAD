@@ -5,257 +5,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LuaCAD Examples</title>
-  <style>
-    :root {
-      --primary-color: #5c66ce;
-      --secondary-color: #ff9800;
-      --background-color: #f5f5f5;
-      --code-background: #f1f8ff;
-      --border-color: #ddd;
-      --text-color: #333;
-      --code-text: #333;
-    }
-
-    body {
-      font-size: 14px;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      line-height: 1.6;
-      color: var(--text-color);
-      background-color: var(--background-color);
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 0 20px;
-    }
-
-    h1 {
-      text-align: center;
-      margin-top: 30px;
-      margin-bottom: 10px;
-      border-bottom: 2px solid;
-      padding-bottom: 10px;
-    }
-
-    h2 {
-      margin-top: 30px;
-      margin-bottom: 15px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 5px;
-    }
-
-    h3 {
-      color: var(--secondary-color);
-      margin-top: 25px;
-      margin-bottom: 10px;
-    }
-
-    pre {
-      background-color: var(--code-background);
-      padding: 15px;
-      border-radius: 5px;
-      white-space: pre;
-      overflow-x: auto;
-      max-width: 100%;
-      box-sizing: border-box;
-      height: 100%;
-      margin: 0;
-    }
-
-    code {
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-      color: var(--code-text);
-    }
-
-    .comment {
-      color: #6a737d;
-    }
-
-    footer {
-      text-align: center;
-      margin-top: 40px;
-      padding: 20px 0;
-      color: #666;
-      font-size: 0.9em;
-      border-top: 1px solid var(--border-color);
-    }
-
-    /* Dark mode support */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --background-color: #121212;
-        --code-background: #1e1e1e;
-        --border-color: #333;
-        --text-color: #f5f5f5;
-        --code-text: #ddd;
-      }
-
-      body {
-        background-color: var(--background-color);
-      }
-
-      .example-card {
-        background-color: #212121;
-      }
-    }
-
-    .top-button {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background-color: var(--primary-color);
-      color: white;
-      border: none;
-      border-radius: 50%;
-      width: 50px;
-      height: 50px;
-      font-size: 20px;
-      cursor: pointer;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-      z-index: 1000;
-    }
-
-    .top-button:hover {
-      background-color: #1565c0;
-    }
-
-    .navbar {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      margin-top: 20px;
-      margin-bottom: 30px;
-    }
-
-    .nav-link {
-      padding: 10px 20px;
-      text-decoration: none;
-      font-weight: bold;
-      color: var(--text-color);
-      border-bottom: 2px solid transparent;
-      transition: border-color 0.3s;
-    }
-
-    .nav-link:hover {
-      border-bottom-color: var(--secondary-color);
-    }
-
-    .nav-link.active {
-      border-bottom-color: var(--primary-color);
-    }
-
-    .example-container {
-      display: flex;
-      flex-direction: column;
-      gap: 40px;
-      margin-bottom: 40px;
-    }
-
-    .example-card {
-      background-color: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      overflow: hidden;
-    }
-
-    .example-header {
-      background-color: var(--primary-color);
-      color: white;
-      padding: 15px 20px;
-      font-size: 18px;
-      font-weight: bold;
-    }
-
-    .example-content {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 20px;
-      padding: 20px;
-    }
-
-    @media (max-width: 1200px) {
-      .example-content {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .preview-column {
-        grid-column: span 2;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .example-content {
-        grid-template-columns: 1fr;
-      }
-
-      .preview-column {
-        grid-column: span 1;
-      }
-    }
-
-    .code-column {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-
-    .code-title {
-      font-weight: bold;
-      margin-bottom: 10px;
-      color: var(--secondary-color);
-    }
-
-    .code-container {
-      flex-grow: 1;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-
-    .preview-column {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .preview-image {
-      max-width: 100%;
-      max-height: 300px;
-      border-radius: 5px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    .description {
-      margin-top: 15px;
-      text-align: center;
-      font-style: italic;
-    }
-
-    .function {
-      color: var(--primary-color);
-      font-weight: bold;
-    }
-
-    .keyword {
-      color: #d73a49;
-      font-weight: bold;
-    }
-
-    .string {
-      color: #032f62;
-    }
-
-    .number {
-      color: #005cc5;
-    }
-  </style>
+  <link rel="stylesheet" href="screen.css">
+  <link rel="stylesheet" href="atom-one-dark.min.css" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="atom-one-light.min.css"
+    media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
 </head>
 
 <body>
   <h1>
     <span style="color: var(--primary-color)">
-      Lua</span><span style="color: var(--secondary-color)">SCAD</span>
-    Examples
+      Lua</span><span style="color: var(--secondary-color)">CAD</span>
+    <small>Examples</small>
   </h1>
 
   <div class="navbar">
@@ -264,264 +24,266 @@
     <a href="examples.html" class="nav-link active">Examples</a>
   </div>
 
-  <p class="intro">
-    Below are examples showing how LuaCAD compares to OpenSCAD. Each example shows the equivalent code in both languages
-    and a preview of the resulting model.
-  </p>
 
   <div class="example-container">
-    <!-- Example 1: Basic Shapes -->
-    <div class="example-card">
-      <div class="example-header">Basic Shapes: Cube and Sphere</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
+<div class="example-card">
+  <div class="example-header">box</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
 
-<span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>}}
-<span class="keyword">local</span> sphere = <span class="function">sphere</span>{<span class="parameter">r</span> = <span class="number">2</span>}
-sphere:<span class="function">translate</span>(<span class="number">5</span>, <span class="number">0</span>, <span class="number">0</span>)
+function create_box(width, depth, height, thickness)
+  local outer_shell = cube(width, depth, height)
+  local inner_cavity = cube(
+    width - thickness * 2,
+    depth - thickness * 2,
+    height - thickness
+  ):translate(thickness, thickness, thickness)
+  return outer_shell - inner_cavity
+end
 
-<span class="keyword">local</span> model = cube + sphere
-model:<span class="function">export</span>(<span class="string">"temp/model.scad"</span>)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">OpenSCAD</div>
-          <div class="code-container">
-            <pre><code>cube([1,2,3]);
-translate([5,0,0]) sphere(r = 2);</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/cube_sphere.png" alt="Cube and Sphere" class="preview-image">
-          <p class="description">A simple cube combined with a sphere translated along the X-axis.</p>
-        </div>
+create_box(30, 20, 15, 2):export("box.scad")</code></pre>
       </div>
     </div>
-
-    <!-- Example 2: Boolean Operations -->
-    <div class="example-card">
-      <div class="example-header">Boolean Operations: Difference</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
-
-<span class="keyword">local</span> cube = <span class="function">cube</span>{<span class="parameter">size</span>={<span class="number">10</span>, <span class="number">10</span>, <span class="number">10</span>}, <span class="parameter">center</span>=<span class="keyword">true</span>}
-<span class="keyword">local</span> cylinder = <span class="function">cylinder</span>{<span class="parameter">h</span>=<span class="number">20</span>, <span class="parameter">r</span>=<span class="number">3</span>, <span class="parameter">center</span>=<span class="keyword">true</span>}
-
-<span class="comment">-- Create a hole through the cube</span>
-<span class="keyword">local</span> model = cube - cylinder
-
-model:<span class="function">export</span>(<span class="string">"temp/difference_model.scad"</span>)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">OpenSCAD</div>
-          <div class="code-container">
-            <pre><code>difference() {
-  cube([10, 10, 10], center=true);
-  cylinder(h=20, r=3, center=true);
-}</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/difference.png" alt="Cube with hole" class="preview-image">
-          <p class="description">A cube with a cylindrical hole cut through it using the difference operation.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Example 3: Complex Shape -->
-    <div class="example-card">
-      <div class="example-header">Complex Shape: Gear</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
-
-<span class="keyword">function</span> <span class="function">gear</span>(teeth, height, radius)
-  <span class="keyword">local</span> gear = <span class="function">cad</span>()
-  <span class="keyword">local</span> base = <span class="function">cylinder</span>{<span class="parameter">h</span>=height, <span class="parameter">r</span>=radius*<span class="number">0.7</span>}
-
-  <span class="comment">-- Create teeth</span>
-  <span class="keyword">for</span> i = <span class="number">1</span>, teeth <span class="keyword">do</span>
-    <span class="keyword">local</span> angle = (i-<span class="number">1</span>) * (<span class="number">360</span>/teeth)
-    <span class="keyword">local</span> tooth = <span class="function">cube</span>{<span class="parameter">size</span>={radius*<span class="number">0.3</span>, radius*<span class="number">0.2</span>, height}}
-    tooth:<span class="function">translate</span>(radius*<span class="number">0.7</span>, <span class="number">0</span>, <span class="number">0</span>)
-    tooth:<span class="function">rotate</span>(<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, angle)
-    gear = gear + tooth
-  <span class="keyword">end</span>
-
-  <span class="keyword">return</span> base + gear
-<span class="keyword">end</span>
-
-<span class="keyword">local</span> my_gear = <span class="function">gear</span>(<span class="number">8</span>, <span class="number">5</span>, <span class="number">10</span>)
-my_gear:<span class="function">export</span>(<span class="string">"temp/gear_model.scad"</span>)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">OpenSCAD</div>
-          <div class="code-container">
-            <pre><code>module gear(teeth, height, radius) {
-  union() {
-    cylinder(h=height, r=radius*0.7);
-
-    // Create teeth
-    for (i = [0:teeth-1]) {
-      angle = i * (360/teeth);
-      rotate([0, 0, angle])
-      translate([radius*0.7, 0, 0])
-      cube([radius*0.3, radius*0.2, height]);
-    }
-  }
-}
-
-gear(8, 5, 10);</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/gear.png" alt="Simple Gear" class="preview-image">
-          <p class="description">A simple gear with customizable teeth count, height, and radius.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Example 4: Rounded Shapes -->
-    <div class="example-card">
-      <div class="example-header">Rounded Shapes</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
-
-<span class="comment">-- Create a rounded rectangle</span>
-<span class="keyword">local</span> base = <span class="function">cad.rectround</span>{
-  <span class="parameter">size</span> = {<span class="number">20</span>, <span class="number">10</span>},
-  <span class="parameter">radius</span> = <span class="number">2</span>
-}
-
-<span class="comment">-- Extrude it to create a 3D shape</span>
-base:<span class="function">linearextrude</span>(<span class="number">5</span>)
-
-base:<span class="function">export</span>(<span class="string">"temp/rounded_rect.scad"</span>)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">OpenSCAD</div>
-          <div class="code-container">
-            <pre><code>// Create a rounded rectangle
-module rounded_rect(size, radius) {
-  hull() {
-    translate([radius, radius, 0])
-    circle(r = radius);
-
-    translate([size[0] - radius, radius, 0])
-    circle(r = radius);
-
-    translate([radius, size[1] - radius, 0])
-    circle(r = radius);
-
-    translate([size[0] - radius, size[1] - radius, 0])
-    circle(r = radius);
-  }
-}
-
-// Extrude it to create a 3D shape
-linear_extrude(height = 5)
-rounded_rect([20, 10], 2);</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/rounded_rect.png" alt="Rounded Rectangle" class="preview-image">
-          <p class="description">A 3D shape created by extruding a 2D rounded rectangle.</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Example 5: Parametric Box -->
-    <div class="example-card">
-      <div class="example-header">Parametric Box</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code><span class="keyword">require</span> <span class="string">"luacad"</span>
-
-<span class="keyword">function</span> <span class="function">create_box</span>(width, depth, height, thickness)
-  <span class="comment">-- Outer shell</span>
-  <span class="keyword">local</span> outer = <span class="function">cube</span>{<span class="parameter">size</span>={width, depth, height}}
-
-  <span class="comment">-- Inner cavity</span>
-  <span class="keyword">local</span> inner = <span class="function">cube</span>{
-    <span class="parameter">size</span>={
-      width - thickness*<span class="number">2</span>,
-      depth - thickness*<span class="number">2</span>,
-      height - thickness
-    }
-  }
-  inner:<span class="function">translate</span>(thickness, thickness, thickness)
-
-  <span class="comment">-- Create box by subtracting inner from outer</span>
-  <span class="keyword">return</span> outer - inner
-<span class="keyword">end</span>
-
-<span class="keyword">local</span> box = <span class="function">create_box</span>(<span class="number">30</span>, <span class="number">20</span>, <span class="number">15</span>, <span class="number">2</span>)
-box:<span class="function">export</span>(<span class="string">"temp/parametric_box.scad"</span>)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">OpenSCAD</div>
-          <div class="code-container">
-            <pre><code>module create_box(width, depth, height, thickness) {
-  difference() {
-    // Outer shell
-    cube([width, depth, height]);
-
-    // Inner cavity
-    translate([thickness, thickness, thickness])
-    cube([
-      width - thickness*2,
-      depth - thickness*2,
-      height - thickness
-    ]);
-  }
-}
-
-create_box(30, 20, 15, 2);</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/parametric_box.png" alt="Parametric Box" class="preview-image">
-          <p class="description">A customizable box with parametric dimensions and wall thickness.</p>
-        </div>
-      </div>
+    <div class="preview-column">
+      <img src="images/box.png" alt="box" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating box functionality.</p>
     </div>
   </div>
+</div>
+<div class="example-card">
+  <div class="example-header">car</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
 
-  <footer>
-    <p>LuaCAD Examples - Learn by comparing LuaCAD and OpenSCAD equivalents</p>
-    <p>Find more at <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
-  </footer>
+local model = cube { { 60, 20, 10 }, center = true }
+  + cube({ { 30, 20, 10 }, center = true }):translate(5, 0, 10 - 0.001)
+  + cad
+    .cylinder({ h = 3, r = 8, center = true })
+    :rotate(90, 0, 0)
+    :translate(-20, -15, 0)
+  + cad
+    .cylinder({ h = 3, r = 8, center = true })
+    :rotate(90, 0, 0)
+    :translate(-20, 15, 0)
+  + cad
+    .cylinder({ h = 3, r = 8, center = true })
+    :rotate(90, 0, 0)
+    :translate(20, -15, 0)
+  + cad
+    .cylinder({ h = 3, r = 8, center = true })
+    :rotate(90, 0, 0)
+    :translate(20, 15, 0)
+  + cad
+    .cylinder({ h = 30, r = 2, center = true })
+    :rotate(90, 0, 0)
+    :translate(-20, 0, 0)
+  + cad
+    .cylinder({ h = 30, r = 2, center = true })
+    :rotate(90, 0, 0)
+    :translate(20, 0, 0)
 
-  <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+model:export("car.scad")</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/car.png" alt="car" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating car functionality.</p>
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">customizer</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
 
-  <script>
-    // Add syntax highlighting for OpenSCAD code blocks
-    document.querySelectorAll('.code-title:contains("OpenSCAD") + .code-container pre code').forEach(block => {
-      // Basic highlighting for OpenSCAD
-      block.innerHTML = block.innerHTML
-        .replace(/\b(module|function|for|if|else|return|true|false|undef|include|use)\b/g, '<span class="keyword">$1</span>')
-        .replace(/\b(cube|sphere|cylinder|translate|rotate|difference|union|intersection|linear_extrude|hull|circle)\b/g, '<span class="function">$1</span>')
-        .replace(/(\d+(\.\d+)?)/g, '<span class="number">$1</span>')
-        .replace(/(\/\/.*)/g, '<span class="comment">$1</span>');
-    });
-  </script>
+local r = var("Radius of sphere", 9)
+local t = var("Translation of sphere", 3)
+local h = var("Height of cube", 4)
+
+local rNew = r + 5 + h - 2
+
+local model = cube { size = { 3, 3, 5 } }
+  + cube { size = { 1, 2, 3 }, center = true }
+  + sphere({ r = r }):translate(t, t, t)
+  + sphere { r = rNew }
+
+model:export("test.scad")</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/customizer.png" alt="customizer" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating customizer functionality.</p>
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">difference</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
+
+local model = cube { { 10, 10, 10 }, center = true }
+  - cylinder { h = 20, r = 3, center = true }
+
+model:export("difference.scad")</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/difference.png" alt="difference" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating difference functionality.</p>
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">gear</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
+
+function gear(num_teeth, height, radius)
+  local model = cylinder { h = height, r = radius * 0.7 }
+
+  <span class="comment"></span>
+  for i = 1, num_teeth do
+    local angle = i * (360 / num_teeth)
+    model = model
+      + cad
+        .cube(radius * 0.3, radius * 0.2, height)
+        :translate(radius * 0.7, 0, 0)
+        :rotate(0, 0, angle)
+  end
+
+  return model
+end
+
+gear(8, 5, 10):export("gear.scad")</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/gear.png" alt="gear" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating gear functionality.</p>
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">rounded_rectangle</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
+
+function rounded_rect(width, height, radius)
+  local model = circle({ r = radius }):translate(radius, radius, 0)
+    + circle({ r = radius }):translate(width - radius, radius, 0)
+    + circle({ r = radius }):translate(radius, height - radius, 0)
+    + circle({ r = radius }):translate(width - radius, height - radius, 0)
+  return model:hull()
+end
+
+rounded_rect(20, 10, 2) <span class="comment"></span>
+  :linearextrude(5)
+  :export("rounded_rectangle.scad")</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/rounded_rectangle.png" alt="rounded_rectangle" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating rounded_rectangle functionality.</p>
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">tostring_demo</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require("luacad")
+
+<span class="comment"></span>
+print("Basic shapes:")
+print("- Cube: " .. tostring(cube(10, 10, 10)))
+print("- Sphere: " .. tostring(sphere { r = 5 }))
+print("- Cylinder: " .. tostring(cylinder { h = 10, r = 5 }))
+
+<span class="comment"></span>
+print("
+Cylinder variations:")
+print("- Standard cylinder: " .. tostring(cylinder { h = 10, r = 5 }))
+print("- Cylinder with diameter: " .. tostring(cylinder { h = 10, d = 10 }))
+print("- Cone (r1, r2): " .. tostring(cylinder { h = 10, r1 = 5, r2 = 2 }))
+print("- Cone (d1, d2): " .. tostring(cylinder { h = 10, d1 = 10, d2 = 4 }))
+print(
+  "- Centered cylinder: " .. tostring(cylinder { h = 10, r = 5, center = true })
+)
+
+<span class="comment"></span>
+print("
+Colored objects:")
+local cube = cube(10, 10, 10)
+local sphere = sphere { r = 7 }
+print("- Red cube: " .. tostring(cube:setcolor("red")))
+print("- Blue sphere: " .. tostring(sphere:setcolor("blue")))
+print(
+  "- Green cylinder: "
+    .. tostring(cylinder({ h = 10, r = 5 }):setcolor("green"))
+)
+
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span>
+<span class="comment"></span></code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/tostring_demo.png" alt="tostring_demo" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+      <p class="description">Example demonstrating tostring_demo functionality.</p>
+    </div>
+  </div>
+</div>
+</div>
+
+<footer>
+  <p>Find more information in the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
+</footer>
+
+<button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+
+<script src="highlight.min.js"></script>
+<script src="openscad.min.js"></script>
+<script>
+  hljs.highlightAll()
+</script>
 </body>
 
 </html>

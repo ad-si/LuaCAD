@@ -5,166 +5,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LuaCAD</title>
-  <style>
-    :root {
-      --primary-color: #5c66ce;
-      --secondary-color: #ff9800;
-      --background-color: #f5f5f5;
-      --code-background: #f1f8ff;
-      --border-color: #ddd;
-      --text-color: #333;
-      --code-text: #333;
-    }
-
-    body {
-      font-size: 14px;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      line-height: 1.6;
-      color: var(--text-color);
-      background-color: var(--background-color);
-      max-width: 1000px;
-      margin: 0 auto;
-      padding: 0 20px;
-    }
-
-    h1 {
-      text-align: center;
-      margin-top: 30px;
-      margin-bottom: 10px;
-      border-bottom: 2px solid;
-      padding-bottom: 10px;
-    }
-
-    h2 {
-      margin-top: 30px;
-      margin-bottom: 15px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 5px;
-    }
-
-    h3 {
-      color: var(--secondary-color);
-      margin-top: 25px;
-      margin-bottom: 10px;
-    }
-
-    pre {
-      background-color: var(--code-background);
-      padding: 15px;
-      border-radius: 5px;
-      white-space: pre;
-      overflow-x: auto;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-
-    code {
-      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-      color: var(--code-text);
-    }
-
-    .comment {
-      color: #6a737d;
-    }
-
-    footer {
-      text-align: center;
-      margin-top: 40px;
-      padding: 20px 0;
-      color: #666;
-      font-size: 0.9em;
-      border-top: 1px solid var(--border-color);
-    }
-
-    /* Dark mode support */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --background-color: #121212;
-        --code-background: #1e1e1e;
-        --border-color: #333;
-        --text-color: #f5f5f5;
-        --code-text: #ddd;
-      }
-
-      body {
-        background-color: var(--background-color);
-      }
-    }
-
-    .landing-container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    .feature-list {
-      margin-left: 20px;
-    }
-
-    .example-code {
-      margin: 20px 0;
-    }
-
-    .cta-buttons {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      margin: 30px 0;
-    }
-
-    .cta-button {
-      padding: 10px 20px;
-      background-color: var(--primary-color);
-      color: white;
-      text-decoration: none;
-      border-radius: 5px;
-      font-weight: bold;
-      transition: background-color 0.3s;
-    }
-
-    .cta-button:hover {
-      background-color: #1565c0;
-    }
-
-    .cta-button.secondary {
-      background-color: var(--secondary-color);
-    }
-
-    .cta-button.secondary:hover {
-      background-color: #f57c00;
-    }
-
-    .navbar {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
-      margin-top: 20px;
-      margin-bottom: 30px;
-    }
-
-    .nav-link {
-      padding: 10px 20px;
-      text-decoration: none;
-      font-weight: bold;
-      color: var(--text-color);
-      border-bottom: 2px solid transparent;
-      transition: border-color 0.3s;
-    }
-
-    .nav-link:hover {
-      border-bottom-color: var(--secondary-color);
-    }
-
-    .nav-link.active {
-      border-bottom-color: var(--primary-color);
-    }
-  </style>
+  <link rel="stylesheet" href="screen.css">
+  <link rel="stylesheet" href="atom-one-dark.min.css" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="atom-one-light.min.css"
+    media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
 </head>
 
 <body>
   <h1>
     <span style="color: var(--primary-color)">
-      Lua</span><span style="color: var(--secondary-color)">SCAD</span>
+      Lua</span><span style="color: var(--secondary-color)">CAD</span>
   </h1>
 
   <div class="navbar">
@@ -173,86 +23,85 @@
     <a href="examples.html" class="nav-link">Examples</a>
   </div>
 
-  <div class="landing-container">
-    <h2>Create 2D and 3D Objects with Lua</h2>
+  <div class="container">
+    <div class="section">
+      <p>LuaCAD is a scripting library which uses
+        <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a>'s
+        engine to create 2D and 3D objects with the power and flexibility of Lua.
+      </p>
 
-    <p>LuaCAD is a scripting library which uses <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> as an
-      engine
-      to create 2D and 3D objects with the power and flexibility of Lua.</p>
+      <p>The LuaCAD library creates OpenSCAD code which is then used to create DXF, SVG, or STL files.
+        If the object should have a specific color then LuaCAD can take an STL file and convert it to OBJ or WRL with
+        color.</p>
 
-    <p>The LuaCAD library creates OpenSCAD code which is then used to create DXF, SVG, or STL files.
-      If the object should have a specific color then LuaCAD can take an STL file and convert it to OBJ or WRL with
-      color.</p>
+      <h3>Why Lua?</h3>
+      <ul class="feature-list">
+        <li>Similar syntax as the OpenSCAD language, but better:
+          <ul>
+            <li>More powerful</li>
+            <li>More consistent</li>
+            <li>Faster</li>
+            <li>Easily embeddable</li>
+          </ul>
+        </li>
+        <li>Already used in other CAD software like LibreCAD and Autodesk Netfabb</li>
+      </ul>
 
-    <h3>Why Lua?</h3>
-    <ul class="feature-list">
-      <li>Similar syntax as the OpenSCAD language, but better:
-        <ul>
-          <li>More powerful</li>
-          <li>More consistent</li>
-          <li>Faster</li>
-          <li>Easily embeddable</li>
-        </ul>
-      </li>
-      <li>Already used in other CAD software like LibreCAD and Autodesk Netfabb</li>
-    </ul>
-
-    <h3>Example</h3>
-    <div class="example-code">
-      <h4>OpenSCAD:</h4>
-      <pre><code>cube([1,2,3]);
+      <h3>Example</h3>
+      <div class="example-code">
+        <h4>OpenSCAD:</h4>
+        <pre><code class="language-openscad">cube([1,2,3]);
 translate([5,0,0]) sphere(r = 2);</code></pre>
 
-      <h4>LuaCAD:</h4>
-      <pre><code>require "luacad"
+        <h4>LuaCAD:</h4>
+        <pre><code class="language-lua">require "luacad"
 
 local cube_model = cube{size={1, 2, 3}}
 local sphere_model = sphere{r = 2}
 
 local model = cube_model + sphere_model
 model:export("temp/model.scad")</code></pre>
-    </div>
+      </div>
 
-    <h3>Getting Started</h3>
-    <ol class="feature-list">
-      <li>Clone the repository: <code>git clone https://github.com/ad-si/LuaCAD</code></li>
-      <li>Install <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> if not already installed</li>
-      <li>Add a new <code>.lua</code> file to the root directory of the repository</li>
-      <li>Implement your model</li>
-      <li>Run with: <code>lua your_model.lua</code></li>
-    </ol>
+      <h3>Getting Started</h3>
+      <ol class="feature-list">
+        <li>Clone the repository: <code class="language-bash">git clone https://github.com/ad-si/LuaCAD</code></li>
+        <li>Install <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> if not already installed</li>
+        <li>Add a new <code>.lua</code> file to the root directory of the repository</li>
+        <li>Implement your model</li>
+        <li>Run with: <code class="language-bash">lua your_model.lua</code></li>
+      </ol>
 
-    <h3>Main Features</h3>
-    <ul class="feature-list">
-      <li>Using CAD objects</li>
-    </ul>
+      <h3>Main Features</h3>
+      <ul class="feature-list">
+        <li>Using CAD objects</li>
+      </ul>
 
-    <h3>Supported Export Formats</h3>
-    <ul class="feature-list">
-      <li><strong>DXF</strong> - 2D CAD format</li>
-      <li><strong>SVG</strong> - Scalable Vector Graphics</li>
-      <li><strong>STL</strong> - Standard Triangle Language for 3D printing</li>
-      <li><strong>OBJ</strong> - Wavefront 3D object format</li>
-      <li><strong>WRL</strong> - VRML format</li>
-    </ul>
+      <h3>Supported Export Formats</h3>
+      <ul class="feature-list">
+        <li><strong>DXF</strong> - 2D CAD format</li>
+        <li><strong>SVG</strong> - Scalable Vector Graphics</li>
+        <li><strong>STL</strong> - Standard Triangle Language for 3D printing</li>
+        <li><strong>OBJ</strong> - Wavefront 3D object format</li>
+        <li><strong>WRL</strong> - VRML format</li>
+      </ul>
 
-    <div class="cta-buttons">
-      <a href="https://github.com/ad-si/LuaCAD" class="cta-button" target="_blank">GitHub Repository</a>
-      <a href="cheatsheet.html" class="cta-button secondary">View Cheatsheet</a>
-      <a href="examples.html" class="cta-button secondary">View Examples</a>
+      <div class="cta-buttons">
+        <a href="https://github.com/ad-si/LuaCAD" class="cta-button" target="_blank">GitHub Repository</a>
+        <a href="cheatsheet.html" class="cta-button secondary">View Cheatsheet</a>
+        <a href="examples.html" class="cta-button secondary">View Examples</a>
+      </div>
     </div>
   </div>
 
   <footer>
-    <p>LuaCAD - A Lua-based CAD library using OpenSCAD</p>
-    <p>Find more at <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
+    <p>Find more information in the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
   </footer>
 
+  <script src="highlight.min.js"></script>
+  <script src="openscad.min.js"></script>
   <script>
-    // Add syntax highlighting for code blocks
-    document.querySelectorAll('pre code').forEach(block => {
-      // Nothing needed here for the simple examples in the home page
-    });
+    hljs.highlightAll()
   </script>
 </body>
 
