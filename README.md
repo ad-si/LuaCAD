@@ -29,21 +29,36 @@ which is then used to create DXF, SVG, or STL files.
 **OpenSCAD:**
 
 ```openscad
-cube([1,2,3]);
-translate([5,0,0]) sphere(r = 2);
+module my_cube() {
+  cube(size=[1,2,3]);
+}
+
+module my_sphere(radius) {
+  translate([5,0,0]) sphere(r = radius);
+}
+
+union() {
+  my_cube();
+  my_sphere(2);
+}
 ```
 
 **LuaCAD:**
 
 ```lua
-require "luacad"
+require("luacad")
 
-local cube_model = cube{size={1, 2, 3}}
-local sphere_model = sphere{r = 2}
+my_cube = cube { size = { 1, 2, 3 } }
 
-local model = cube_model + sphere_model
-model:export("temp/model.scad")
+function my_sphere(radius)
+  return sphere({ r = 2 }):translate(5, 0, 0)
+end
+
+model = my_cube + my_sphere(2)
+
+model:export("simple.scad")
 ```
+
 
 ## Additional Functions
 
