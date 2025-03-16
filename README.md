@@ -86,14 +86,6 @@ that make it easier to create complex models:
   https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A
 
 
-## OpenSCAD to LuaCAD
-
-- `*` -> `s()` (skip)
-- `!` -> `o()` (only)
-- `#` -> `d()` (debug)
-- `%` -> `t()` (transparent)
-
-
 ## Supported Export Formats
 
 - [3MF](https://en.wikipedia.org/wiki/3D_Manufacturing_Format)

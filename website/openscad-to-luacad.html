@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenSCAD to LuaCAD</title>
+  <link rel="stylesheet" href="screen.css">
+  <link rel="stylesheet" href="atom-one-dark.min.css" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="atom-one-light.min.css"
+    media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
+  <style>
+    #introduction code {
+      background-color: hsl(0, 0%, 95%);
+      padding: 0.1rem 0.3rem;
+      border: 1px solid hsl(0, 0%, 80%);
+      border-radius: 0.2rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+    }
+
+    th,
+    td {
+      padding: 0.5rem;
+      text-align: left;
+      border: 1px solid var(--border-color);
+    }
+
+    th {
+      background-color: var(--secondary-bg-color);
+      font-weight: bold;
+    }
+
+    section {
+      width: initial;
+      margin-bottom: 1rem;
+    }
+
+    .highlight {
+      background-color: hsl(50, 100%, 96%);
+    }
+  </style>
+</head>
+
+<body>
+  <h1>
+    <span style="color: var(--primary-color)">
+      Lua</span><span style="color: var(--secondary-color)">CAD</span>
+  </h1>
+
+  <div class="navbar">
+    <a href="index.html" class="nav-link">Home</a>
+    <a href="cheatsheet.html" class="nav-link">Cheatsheet</a>
+    <a href="examples.html" class="nav-link">Examples</a>
+    <a href="openscad-to-luacad.html" class="nav-link active">OpenSCAD to LuaCAD</a>
+  </div>
+
+  <main>
+    <section id="introduction">
+      <p>This page is a reference guide for converting OpenSCAD code to LuaCAD.
+        While <a href="https://www.lua.org/">Lua</a> is generally a very simple and approachable language,
+        some syntax features might be a little surprising to OpenSCAD users
+        and are highlighted in yellow here.
+      </p>
+      <p>
+        One of the biggest differences is that parentheses are optional when calling functions in Lua
+        and the argument is either a string or a <code>{…}</code> block (also called a table).
+      </p>
+      <p>
+        So following statements are equivalent:
+      </p>
+      <ul>
+        <li><code>require("luacad")</code> and <code>require "luacad"</code></li>
+        <li><code>circle({r = 5})</code> and <code>circle{r = 5}</code></li>
+      </ul>
+      <p>Furthermore code is usually written with a method chaining syntax,
+        which puts the focus on the object being manipulated
+        rather than the function being called.
+        This makes it easier to read and understand the code.
+      <ul>
+        <li>OpenSCAD: <code>translate([1, 2, 3]) rotate([0, 0, 90]) cube([1, 1, 1])</code></li>
+        <li> LuaCAD: <code>cube{size={1, 1, 1}}:rotate(0, 0, 90):translate(1, 2, 3)</code></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Syntax</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Variable assignment</td>
+          <td><code>x = value;</code></td>
+          <td><code>x = value<br>local x = value</code></td>
+        </tr>
+        <tr>
+          <td>Conditional expression</td>
+          <td><code>x = cond ? true_val : false_val;</code></td>
+          <td class="highlight"><code>x = cond and true_val or false_val</code></td>
+        </tr>
+        <tr>
+          <td>Function definition</td>
+          <td><code>x = function (a) a + a;</code></td>
+          <td><code>x = function (a) return a + a end</code></td>
+        </tr>
+        <tr>
+          <td>Module definition and usage</td>
+          <td><code>module name(…) {<br>&nbsp;&nbsp;…<br>}<br/>name();</code></td>
+          <td><code>
+            function name(…)<br>
+            &nbsp;&nbsp;return …<br>
+            end<br/>
+            name()
+          </code></td>
+        </tr>
+        <tr>
+          <td>Function definition and usage</td>
+          <td><code>function name(…) = …<br/>name();</code></td>
+          <td><code>function name(…) return … end<br/>name()</code></td>
+        </tr>
+        <tr>
+          <td>Include file with exported symbols</td>
+          <td><code>include &lt;….scad&gt;</code></td>
+          <td><code>require "…"</code></td>
+        </tr>
+        <tr>
+          <td>Use file but keep namespace separate</td>
+          <td><code>use &lt;….scad&gt;</code></td>
+          <td><code>local module = require "…"</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>2D</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Create a circle</td>
+          <td><code>
+            circle(radius)<br>
+            circle(r=radius)<br>
+            circle(d=diameter)
+          </code></td>
+          <td><code>
+            circle(radius)<br>
+            circle{r=radius}<br>
+            circle{d=diameter}
+          </code></td>
+        </tr>
+        <tr>
+          <td>Create a square with equal sides</td>
+          <td><code>square(size, center)</code></td>
+          <td><code>square(size, center)</code></td>
+        </tr>
+        <tr>
+          <td>Create a rectangle</td>
+          <td><code>square([width, height], center)</code></td>
+          <td><code>square{width, height, center)</code></td>
+        </tr>
+        <tr>
+          <td>Create a polygon from points</td>
+          <td><code>polygon([points])</code></td>
+          <td><code>polygon{points}</code></td>
+        </tr>
+        <tr>
+          <td>Create a polygon with paths</td>
+          <td><code>polygon([points], [paths])</code></td>
+          <td><code>polygon{points, paths}</code></td>
+        </tr>
+        <tr>
+          <td>Create text</td>
+          <td>
+            <code>text(t, size, font,<br>&nbsp;&nbsp;&nbsp;&nbsp;halign, valign, spacing,<br>&nbsp;&nbsp;&nbsp;&nbsp;direction, language, script)</code>
+          </td>
+          <td><code>text(t, {size=size, font=font, ...})</code></td>
+        </tr>
+        <tr>
+          <td>Import 2D file (DXF/SVG)</td>
+          <td>
+            <code>import("….<span class="tooltip">ext<span class="tooltiptext">formats: DXF|SVG</span></span>", convexity)</code>
+          </td>
+          <td><code>import("file.dxf", convexity)</code></td>
+        </tr>
+        <tr>
+          <td>Project 3D model to 2D</td>
+          <td><code>projection(cut)</code></td>
+          <td><code>obj:projection(cut)</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>3D</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Create a sphere</td>
+          <td><code>
+            sphere(radius)<br>
+            sphere(r=radius)<br>
+            sphere(d=diameter)
+          </code></td>
+          <td><code>
+            sphere(radius)<br>
+            sphere{r=radius}<br>
+            sphere{d=diameter}
+          </code></td>
+        </tr>
+        <tr>
+          <td>Create a cube with equal sides</td>
+          <td><code>cube(size, center)</code></td>
+          <td><code>cube(size, center)</code></td>
+        </tr>
+        <tr>
+          <td>Create a rectangular prism</td>
+          <td><code>cube([width, depth, height], center)</code></td>
+          <td><code>cube{{width, depth, height}, center}</code></td>
+        </tr>
+        <tr>
+          <td>Create a cylinder</td>
+          <td><code>cylinder(h, r|d, center)</code></td>
+          <td><code>cylinder(h, r, center)</code><br><code>cylinder{h=h, d=d, center=center}</code></td>
+        </tr>
+        <tr>
+          <td>Create a truncated cone</td>
+          <td><code>cylinder(h, r1|d1, r2|d2, center)</code></td>
+          <td>
+            <code>cylinder(h, r1, r2, center)</code><br><code>cylinder{h=h, d1=d1, d2=d2, center=center}</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Create a polyhedron</td>
+          <td><code>polyhedron(points, faces, convexity)</code></td>
+          <td><code>polyhedron(points, faces, convexity)</code></td>
+        </tr>
+        <tr>
+          <td>Import 3D file (STL/etc)</td>
+          <td>
+            <code>import("….<span class="tooltip">ext<span class="tooltiptext">formats: STL|OFF|AMF|3MF</span></span>", convexity)</code>
+          </td>
+          <td><code>import("file.stl", convexity)</code></td>
+        </tr>
+        <tr>
+          <td>Extrude 2D shape into 3D</td>
+          <td><code>linear_extrude(height, center, convexity, twist, slices)</code></td>
+          <td><code>obj:linearExtrude(height, {center=center, ...})</code></td>
+        </tr>
+        <tr>
+          <td>Rotate 2D shape around Y axis</td>
+          <td><code>rotate_extrude(angle, convexity)</code></td>
+          <td><code>obj:rotateExtrude(angle, convexity)</code></td>
+        </tr>
+        <tr>
+          <td>Create a 3D surface from heightmap</td>
+          <td>
+            <code>surface(file = "….<span class="tooltip">ext<span class="tooltiptext">formats: DAT|PNG</span></span>", center, convexity)</code>
+          </td>
+          <td><code>surface("file.png", center, convexity)</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Boolean operations</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Combine objects</td>
+          <td><code>union() { obj1; obj2; }</code></td>
+          <td><code>obj1 + obj2</code></td>
+        </tr>
+        <tr>
+          <td>Subtract objects</td>
+          <td><code>difference() { obj1; obj2; }
+          </code></td>
+          <td><code>obj1 - obj2</code></td>
+        </tr>
+        <tr>
+          <td>Keep overlapping parts</td>
+          <td><code>intersection() { obj1; obj2; }</code></td>
+          <td><code>obj1 & obj2</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Transformations</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Move object</td>
+          <td><code>translate([x, y, z])</code></td>
+          <td><code>obj:translate(x, y, z)</code></td>
+        </tr>
+        <tr>
+          <td>Rotate around each axis sequentially</td>
+          <td><code>rotate([x, y, z])</code></td>
+          <td><code>obj:rotate(x, y, z)</code></td>
+        </tr>
+        <tr>
+          <td>Rotate around vector</td>
+          <td><code>rotate(a, [x, y, z])</code></td>
+          <td><code>obj:rotate(a, {x, y, z})</code></td>
+        </tr>
+        <tr>
+          <td>Scale object</td>
+          <td><code>scale([x, y, z])</code></td>
+          <td><code>obj:scale(x, y, z)</code></td>
+        </tr>
+        <tr>
+          <td>Resize object to absolute dimensions</td>
+          <td><code>resize([x, y, z], auto, convexity)</code></td>
+          <td><code>obj:resize{{x, y, z}, auto, convexity}</code></td>
+        </tr>
+        <tr>
+          <td>Mirror object across plane</td>
+          <td><code>mirror([x, y, z])</code></td>
+          <td><code>obj:mirror(x, y, z)</code></td>
+        </tr>
+        <tr>
+          <td>Apply transformation matrix</td>
+          <td><code>multmatrix(m)</code></td>
+          <td><code>obj:multmatrix(m)</code></td>
+        </tr>
+        <tr>
+          <td>Apply color by name</td>
+          <td><code>color("colorname", alpha)</code></td>
+          <td><code>obj:color("colorname", alpha)</code></td>
+        </tr>
+        <tr>
+          <td>Apply color by hex value</td>
+          <td>
+            <code>color("#<span class="tooltip">hexvalue<span class="tooltiptext">#rgb|#rgba|#rrggbb|#rrggbbaa</span></span>")</code>
+          </td>
+          <td><code>obj:color("#hexvalue")</code></td>
+        </tr>
+        <tr>
+          <td>Apply color by RGBA values</td>
+          <td><code>color([r, g, b, a])</code></td>
+          <td><code>obj:color(r, g, b, a)</code></td>
+        </tr>
+        <tr>
+          <td>Offset 2D shape</td>
+          <td><code>offset(r|delta, chamfer)</code></td>
+          <td><code>obj:offset(r, chamfer)</code></td>
+        </tr>
+        <tr>
+          <td>Create hull around objects</td>
+          <td><code>hull()</code></td>
+          <td><code>obj:hull()</code></td>
+        </tr>
+        <tr>
+          <td>Minkowski sum of objects</td>
+          <td><code>minkowski()</code></td>
+          <td><code>obj:minkowski()</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Modifier Characters</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Disable</td>
+          <td><code>*</code></td>
+          <td><code>s(…)<br>obj:skip()</code></td>
+        </tr>
+        <tr>
+          <td>Show only</td>
+          <td><code>!</code></td>
+          <td><code>o(…)<br>obj:only()</code></td>
+        </tr>
+        <tr>
+          <td>Highlight / debug</td>
+          <td><code>#</code></td>
+          <td><code>d(…)<br>obj:debug()</code></td>
+        </tr>
+        <tr>
+          <td>Transparent / background</td>
+          <td><code>%</code></td>
+          <td><code>t(…)<br>obj:transparent()</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Math Operators</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Addition</td>
+          <td><code>n + m</code></td>
+          <td><code>n + m</code></td>
+        </tr>
+        <tr>
+          <td>Subtraction</td>
+          <td><code>n - m</code></td>
+          <td><code>n - m</code></td>
+        </tr>
+        <tr>
+          <td>Multiplication</td>
+          <td><code>n * m</code></td>
+          <td><code>n * m</code></td>
+        </tr>
+        <tr>
+          <td>Division</td>
+          <td><code>n / m</code></td>
+          <td><code>n / m</code></td>
+        </tr>
+        <tr>
+          <td>Modulo</td>
+          <td><code>n % m</code></td>
+          <td><code>n % m</code></td>
+        </tr>
+        <tr>
+          <td>Exponentiation</td>
+          <td><code>n ^ m</code></td>
+          <td><code>n ^ m</code></td>
+        </tr>
+        <tr>
+          <td>Less Than</td>
+          <td><code>n < m</code></td>
+          <td><code>n < m</code></td>
+        </tr>
+        <tr>
+          <td>Less or Equal</td>
+          <td><code>n <= m</code></td>
+          <td><code>n <= m</code></td>
+        </tr>
+        <tr>
+          <td>Equal</td>
+          <td><code>b == c</code></td>
+          <td><code>b == c</code></td>
+        </tr>
+        <tr>
+          <td>Not Equal</td>
+          <td><code>b != c</code></td>
+          <td class="highlight"><code>b ~= c</code></td>
+        </tr>
+        <tr>
+          <td>Greater or Equal</td>
+          <td><code>n >= m</code></td>
+          <td><code>n >= m</code></td>
+        </tr>
+        <tr>
+          <td>Greater Than</td>
+          <td><code>n > m</code></td>
+          <td><code>n > m</code></td>
+        </tr>
+        <tr>
+          <td>Logical And</td>
+          <td><code>b && c</code></td>
+          <td class="highlight"><code>b and c</code></td>
+        </tr>
+        <tr>
+          <td>Logical Or</td>
+          <td><code>b || c</code></td>
+          <td class="highlight"><code>b or c</code></td>
+        </tr>
+        <tr>
+          <td>Negation</td>
+          <td><code>!b</code></td>
+          <td class="highlight"><code>not b</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Constants</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Undefined value</td>
+          <td><code>undef</code></td>
+          <td><code>nil</code></td>
+        </tr>
+        <tr>
+          <td>Mathematical constant &pi; (~3.14159)</td>
+          <td><code>PI</code></td>
+          <td><code>math.pi</code></td>
+        </tr>
+        <tr>
+          <td>Smallest Integer</td>
+          <td><code></code></td>
+          <td><code>math.mininteger</code></td>
+        </tr>
+        <tr>
+          <td>Largest Integer</td>
+          <td><code></code></td>
+          <td><code>math.maxinteger</code></td>
+        </tr>
+        <tr>
+          <td>Biggest Number</td>
+          <td><code></code></td>
+          <td><code>math.huge</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Special variables</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Minimum angle</td>
+          <td><code>$fa</code></td>
+          <td><code>settings.fa</code></td>
+        </tr>
+        <tr>
+          <td>Minimum size</td>
+          <td><code>$fs</code></td>
+          <td><code>settings.fs</code></td>
+        </tr>
+        <tr>
+          <td>Number of fragments</td>
+          <td><code>$fn</code></td>
+          <td><code>settings.fn</code></td>
+        </tr>
+        <tr>
+          <td>Animation step</td>
+          <td><code>$t</code></td>
+          <td><code>settings.t</code></td>
+        </tr>
+        <tr>
+          <td>Viewport rotation angles in degrees</td>
+          <td><code>$vpr</code></td>
+          <td><code>settings.vpr</code></td>
+        </tr>
+        <tr>
+          <td>Viewport translation</td>
+          <td><code>$vpt</code></td>
+          <td><code>settings.vpt</code></td>
+        </tr>
+        <tr>
+          <td>Viewport camera distance</td>
+          <td><code>$vpd</code></td>
+          <td><code>settings.vpd</code></td>
+        </tr>
+        <tr>
+          <td>Viewport camera field of view</td>
+          <td><code>$vpf</code></td>
+          <td><code>settings.vpf</code></td>
+        </tr>
+        <tr>
+          <td>Number of module children</td>
+          <td><code>$children</code></td>
+          <td><code>settings.children</code></td>
+        </tr>
+        <tr>
+          <td>True in preview mode, false for render</td>
+          <td><code>$preview</code></td>
+          <td><code>settings.preview</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Lists</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Create a list</td>
+          <td><code>list = […, …, …];</code></td>
+          <td class="highlight"><code>list = {…, …, …}</code></td>
+        </tr>
+        <tr>
+          <td>Index a list (Lua is 1-indexed)</td>
+          <td><code>x = list[2];</code></td>
+          <td class="highlight"><code>x = list[3]</code></td>
+        </tr>
+        <tr>
+          <td>Dot notation indexing (x/y/z)</td>
+          <td><code>x = list.z;</code></td>
+          <td><code>x = list.z</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>List Comprehensions</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Generate array with values</td>
+          <td><code>[ for (i = <i>range</i>|<i>list</i>) i ]</code></td>
+          <td>
+            <code>
+              local result = {}<br>
+              for i = start, stop do<br>
+              &nbsp;&nbsp;table.insert(result, i)<br>
+              end
+            </code>
+          </td>
+        </tr>
+        <tr>
+          <td>Generate with for loop</td>
+          <td><code>[ for (<i>init</i>;<i>condition</i>;<i>next</i>) i ]</code></td>
+          <td>
+            <code>
+              local result = {}<br>
+              for i = init, max, step do<br>
+              &nbsp;&nbsp;if condition then<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;table.insert(result, i)<br>
+              &nbsp;&nbsp;end<br>
+              end
+            </code>
+          </td>
+        </tr>
+        <tr>
+          <td>Flatten array</td>
+          <td><code>[ each i ]</code></td>
+          <td><code>table.unpack(table)</code></td>
+        </tr>
+        <tr>
+          <td>Filter array with condition</td>
+          <td><code>[ for (i = …) if (condition(i)) i ]</code></td>
+          <td>
+            <code>
+              local result = {}<br>
+              for _, i in ipairs(list) do<br>
+              &nbsp;&nbsp;if condition(i) then<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;table.insert(result, i)<br>
+              &nbsp;&nbsp;end<br>
+              end
+            </code>
+          </td>
+        </tr>
+        <tr>
+          <td>Conditional values in comprehension</td>
+          <td><code>[ for (i = …) if (condition(i)) x else y ]</code></td>
+          <td>
+            <code>
+              local result = {}<br>
+              for _, i in ipairs(list) do<br>
+              &nbsp;&nbsp;table.insert(result, condition(i) and x or y)<br>
+              end
+            </code>
+          </td>
+        </tr>
+        <tr>
+          <td>Local assignments in comprehension</td>
+          <td><code>[ for (i = …) let (assignments) a ]</code></td>
+          <td>
+            <code>
+              local result = {}<br>
+              for _, i in ipairs(list) do<br>
+              &nbsp;&nbsp;local x = expression<br>
+              &nbsp;&nbsp;table.insert(result, a)<br>
+              end
+            </code>
+          </td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Flow Control</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>For loop with range</td>
+          <td><code>for (i = [<span>start</span>:<span>end</span>]) { … }</code></td>
+          <td><code>for i = start, stop do … end</code></td>
+        </tr>
+        <tr>
+          <td>For loop with step</td>
+          <td><code>for (i = [<span>start</span>:<span>step</span>:<span>end</span>]) { … }</code></td>
+          <td><code>for i = start, stop, step do … end</code></td>
+        </tr>
+        <tr>
+          <td>For loop with list</td>
+          <td><code>for (i = […,…,…]) { … }</code></td>
+          <td><code>for _, i in ipairs({…,…,…}) do … end</code></td>
+        </tr>
+        <tr>
+          <td>For loop with multiple variables</td>
+          <td><code>for (i = …, j = …, …) { … }</code></td>
+          <td><code>for _, item in ipairs(list) do local i, j = item[1], item[2] … end</code></td>
+        </tr>
+        <tr>
+          <td>Intersect multiple iterations</td>
+          <td><code>intersection_for(i = [<span>start</span>:<span>end</span>]) { … }</code></td>
+          <td>
+            <code>local models = {} for i = start, stop do table.insert(models, …) end cad.intersection(models)</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Intersect with step</td>
+          <td><code>intersection_for(i = [<span>start</span>:<span>step</span>:<span>end</span>]) { … }</code>
+          </td>
+          <td>
+            <code>local models = {} for i = start, stop, step do table.insert(models, …) end cad.intersection(models)</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Intersect list iterations</td>
+          <td><code>intersection_for(i = […,…,…]) { … }</code></td>
+          <td>
+            <code>local models = {} for _, i in ipairs({…,…,…}) do table.insert(models, …) end cad.intersection(models)</code>
+          </td>
+        </tr>
+        <tr>
+          <td>Conditional execution</td>
+          <td><code>if (…) { … }</code></td>
+          <td><code>if … then … end</code></td>
+        </tr>
+        <tr>
+          <td>Local variable definition</td>
+          <td><code>let (…) { … }</code></td>
+          <td><code>local … = … …</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Type test functions</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Check if undefined</td>
+          <td><code>is_undef()</code></td>
+          <td><code>x == nil</code></td>
+        </tr>
+        <tr>
+          <td>Check if boolean</td>
+          <td><code>is_bool()</code></td>
+          <td><code>is_bool()</code></td>
+        </tr>
+        <tr>
+          <td>Check if number</td>
+          <td><code>is_num()</code></td>
+          <td><code>is_num()</code></td>
+        </tr>
+        <tr>
+          <td>Check if string</td>
+          <td><code>is_string</code></td>
+          <td><code>is_str()</code></td>
+        </tr>
+        <tr>
+          <td>Check if list</td>
+          <td><code>is_list()</code></td>
+          <td><code>is_list()</code></td>
+        </tr>
+        <tr>
+          <td>Check if function</td>
+          <td><code>is_function()</code></td>
+          <td><code>is_func()</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Functions</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Print message to console</td>
+          <td><code>echo(…)</code></td>
+          <td><code>print(…)</code></td>
+        </tr>
+        <tr>
+          <td>Force rendering</td>
+          <td><code>render(convexity)</code></td>
+          <td><code>obj:render(convexity)</code></td>
+        </tr>
+        <tr>
+          <td>Access child objects</td>
+          <td><code>children([idx])</code></td>
+          <td><code>children[idx]</code></td>
+        </tr>
+        <tr>
+          <td>Assert condition is true</td>
+          <td><code>assert(condition, message)</code></td>
+          <td><code>assert(condition, message)</code></td>
+        </tr>
+        <tr>
+          <td>Concatenate vectors / lists</td>
+          <td><code>concat([1,2], [3,4])</code></td>
+          <td><code>concat({1,2}, {3,4})</code></td>
+        </tr>
+        <tr>
+          <td>Look up value in a table</td>
+          <td><code>lookup()</code></td>
+          <td><code>lookup()</code></td>
+        </tr>
+        <tr>
+          <td>Convert to string</td>
+          <td><code>str(123)</code></td>
+          <td><code>tostring(123)</code></td>
+        </tr>
+        <tr>
+          <td>Get character from code</td>
+          <td><code>chr(65)</code></td>
+          <td><code>string.char(65)</code></td>
+        </tr>
+        <tr>
+          <td>Get code from character</td>
+          <td><code>ord("a")</code></td>
+          <td><code>string.byte("a")</code><br>
+            <small>(does not work for multi-byte characters)</small>
+          </td>
+        </tr>
+        <tr>
+          <td>Search for value</td>
+          <td><code>search()</code></td>
+          <td><code>
+            string.find()<br>
+            table.indexof()
+          </code></td>
+        </tr>
+        <tr>
+          <td>Get version string</td>
+          <td><code>version()</code></td>
+          <td><code>version()</code></td>
+        </tr>
+        <tr>
+          <td>Get parent module name</td>
+          <td><code>parent_module(idx)</code></td>
+          <td><code>debug.getinfo(2, "n").name</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>Mathematical</h2>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Absolute value</td>
+          <td><code>abs()</code></td>
+          <td><code>math.abs()</code></td>
+        </tr>
+        <tr>
+          <td>Sign of value (-1, 0, 1)</td>
+          <td><code>sign()</code></td>
+          <td><code>sign()</code></td>
+        </tr>
+        <tr>
+          <td>Sine function</td>
+          <td><code>sin()</code></td>
+          <td><code>math.sin()</code></td>
+        </tr>
+        <tr>
+          <td>Cosine function</td>
+          <td><code>cos()</code></td>
+          <td><code>math.cos()</code></td>
+        </tr>
+        <tr>
+          <td>Tangent function</td>
+          <td><code>tan()</code></td>
+          <td><code>math.tan()</code></td>
+        </tr>
+        <tr>
+          <td>Arc cosine function</td>
+          <td><code>acos()</code></td>
+          <td><code>math.acos()</code></td>
+        </tr>
+        <tr>
+          <td>Arc sine function</td>
+          <td><code>asin()</code></td>
+          <td><code>math.asin()</code></td>
+        </tr>
+        <tr>
+          <td>Arc tangent function</td>
+          <td><code>atan()</code></td>
+          <td><code>math.atan()</code></td>
+        </tr>
+        <tr>
+          <td>2-argument arc tangent</td>
+          <td><code>atan2()</code></td>
+          <td><code>math.atan2()</code></td>
+        </tr>
+        <tr>
+          <td>Round down</td>
+          <td><code>floor()</code></td>
+          <td><code>math.floor()</code></td>
+        </tr>
+        <tr>
+          <td>Round to nearest</td>
+          <td><code>round()</code></td>
+          <td><code>round()</code></td>
+        </tr>
+        <tr>
+          <td>Round up</td>
+          <td><code>ceil()</code></td>
+          <td><code>math.ceil()</code></td>
+        </tr>
+        <tr>
+          <td>Natural logarithm</td>
+          <td><code>ln()</code></td>
+          <td><code>math.log()</code></td>
+        </tr>
+        <tr>
+          <td>Length of array</td>
+          <td><code>len()</code></td>
+          <td><code>#array()</code></td>
+        </tr>
+        <tr>
+          <td>Local variable declaration</td>
+          <td><code>let(x = 123)</code></td>
+          <td><code>local x = 123</code></td>
+        </tr>
+        <tr>
+          <td>Base-10 logarithm</td>
+          <td><code>log(x)</code></td>
+          <td><code>math.log(x, 10)</code></td>
+        </tr>
+        <tr>
+          <td>Power function</td>
+          <td><code>pow(x, y)</code></td>
+          <td><code>x ^ y</code></td>
+        </tr>
+        <tr>
+          <td>Square root</td>
+          <td><code>sqrt()</code></td>
+          <td><code>math.sqrt()</code></td>
+        </tr>
+        <tr>
+          <td>Exponential function</td>
+          <td><code>exp()</code></td>
+          <td><code>math.exp()</code></td>
+        </tr>
+        <tr>
+          <td>Random numbers</td>
+          <td><code>rands(min, max, count, seed)</code></td>
+          <td><code>
+            math.randomseed(seed)<br>
+            math.random(min, max)
+          </code></td>
+        </tr>
+        <tr>
+          <td>Minimum value</td>
+          <td><code>min()</code></td>
+          <td><code>math.min()</code></td>
+        </tr>
+        <tr>
+          <td>Maximum value</td>
+          <td><code>max()</code></td>
+          <td><code>math.max()</code></td>
+        </tr>
+        <tr>
+          <td>Vector length/magnitude</td>
+          <td><code>norm()</code></td>
+          <td><code>vector.length()</code></td>
+        </tr>
+        <tr>
+          <td>Cross product of vectors</td>
+          <td><code>cross()</code></td>
+          <td><code>vector.cross()</code></td>
+        </tr>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <p>Find more information in the
+      <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a>
+    </p>
+  </footer>
+
+  <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+
+  <script src="highlight.min.js"></script>
+  <script src="openscad.min.js"></script>
+  <script>
+    hljs.highlightAll()
+  </script>
+</body>
+
+</html>

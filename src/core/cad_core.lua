@@ -1,29 +1,29 @@
---[[--================================================================================
+--[[============================================================================
   Lua CAD Core Functions
   Core functionality for the CAD library
---]]
---================================================================================
+==============================================================================]]
 
 require("src.core.geometry") -- includes vector
 
---[[--------------------------------------------------------------------------------
+--[[----------------------------------------------------------------------------
   GLOBAL CAD TABLE
---]]
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------]]
 cad = {}
+
+-- Helpers
+require("src.core.helpers")
 
 -- OpenSCAD settings
 cad.settings = require("src.core.cad_settings")
 
---[[--------------------------------------------------------------------------------
+--[[----------------------------------------------------------------------------
   LOCAL OBJ HELPER FUNCTIONS
---]]
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------]]
 local default_segments = cad.settings.default_segments
 local executable = cad.settings.executable
 local scadfile = cad.settings.scadfile
 
-local function getExtension(path)
+local function get_extension(path)
   return "." .. path:lower():match("%.([^%.]+)$")
 end
 
@@ -163,7 +163,7 @@ local function export_scad(obj, file)
   fscad:write(obj.scad_content)
   fscad:close()
 
-  if getExtension(file) == ".scad" then
+  if get_extension(file) == ".scad" then
     os.rename(temp_scadfile, file)
   else
     -- Execute OpenSCAD to create the final output file
@@ -467,17 +467,9 @@ function tableToStr(t)
   return str .. "}"
 end
 
-function isArrayOnly(t)
-  local count = 0
-  for _ in pairs(t) do
-    count = count + 1
-  end
-  return count == #t
-end
-
 -- Export helper functions for other modules
 cad._helpers = {
-  getExtension = getExtension,
+  get_extension = get_extension,
   indent_content = indent_content,
   update_content = update_content,
   update_content_t = update_content_t,
@@ -487,7 +479,6 @@ cad._helpers = {
   cad_meta = cad_meta,
   valOrName = valOrName,
   tableToStr = tableToStr,
-  isArrayOnly = isArrayOnly,
 }
 
 -- Load other modules

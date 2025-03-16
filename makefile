@@ -2,6 +2,7 @@
 help: makefile
 	@tail -n +4 makefile | grep ".PHONY" | cut -d ":" -f2 | sort
 
+.FORCE:
 
 TEST_FILES = $(wildcard tests/test_*.lua)
 
@@ -46,8 +47,12 @@ fmt:
 	@stylua . luacad.lua bin/luacad
 
 
+version.txt: .FORCE
+	git describe --always --tags --dirty > $@
+
+
 .PHONY: release
-release: fmt test website/examples.html
+release: version.txt fmt test website/examples.html
 
 
 .PHONY: clean

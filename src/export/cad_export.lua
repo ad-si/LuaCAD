@@ -115,7 +115,7 @@ function cad._helpers.cad_meta.__index.export(obj, file, verbose)
   end
 
   -- check extension
-  local ext = cad._helpers.getExtension(file)
+  local ext = cad._helpers.get_extension(file)
   local f = t_ext[ext]
   if not f then
     error("<cad>:export, unknown extension " .. ext)
@@ -257,7 +257,7 @@ function cad.export(filename, ...)
   end
 
   local objs = { ... }
-  local ext = cad._helpers.getExtension(filename)
+  local ext = cad._helpers.get_extension(filename)
   local f = f_ext[ext]
   if not f then
     error("cad.export, unknown extension " .. ext)
