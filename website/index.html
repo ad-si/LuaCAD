@@ -51,40 +51,59 @@
       <h3>Example</h3>
       <div class="example-code">
         <h4>OpenSCAD:</h4>
-        <pre><code class="language-openscad">cube([1,2,3]);
-translate([5,0,0]) sphere(r = 2);</code></pre>
+        <pre><code class="language-openscad">module my_cube() {
+  cube(size=[1,2,3]);
+}
+
+module my_sphere(radius) {
+  translate([5,0,0]) sphere(r = radius);
+}
+
+union () {
+  my_cube();
+  my_sphere(2);
+}</code></pre>
 
         <h4>LuaCAD:</h4>
-        <pre><code class="language-lua">require "luacad"
+        <pre><code class="language-lua">require("luacad")
 
-local cube_model = cube{size={1, 2, 3}}
-local sphere_model = sphere{r = 2}
+my_cube = cube { size = { 1, 2, 3 } }
 
-local model = cube_model + sphere_model
-model:export("temp/model.scad")</code></pre>
+function my_sphere(radius)
+  return sphere({ r = 2 }):translate(5, 0, 0)
+end
+
+model = my_cube + my_sphere(2)
+
+model:export("simple.scad")</code></pre>
       </div>
 
       <h3>Getting Started</h3>
       <ol class="feature-list">
-        <li>Clone the repository: <code class="language-bash">git clone https://github.com/ad-si/LuaCAD</code></li>
         <li>Install <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> if not already installed</li>
-        <li>Add a new <code>.lua</code> file to the root directory of the repository</li>
-        <li>Implement your model</li>
-        <li>Run with: <code class="language-bash">lua your_model.lua</code></li>
+        <li><a href="https://github.com/ad-si/LuaCAD/archive/refs/heads/main.zip">Download the project</a></li>
+        <li>Unzip the project</li>
+        <li>Create your <code>&lt;name&gt;.lua</code> model file
+          (including a <code>…:export("out.scad")</code> line)</li>
+        <li>Execute code with: <code class="language-bash">bin/luacad &lt;name&gt;.lua</code></li>
+        <li>Open the generated <code>out.scad</code> file with OpenSCAD</li>
       </ol>
-
-      <h3>Main Features</h3>
-      <ul class="feature-list">
-        <li>Using CAD objects</li>
-      </ul>
 
       <h3>Supported Export Formats</h3>
       <ul class="feature-list">
-        <li><strong>DXF</strong> - 2D CAD format</li>
-        <li><strong>SVG</strong> - Scalable Vector Graphics</li>
-        <li><strong>STL</strong> - Standard Triangle Language for 3D printing</li>
-        <li><strong>OBJ</strong> - Wavefront 3D object format</li>
-        <li><strong>WRL</strong> - VRML format</li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/OpenSCAD" target="_blank">SCAD</a></strong> - OpenSCAD format
+        </li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/3D_Manufacturing_Format" target="_blank">3MF</a></strong> -
+          3D Manufacturing Format</li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/STL_(file_format)" target="_blank">STL</a></strong> -
+          Standard Triangle Language for 3D printing</li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/AutoCAD_DXF" target="_blank">DXF</a></strong> - 2D CAD format
+        </li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/Wavefront_.obj_file" target="_blank">OBJ</a></strong> -
+          Wavefront 3D object format</li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/Scalable_Vector_Graphics" target="_blank">SVG</a></strong> -
+          Scalable Vector Graphics</li>
+        <li><strong><a href="https://en.wikipedia.org/wiki/VRML" target="_blank">WRL</a></strong> - VRML format</li>
       </ul>
 
       <div class="cta-buttons">

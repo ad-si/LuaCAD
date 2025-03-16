@@ -19,12 +19,12 @@ Full support or [Belfry OpenSCAD Library v2][BOLS2] library is planned.
 - Install [OpenSCAD] if not already installed
 - [Download the project](https://github.com/ad-si/LuaCAD/archive/refs/heads/main.zip)
 - Unzip the project
-- Add a new `.lua` file to the root directory
-- Implement your model as LusSCAD code
-- Execute code to produce output:
+- Create your `<name>.lua` model file (including a `…:export("out.scad")` line)
+- Execute code with:
     ```sh
-    lua your_model.lua
+    bin/luacad <name>.lua
     ```
+- Open the generated `out.scad` file with OpenSCAD
 
 
 ## Example
@@ -88,10 +88,11 @@ that make it easier to create complex models:
 
 ## Supported Export Formats
 
+- [SCAD](https://en.wikipedia.org/wiki/OpenSCAD)
 - [3MF](https://en.wikipedia.org/wiki/3D_Manufacturing_Format)
+- [STL](https://en.wikipedia.org/wiki/STL_(file_format))
 - [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
 - [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
-- [STL](https://en.wikipedia.org/wiki/STL_(file_format))
 - [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
 - [WRL](https://en.wikipedia.org/wiki/VRML)
 
