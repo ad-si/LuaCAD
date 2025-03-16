@@ -19,7 +19,9 @@
 
   <div class="navbar">
     <a href="index.html" class="nav-link active">Home</a>
+    <!-- TODO
     <a href="cheatsheet.html" class="nav-link">Cheatsheet</a>
+    -->
     <a href="examples.html" class="nav-link">Examples</a>
     <a href="openscad-to-luacad.html" class="nav-link">OpenSCAD to LuaCAD</a>
   </div>
@@ -31,11 +33,11 @@
         engine to create 2D and 3D objects with the power and flexibility of Lua.
       </p>
 
-      <p>The LuaCAD library creates OpenSCAD code which is then used to create DXF, SVG, or STL files.
-        If the object should have a specific color then LuaCAD can take an STL file and convert it to OBJ or WRL with
-        color.</p>
+      <p>The LuaCAD library creates OpenSCAD code,
+        which is then used to create DXF, SVG, or STL files.
+      </p>
 
-      <h3>Why Lua?</h3>
+      <h2>Why Lua?</h2>
       <ul class="feature-list">
         <li>Similar syntax as the OpenSCAD language, but better:
           <ul>
@@ -45,10 +47,18 @@
             <li>Easily embeddable</li>
           </ul>
         </li>
-        <li>Already used in other CAD software like LibreCAD and Autodesk Netfabb</li>
+        <li>Already used in other CAD software like
+          <a href="https://wiki.librecad.org/index.php/LibreCAD_3_-_Lua_Scripting">
+            LibreCAD
+          </a>
+          and
+          <a href="https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A">
+            Autodesk Netfabb
+          </a>
+        </li>
       </ul>
 
-      <h3>Example</h3>
+      <h2>Example</h2>
       <div class="example-code">
         <h4>OpenSCAD:</h4>
         <pre><code class="language-openscad">module my_cube() {
@@ -78,7 +88,7 @@ model = my_cube + my_sphere(2)
 model:export("simple.scad")</code></pre>
       </div>
 
-      <h3>Getting Started</h3>
+      <h2>Getting Started</h2>
       <ol class="feature-list">
         <li>Install <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> if not already installed</li>
         <li><a href="https://github.com/ad-si/LuaCAD/archive/refs/heads/main.zip">Download the project</a></li>
@@ -89,7 +99,7 @@ model:export("simple.scad")</code></pre>
         <li>Open the generated <code>out.scad</code> file with OpenSCAD</li>
       </ol>
 
-      <h3>Supported Export Formats</h3>
+      <h2>Supported Export Formats</h2>
       <ul class="feature-list">
         <li><strong><a href="https://en.wikipedia.org/wiki/OpenSCAD" target="_blank">SCAD</a></strong> - OpenSCAD format
         </li>
@@ -105,17 +115,11 @@ model:export("simple.scad")</code></pre>
           Scalable Vector Graphics</li>
         <li><strong><a href="https://en.wikipedia.org/wiki/VRML" target="_blank">WRL</a></strong> - VRML format</li>
       </ul>
-
-      <div class="cta-buttons">
-        <a href="https://github.com/ad-si/LuaCAD" class="cta-button" target="_blank">GitHub Repository</a>
-        <a href="cheatsheet.html" class="cta-button secondary">View Cheatsheet</a>
-        <a href="examples.html" class="cta-button secondary">View Examples</a>
-      </div>
     </section>
   </div>
 
   <footer>
-    <p>Find more information in the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
+    <p>For more information, check out the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
   </footer>
 
   <script src="highlight.min.js"></script>
