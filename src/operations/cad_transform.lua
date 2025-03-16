@@ -20,10 +20,10 @@ local cad = cad or {}
 ----------------------------------------
 function cad._helpers.cad_meta.__index.union(obj_1)
   local obj = cad._helpers.cad_obj()
-  cad._helpers.update_content(obj, "union()\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "union() {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -38,8 +38,8 @@ end
 function cad._helpers.cad_meta.__index.sub(obj_1, ...)
   local obj = cad._helpers.cad_obj()
   local obj_s = { ... }
-  cad._helpers.update_content(obj, "difference()\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "difference() {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(
     obj,
     cad._helpers.cad_meta.__index.union(obj_1).scad_content
@@ -47,7 +47,7 @@ function cad._helpers.cad_meta.__index.sub(obj_1, ...)
   for i, v in ipairs(obj_s) do
     cad._helpers.update_content(obj, v.scad_content)
   end
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -79,13 +79,13 @@ end
 function cad._helpers.cad_meta.__index.intersect(obj_1, ...)
   local obj = cad._helpers.cad_obj()
   local obj_s = { ... }
-  cad._helpers.update_content(obj, "intersection()\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "intersection() {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
   for i, v in ipairs(obj_s) do
     cad._helpers.update_content(obj, v.scad_content)
   end
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -119,11 +119,11 @@ function cad._helpers.cad_meta.__index.scale(obj_1, argsOrX, y, z)
       .. tostring(valOrName(y or 0))
       .. ","
       .. tostring(valOrName(z or 0))
-      .. "])\n{\n"
+      .. "]) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -162,11 +162,11 @@ function cad._helpers.cad_meta.__index.resize(
       .. tostring(auto_y)
       .. ","
       .. tostring(auto_z)
-      .. "])\n{\n"
+      .. "]) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -219,11 +219,11 @@ function cad._helpers.cad_meta.__index.translate(obj_1, param1, param2, param3)
       .. valOrName(y)
       .. ","
       .. valOrName(z)
-      .. "])\n{\n"
+      .. "]) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -242,11 +242,11 @@ function cad._helpers.cad_meta.__index.mirror(obj_1, x, y, z)
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,
-    "mirror([" .. x .. "," .. y .. "," .. z .. "])\n{\n"
+    "mirror([" .. x .. "," .. y .. "," .. z .. "]) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -278,7 +278,7 @@ function cad._helpers.cad_meta.__index.rotate(
 
     cad._helpers.update_content(
       obj,
-      "rotate([" .. x_angle .. "," .. y_angle .. "," .. z_angle .. "])\n{\n"
+      "rotate([" .. x_angle .. "," .. y_angle .. "," .. z_angle .. "]) {\n"
     )
   else
     -- Full rotation with center point: rotate(x, y, z, x_angle, y_angle, z_angle)
@@ -306,12 +306,12 @@ function cad._helpers.cad_meta.__index.rotate(
         .. -y
         .. ","
         .. -z
-        .. "])\n{\n"
+        .. "]) {\n"
     )
   end
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -338,11 +338,11 @@ function cad._helpers.cad_meta.__index.rotate2d(obj_1, x, y, angle)
       .. -x
       .. ","
       .. -y
-      .. ",0])\n{\n"
+      .. ",0]) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -377,9 +377,9 @@ function cad._helpers.cad_meta.__index.rotateextrude(obj_1, angle, convexity)
   end
 
   cad._helpers.update_content(obj, "rotate_extrude" .. params .. "\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -412,11 +412,11 @@ function cad._helpers.cad_meta.__index.linearextrude(
       .. slices
       .. ", scale = "
       .. scale
-      .. ", center = false)\n{\n"
+      .. ", center = false) {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -430,10 +430,10 @@ end
 ------------------------------------------
 function cad._helpers.cad_meta.__index.hull(obj_1)
   local obj = cad._helpers.cad_obj()
-  cad._helpers.update_content(obj, "hull()\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "hull() {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -447,10 +447,10 @@ end
 ------------------------------------------
 function cad._helpers.cad_meta.__index.minkowski(obj_1)
   local obj = cad._helpers.cad_obj()
-  cad._helpers.update_content(obj, "minkowski()\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "minkowski() {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -467,11 +467,11 @@ function cad._helpers.cad_meta.__index.offset(obj_1, d, chamfer)
   local chamfer = (chamfer and true) or false
   cad._helpers.update_content(
     obj,
-    "offset(d=" .. d .. ",chamfer=" .. tostring(chamfer) .. ")\n{\n"
+    "offset(d=" .. d .. ",chamfer=" .. tostring(chamfer) .. ") {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -488,11 +488,11 @@ function cad._helpers.cad_meta.__index.offsetradius(obj_1, r, chamfer)
   local chamfer = (chamfer and true) or false
   cad._helpers.update_content(
     obj,
-    "offset(r=" .. r .. ",chamfer=" .. tostring(chamfer) .. ")\n{\n"
+    "offset(r=" .. r .. ",chamfer=" .. tostring(chamfer) .. ") {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -530,10 +530,10 @@ function cad._helpers.cad_meta.__index.multmatrix(obj_1, matrix)
   end
   matrix_str = matrix_str .. "]"
 
-  cad._helpers.update_content(obj, "multmatrix(" .. matrix_str .. ")\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.update_content(obj, "multmatrix(" .. matrix_str .. ") {\n")
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1
@@ -551,11 +551,11 @@ function cad._helpers.cad_meta.__index.projection(obj_1, cut)
   local cut_value = cut or false
   cad._helpers.update_content(
     obj,
-    "projection(cut = " .. tostring(cut_value) .. ")\n{\n"
+    "projection(cut = " .. tostring(cut_value) .. ") {\n"
   )
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
   obj_1.scad_content = obj.scad_content
   return obj_1

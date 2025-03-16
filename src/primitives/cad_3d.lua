@@ -247,9 +247,9 @@ function cad.rotate_extrude(args)
   end
 
   cad._helpers.update_content(obj, "rotate_extrude" .. params .. "\n{\n")
-  cad._helpers.intend_content(obj, 1)
+  cad._helpers.indent_content(obj, 1)
   -- This will be empty until objects are added to it
-  cad._helpers.intend_content(obj, -1)
+  cad._helpers.indent_content(obj, -1)
   cad._helpers.update_content(obj, "}\n")
 
   return obj

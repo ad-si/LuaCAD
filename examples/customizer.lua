@@ -11,4 +11,4 @@ local model = cube { size = { 3, 3, 5 } }
   + sphere({ r = r }):translate(t, t, t)
   + sphere { r = rNew }
 
-model:export("test.scad")
+model:export("customizer.scad")

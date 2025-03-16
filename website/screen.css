@@ -53,8 +53,8 @@ h3 {
   width: 100%;
 }
 
-.section {
-  width: 650px;
+section {
+  width: 40rem;
   background-color: white;
   border-radius: 5px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -209,6 +209,16 @@ footer {
   padding: 20px;
 }
 
+@media (max-width: 1200px) {
+  .example-content {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .preview-column {
+    grid-column: span 2;
+  }
+}
+
 .code-column {
   display: flex;
   flex-direction: column;
@@ -244,17 +254,4 @@ footer {
   margin-top: 15px;
   text-align: center;
   font-style: italic;
-}
-
-.keyword {
-  color: #d73a49;
-  font-weight: bold;
-}
-
-.string {
-  color: #032f62;
-}
-
-.number {
-  color: #005cc5;
 }

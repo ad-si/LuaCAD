@@ -25,7 +25,7 @@
   </div>
 
   <div class="container">
-    <div class="section">
+    <section>
       <h2>Basic Shapes</h2>
 
       <h3>2D Shapes</h3>
@@ -59,9 +59,9 @@ cylinder {h = height, r1 = bottom_r, r2 = top_r}
 
 -- Polyhedron
 polyhedron(x, y, z, points, faces)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Special Shapes</h2>
 
       <h3>2D Special Shapes</h3>
@@ -86,9 +86,9 @@ pyramid(x, y, z, length, height)
 -- Text
 text(x, y, z, "text", height, font, style)
 text3d(x, y, z, "text", height, depth, font)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Transformations</h2>
       <pre><code class="language-lua">-- Translate
 object:translate(x, y, z)
@@ -109,9 +109,9 @@ object:mirror(x, y, z)
 
 -- Resize
 object:resize(x, y, z, auto_x, auto_y, auto_z)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Boolean Operations</h2>
       <pre><code class="language-lua">-- Union
 a + b
@@ -129,9 +129,9 @@ object:sub(obj1, obj2)
 
 -- Intersection
 object:intersect(obj1, obj2)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Extrusions</h2>
       <pre><code class="language-lua">-- Linear extrude
 object:linearextrude(depth, twist, slices, scale)
@@ -148,9 +148,9 @@ object:hull()
 -- Offset (2D)
 object:offset(distance, chamfer)
 object:offsetradius(radius, chamfer)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Object Operations</h2>
       <pre><code class="language-lua">-- Create new object
 local obj = cad()
@@ -176,9 +176,9 @@ obj:setcolor {r, g, b}
 obj:import("model.stl")
 obj:export("output.stl", color, verbose)
 export("combined.stl", obj1, obj2, obj3)</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Vector Operations</h2>
       <pre><code class="language-lua">-- Create vector
 local v = vector(x, y, z)
@@ -214,9 +214,9 @@ v:rot(phi, axis)
 v:angle(v2)
 -- Angle between vectors
       </code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>DXF Operations</h2>
       <pre><code class="language-lua">-- Create DXF object
 local drawing = dxf()
@@ -231,9 +231,9 @@ drawing:arc(x, y, radius, start_angle, end_angle, layer)
 drawing:rect(x1, y1, w, h, layer)
 drawing:polygon(args)
 drawing:save("output.dxf")</code></pre>
-    </div>
+    </section>
 
-    <div class="section">
+    <section>
       <h2>Geometry Utilities</h2>
       <pre><code class="language-lua">-- Process polygon points with special functions
 geometry.polygon(points)
@@ -253,7 +253,7 @@ geometry.arc(x, y, radius, start_angle, end_angle, segments)
 
 -- Generate circular segment
 geometry.getcirclesegment(x1, y1, x2, y2, dist, segments)</code></pre>
-    </div>
+    </section>
   </div>
 
   <footer>

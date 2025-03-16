@@ -27,12 +27,12 @@ local function getExtension(path)
   return "." .. path:lower():match("%.([^%.]+)$")
 end
 
-local function intend_content(this, count)
+local function indent_content(this, count)
   this.intend_num = this.intend_num + count
 end
 
 local function update_content(this, str)
-  local s = string.rep("\t", this.intend_num)
+  local s = string.rep("  ", this.intend_num)
   str = s
     .. string.gsub(str, "\n(.)", function(c)
       return "\n" .. s .. c
@@ -478,7 +478,7 @@ end
 -- Export helper functions for other modules
 cad._helpers = {
   getExtension = getExtension,
-  intend_content = intend_content,
+  indent_content = indent_content,
   update_content = update_content,
   update_content_t = update_content_t,
   color_rgb = color_rgb,
