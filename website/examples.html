@@ -13,8 +13,9 @@
 
 <body>
   <h1>
-    <span style="color: var(--primary-color)">
-      Lua</span><span style="color: var(--secondary-color)">CAD</span>
+    <a href="index.html" style="color: var(--primary-color); text-decoration: none;">
+      Lua<span style="color: var(--secondary-color)">CAD</span>
+    </a>
     <small>Examples</small>
   </h1>
 
@@ -29,31 +30,31 @@
 
 
   <div class="example-container">
-    <div class="example-card">
-      <div class="example-header">Box</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+<div class="example-card">
+  <div class="example-header">Box</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 function create_box(width, depth, height, thickness)
   local outer_shell = cube(width, depth, height)
   local inner_cavity = cube(
     width - thickness * 2,
     depth - thickness * 2,
-    height - thickness
+    height -- `thickness` higher than top surface to avoid z-fighting
   ):translate(thickness, thickness, thickness)
   return outer_shell - inner_cavity
 end
 
 create_box(30, 20, 15, 2):export(&quot;box.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 difference() {
   union() {
@@ -62,25 +63,24 @@ difference() {
   }
   translate([2,2,2]) {
     translate([0, 0, 0])
-    cube([26, 16, 13]);
+    cube([26, 16, 15]);
   }
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/box.png" alt="Box" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Box functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Car</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/box.png" alt="Box" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Car</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 local model = cube { { 60, 20, 10 }, center = true }
   + cube({ { 30, 20, 10 }, center = true }):translate(5, 0, 10 - 0.001)
@@ -104,12 +104,12 @@ local model = cube { { 60, 20, 10 }, center = true }
     :translate(20, 0, 0)
 
 model:export(&quot;car.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 translate([-30, -10, -5])
 cube([60, 20, 10]);
@@ -147,22 +147,21 @@ translate([20,0,0]) {
     cylinder(h = 30, r1 = 2, r2 = 2, center = true);
   }
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/car.png" alt="Car" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Car functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Customizer</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/car.png" alt="Car" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Customizer</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 local r = var(&quot;Radius of sphere&quot;, 9)
 local t = var(&quot;Translation of sphere&quot;, 3)
@@ -176,12 +175,12 @@ local model = cube { size = { 3, 3, 5 } }
   + sphere { r = rNew }
 
 model:export(&quot;customizer.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 Radius_of_sphere = 9;
 Translation_of_sphere = 3;
@@ -195,33 +194,32 @@ translate([Translation_of_sphere,Translation_of_sphere,Translation_of_sphere]) {
   sphere(r = Radius_of_sphere);
 }
 sphere(r = (((Radius_of_sphere + 5) + Height_of_cube) - 2));</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/customizer.png" alt="Customizer" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Customizer functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Difference</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/customizer.png" alt="Customizer" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Difference</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 local model = cube { { 10, 10, 10 }, center = true }
   - cylinder { h = 20, r = 3, center = true }
 
 model:export(&quot;difference.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 difference() {
   union() {
@@ -230,22 +228,21 @@ difference() {
   }
   cylinder(h = 20, r1 = 3, r2 = 3, center = true);
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/difference.png" alt="Difference" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Difference functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Gear</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/difference.png" alt="Difference" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Gear</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 function gear(num_teeth, height, radius)
   local model = cylinder { h = height, r = radius * 0.7 }
@@ -264,12 +261,12 @@ function gear(num_teeth, height, radius)
 end
 
 gear(8, 5, 10):export(&quot;gear.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 cylinder(h = 5, r1 = 7, r2 = 7);
 rotate([0,0,45]) {
@@ -320,22 +317,21 @@ rotate([0,0,360]) {
     cube([3, 2, 5]);
   }
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/gear.png" alt="Gear" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Gear functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Rounded Rectangle</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/gear.png" alt="Gear" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Rounded Rectangle</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 function rounded_rect(width, height, radius)
   local model = circle({ r = radius }):translate(radius, radius, 0)
@@ -348,14 +344,20 @@ end
 rounded_rect(20, 10, 2) --
   :linear_extrude(5)
   :export(&quot;rounded_rectangle.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
-linear_extrude(height = 5, twist = 0, slices = 1, scale = 1, center = false) {
+linear_extrude(
+  height = 5,
+  twist = 0,
+  slices = 1,
+  scale = 1,
+  center = false
+) {
   hull() {
     translate([2,2,0]) {
       // circle
@@ -379,22 +381,21 @@ linear_extrude(height = 5, twist = 0, slices = 1, scale = 1, center = false) {
     }
   }
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/rounded_rectangle.png" alt="Rounded Rectangle" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Rounded Rectangle functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Simple</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/rounded_rectangle.png" alt="Rounded Rectangle" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Simple</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 my_cube = cube { size = { 1, 2, 3 } }
 
@@ -405,34 +406,33 @@ end
 model = my_cube + my_sphere(2)
 
 model:export(&quot;simple.scad&quot;)</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">$fn = 18;
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;
 
 translate([0, 0, 0])
 cube([1, 2, 3]);
 translate([5,0,0]) {
   sphere(r = 2);
 }</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/simple.png" alt="Simple" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Simple functionality.</p>
-        </div>
       </div>
     </div>
-    <div class="example-card">
-      <div class="example-header">Tostring Demo</div>
-      <div class="example-content">
-        <div class="code-column">
-          <div class="code-title">LuaCAD</div>
-          <div class="code-container">
-            <pre><code class="language-lua">require(&quot;luacad&quot;)
+    <div class="preview-column">
+      <img src="images/simple.png" alt="Simple" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card">
+  <div class="example-header">Tostring Demo</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">require(&quot;luacad&quot;)
 
 -- Create and print some basic shapes
 print(&quot;Basic shapes:&quot;)
@@ -461,48 +461,34 @@ print(
     .. tostring(cylinder({ h = 10, r = 5 }):setcolor(&quot;green&quot;))
 )
 
--- TODO: Transformations
--- print(&quot;\nTransformations:&quot;)
--- local box = cube(10, 10, 10)
--- print(&quot;- Original: &quot; .. tostring(box))
--- print(&quot;- Translated: &quot; .. tostring(box:translate(5, 5, 0)))
--- print(&quot;- Scaled: &quot; .. tostring(box:scale(2, 1, 1)))
--- print(&quot;- Rotated: &quot; .. tostring(box:rotate(0, 0, 45)))
-
--- TODO: CSG Operations
--- print(&quot;\nCSG Operations:&quot;)
--- local cube = cube(10, 10, 10)
--- local sphere = sphere { r = 7 }
--- print(&quot;- Union: &quot; .. tostring(cube + sphere))
--- print(&quot;- Difference: &quot; .. tostring(cube - sphere))</code></pre>
-          </div>
-        </div>
-        <div class="code-column">
-          <div class="code-title">Generated OpenSCAD</div>
-          <div class="code-container">
-            <pre><code class="language-openscad">OpenSCAD code not available</code></pre>
-          </div>
-        </div>
-        <div class="preview-column">
-          <img src="images/tostring_demo.png" alt="Tostring Demo" class="preview-image"
-            onerror="this.src='images/placeholder.svg'; this.onerror=null;">
-          <p class="description">Example demonstrating Tostring Demo functionality.</p>
-        </div>
+cad():export(&quot;tostring_demo.scad&quot;)</code></pre>
       </div>
     </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">$fn = 18;</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <img src="images/tostring_demo.png" alt="Tostring Demo" class="preview-image"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
   </div>
+</div>
+</div>
 
-  <footer>
-    <p>For more information, check out the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
-  </footer>
+<footer>
+  <p>For more information, check out the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
+</footer>
 
-  <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+<button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
 
-  <script src="highlight.min.js"></script>
-  <script src="openscad.min.js"></script>
-  <script>
-    hljs.highlightAll()
-  </script>
+<script src="highlight.min.js"></script>
+<script src="openscad.min.js"></script>
+<script>
+  hljs.highlightAll()
+</script>
 </body>
 
 </html>

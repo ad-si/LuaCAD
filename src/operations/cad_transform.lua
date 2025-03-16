@@ -404,15 +404,13 @@ function cad._helpers.cad_meta.__index.linear_extrude(
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content(
     obj,
-    "linear_extrude(height = "
-      .. valOrName(depth)
-      .. ", twist = "
-      .. valOrName(twist)
-      .. ", slices = "
-      .. valOrName(slices)
-      .. ", scale = "
-      .. valOrName(scale)
-      .. ", center = false) {\n"
+    "linear_extrude(\n"
+      .. ("  height = " .. valOrName(depth) .. ",\n")
+      .. ("  twist = " .. valOrName(twist) .. ",\n")
+      .. ("  slices = " .. valOrName(slices) .. ",\n")
+      .. ("  scale = " .. valOrName(scale) .. ",\n")
+      .. "  center = false\n"
+      .. ") {\n"
   )
   cad._helpers.indent_content(obj, 1)
   cad._helpers.update_content(obj, obj_1.scad_content)

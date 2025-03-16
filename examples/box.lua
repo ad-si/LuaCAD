@@ -5,7 +5,7 @@ function create_box(width, depth, height, thickness)
   local inner_cavity = cube(
     width - thickness * 2,
     depth - thickness * 2,
-    height - thickness
+    height -- `thickness` higher than top surface to avoid z-fighting
   ):translate(thickness, thickness, thickness)
   return outer_shell - inner_cavity
 end

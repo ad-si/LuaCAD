@@ -27,17 +27,4 @@ print(
     .. tostring(cylinder({ h = 10, r = 5 }):setcolor("green"))
 )
 
--- TODO: Transformations
--- print("\nTransformations:")
--- local box = cube(10, 10, 10)
--- print("- Original: " .. tostring(box))
--- print("- Translated: " .. tostring(box:translate(5, 5, 0)))
--- print("- Scaled: " .. tostring(box:scale(2, 1, 1)))
--- print("- Rotated: " .. tostring(box:rotate(0, 0, 45)))
-
--- TODO: CSG Operations
--- print("\nCSG Operations:")
--- local cube = cube(10, 10, 10)
--- local sphere = sphere { r = 7 }
--- print("- Union: " .. tostring(cube + sphere))
--- print("- Difference: " .. tostring(cube - sphere))
+cad():export("tostring_demo.scad")

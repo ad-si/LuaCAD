@@ -1,7 +1,8 @@
 #!/usr/bin/env lua
 
 -- build_examples.lua
--- Script to build examples.html with LuaCAD and OpenSCAD code side by side
+-- Script to build examples.html with LuaCAD, OpenSCAD,
+-- and a rendered image using OpenSCAD side by side
 
 -- Constants
 local EXAMPLES_DIR = "../examples"
@@ -10,6 +11,7 @@ local TEMPLATE_FILE = "example_template.html"
 local HEADER_FILE = "examples_header.html"
 local FOOTER_FILE = "examples_footer.html"
 local OUTPUT_FILE = WEBSITE_DIR .. "/examples.html"
+local IMAGES_DIR = WEBSITE_DIR .. "/images"
 
 -- Create directory if it doesn't exist
 local function ensure_dir(path)
@@ -95,6 +97,27 @@ local function format_example_name(name)
   return name
 end
 
+-- Generate an image from a SCAD file using OpenSCAD
+local function generate_image(scad_file, png_file)
+  local example_name = scad_file:match("([^/]+)%.scad$")
+  local cmd = string.format(
+    "openscad -o %s --autocenter --viewall --colorscheme Tomorrow %s",
+    png_file,
+    scad_file
+  )
+
+  print("⏳ Rendering " .. png_file)
+  local result = os.execute(cmd)
+
+  if result then
+    print("✅ Generated " .. png_file)
+    return true
+  else
+    print("❌ Failed to generate " .. png_file)
+    return false
+  end
+end
+
 -- Process a single example
 local function process_example(lua_file)
   print("⏳ Processing " .. lua_file)
@@ -116,11 +139,6 @@ local function process_example(lua_file)
   -- Replace name and description
   template = replace_placeholder(template, "EXAMPLE_DISPLAY_NAME", display_name)
   template = replace_placeholder(template, "EXAMPLE_FILENAME", example_name)
-  template = replace_placeholder(
-    template,
-    "EXAMPLE_DESCRIPTION",
-    "Example demonstrating " .. display_name .. " functionality."
-  )
 
   -- Read and prepare Lua code
   local lua_content, lua_err = read_file(lua_file)
@@ -139,12 +157,17 @@ local function process_example(lua_file)
   if scad_content then
     local prepared_scad = prepare_scad(scad_content)
     template = replace_placeholder(template, "OPENSCAD_CODE", prepared_scad)
+
+    -- Generate image from SCAD file
+    local png_file = IMAGES_DIR .. "/" .. example_name .. ".png"
+    generate_image(scad_file, png_file)
   else
     template = replace_placeholder(
       template,
       "OPENSCAD_CODE",
       "OpenSCAD code not available"
     )
+    print("⚠️ No OpenSCAD file found for " .. example_name)
   end
 
   -- Append to output file
@@ -160,7 +183,7 @@ end
 -- Main function
 local function main()
   -- Create necessary directories
-  ensure_dir(WEBSITE_DIR .. "/images")
+  ensure_dir(IMAGES_DIR)
 
   -- Initialize output file with header
   local header, header_err = read_file(HEADER_FILE)
