@@ -5,13 +5,10 @@ to create 2D and 3D objects.
 
 [OpenSCAD]: https://www.openscad.org/
 
+![Simple Model](./images/simple_model.png)
+
 The LuaCAD library creates [OpenSCAD] code
 which is then used to create DXF, SVG, or STL files.
-If the object should have a specific color then LuaCAD can take an STL file
-and convert it to OBJ or WRL with color.
-Full support or [Belfry OpenSCAD Library v2][BOLS2] library is planned.
-
-[BOLS2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
 
 ## Installation
@@ -116,6 +113,15 @@ and it should ideally be interpreted and have good
 - [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
 - [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
 - [WRL](https://en.wikipedia.org/wiki/VRML)
+
+
+## Roadmap
+
+- [ ] Full support or [Belfry OpenSCAD Library v2][BOLS2]
+- [ ] Support for exporting `.png` files
+- [ ] Implement "LuaCAD Studio" GUI desktop app
+
+[BOLS2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
 
 ## Related
