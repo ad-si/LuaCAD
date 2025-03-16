@@ -59,14 +59,14 @@ function TestPyramidCut:testPyramidCut()
     .polygon({
       points = { { 0, 0 }, { side_inner, 0 }, { side_inner / 2, height_inner } },
     })
-    :linearextrude(side)
+    :linear_extrude(side)
     :rotate(0, 0, 0, 90, 0, 0)
     :translate(d_x, side, d_h)
   local pyr_cut_3 = cad
     .polygon({
       points = { { 0, 0 }, { height_inner, side_inner / 2 }, { 0, side_inner } },
     })
-    :linearextrude(side)
+    :linear_extrude(side)
     :rotate(0, 0, 0, 0, -90, 0)
     :translate(side, d_x, d_h)
 

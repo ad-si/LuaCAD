@@ -9,5 +9,5 @@ function rounded_rect(width, height, radius)
 end
 
 rounded_rect(20, 10, 2) --
-  :linearextrude(5)
+  :linear_extrude(5)
   :export("rounded_rectangle.scad")

@@ -44,6 +44,14 @@ local function execute_file(file)
     end
   end
 
+  -- Reset cad.scad_variables to clear accumulated variable definitions
+  if cad and cad.scad_variables then
+    cad.scad_variables = ""
+  end
+
+  -- Make sure we're working with a fresh environment
+  package.loaded["luacad"] = nil
+
   -- Execute the file with clean environment
   local status, err = pcall(dofile, file)
   os.execute("cd " .. old_dir)
@@ -64,14 +72,26 @@ local function get_mtime(file)
     cmd = 'for %A in ("' .. file .. '") do @echo %~tA'
   else
     -- Detect OS: macOS uses `stat -f %m`, Linux uses `stat -c %Y`
-    local uname = io.popen("uname"):read("*l")
-    if uname == "Darwin" then
+    local uname = io.popen("uname")
+    if not uname then
+      print("Error: Failed to determine OS")
+      return 0
+    end
+    local os_name = uname:read("*l")
+    uname:close()
+
+    if os_name == "Darwin" then
       cmd = 'stat -f %m "' .. file .. '"'
     else
       cmd = 'stat -c %Y "' .. file .. '"'
     end
   end
+
   local handle = io.popen(cmd)
+  if not handle then
+    print("Error: Failed to execute command: " .. cmd)
+    return 0
+  end
   local result = handle:read("*a")
   handle:close()
   return tonumber(result) or 0
@@ -79,9 +99,14 @@ end
 
 -- Reset modules on startup to ensure clean environment
 for k, _ in pairs(package.loaded) do
-  if k:match("^lib_cad") then
+  if k:match("^src%.") then
     package.loaded[k] = nil
   end
+end
+
+-- If cad module exists, reset scad_variables
+if cad and cad.scad_variables then
+  cad.scad_variables = ""
 end
 
 -- Initial execution

@@ -329,7 +329,7 @@ end
 function cad.text3d(x, y, z, text, height, depth, font, style, h_align, v_align)
   local obj = cad
     .text(0, 0, 0, text, height, font, style, h_align, v_align)
-    :linearextrude(depth or 1)
+    :linear_extrude(depth or 1)
     :translate(x, y, z)
   return obj
 end

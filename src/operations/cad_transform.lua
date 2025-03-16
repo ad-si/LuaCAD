@@ -386,12 +386,12 @@ function cad._helpers.cad_meta.__index.rotateextrude(obj_1, angle, convexity)
 end
 
 --[[------------------------------------------
-  function <cad>:linearextrude(depth [, twist [, slices [, scale] ] ])
+  function <cad>:linear_extrude(depth [, twist [, slices [, scale] ] ])
 
   note linear extrude moves the object back to the ground
 --]]
 ------------------------------------------
-function cad._helpers.cad_meta.__index.linearextrude(
+function cad._helpers.cad_meta.__index.linear_extrude(
   obj_1,
   depth,
   twist,
@@ -405,13 +405,13 @@ function cad._helpers.cad_meta.__index.linearextrude(
   cad._helpers.update_content(
     obj,
     "linear_extrude(height = "
-      .. depth
+      .. valOrName(depth)
       .. ", twist = "
-      .. twist
+      .. valOrName(twist)
       .. ", slices = "
-      .. slices
+      .. valOrName(slices)
       .. ", scale = "
-      .. scale
+      .. valOrName(scale)
       .. ", center = false) {\n"
   )
   cad._helpers.indent_content(obj, 1)
