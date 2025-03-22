@@ -7,13 +7,14 @@
   <title>OpenSCAD to LuaCAD</title>
   <link rel="stylesheet" href="screen.css">
   <link rel="stylesheet" href="atom-one-dark.min.css" media="(prefers-color-scheme: dark)">
-  <link rel="stylesheet" href="atom-one-light.min.css"
-    media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
+  <link rel="stylesheet" href="atom-one-light.min.css" media="(prefers-color-scheme: light)">
   <style>
     #introduction code {
-      background-color: hsl(0, 0%, 95%);
+      background-color: var(--code-background);
+      border-color: var(--code-border);
+      border-width: 1px;
+      border-style: solid;
       padding: 0.1rem 0.3rem;
-      border: 1px solid hsl(0, 0%, 80%);
       border-radius: 0.2rem;
     }
 
@@ -41,7 +42,7 @@
     }
 
     .highlight {
-      background-color: hsl(50, 100%, 96%);
+      background-color: var(--highlight-color);
     }
   </style>
 </head>
@@ -116,18 +117,18 @@
         </tr>
         <tr>
           <td>Module definition and usage</td>
-          <td><code>module name(…) {<br>&nbsp;&nbsp;…<br>}<br/>name();</code></td>
+          <td><code>module name(…) {<br>&nbsp;&nbsp;…<br>}<br>name();</code></td>
           <td><code>
             function name(…)<br>
             &nbsp;&nbsp;return …<br>
-            end<br/>
+            end<br>
             name()
           </code></td>
         </tr>
         <tr>
           <td>Function definition and usage</td>
-          <td><code>function name(…) = …<br/>name();</code></td>
-          <td><code>function name(…) return … end<br/>name()</code></td>
+          <td><code>function name(…) = …<br>name();</code></td>
+          <td><code>function name(…) return … end<br>name()</code></td>
         </tr>
         <tr>
           <td>Include file with exported symbols</td>
@@ -193,7 +194,7 @@
         <tr>
           <td>Import 2D file (DXF/SVG)</td>
           <td>
-            <code>import("….<span class="tooltip">ext<span class="tooltiptext">formats: DXF|SVG</span></span>", convexity)</code>
+            <code>import("….extformats: DXF|SVG", convexity)</code>
           </td>
           <td><code>import("file.dxf", convexity)</code></td>
         </tr>
@@ -256,7 +257,7 @@
         <tr>
           <td>Import 3D file (STL/etc)</td>
           <td>
-            <code>import("….<span class="tooltip">ext<span class="tooltiptext">formats: STL|OFF|AMF|3MF</span></span>", convexity)</code>
+            <code>import("….extformats: STL|OFF|AMF|3MF", convexity)</code>
           </td>
           <td><code>import("file.stl", convexity)</code></td>
         </tr>
@@ -273,7 +274,7 @@
         <tr>
           <td>Create a 3D surface from heightmap</td>
           <td>
-            <code>surface(file = "….<span class="tooltip">ext<span class="tooltiptext">formats: DAT|PNG</span></span>", center, convexity)</code>
+            <code>surface(file = "….extformats: DAT|PNG", center, convexity)</code>
           </td>
           <td><code>surface("file.png", center, convexity)</code></td>
         </tr>
@@ -358,9 +359,15 @@
         <tr>
           <td>Apply color by hex value</td>
           <td>
-            <code>color("#<span class="tooltip">hexvalue<span class="tooltiptext">#rgb|#rgba|#rrggbb|#rrggbbaa</span></span>")</code>
+            <code>
+              color("#rgb|#rrggbb")<br>
+              color("#rgba|#rrggbbaa")
+            </code>
           </td>
-          <td><code>obj:color("#hexvalue")</code></td>
+          <td><code>
+            obj:color("#rgb|#rrggbb")
+            obj:color("#rgba|#rrggbbaa")
+          </code></td>
         </tr>
         <tr>
           <td>Apply color by RGBA values</td>
@@ -456,13 +463,13 @@
         </tr>
         <tr>
           <td>Less Than</td>
-          <td><code>n < m</code></td>
-          <td><code>n < m</code></td>
+          <td><code>n &lt; m</code></td>
+          <td><code>n &lt; m</code></td>
         </tr>
         <tr>
           <td>Less or Equal</td>
-          <td><code>n <= m</code></td>
-          <td><code>n <= m</code></td>
+          <td><code>n &lt;= m</code></td>
+          <td><code>n &lt;= m</code></td>
         </tr>
         <tr>
           <td>Equal</td>
@@ -716,12 +723,12 @@
         </tr>
         <tr>
           <td>For loop with range</td>
-          <td><code>for (i = [<span>start</span>:<span>end</span>]) { … }</code></td>
+          <td><code>for (i = [start:end]) { … }</code></td>
           <td><code>for i = start, stop do … end</code></td>
         </tr>
         <tr>
           <td>For loop with step</td>
-          <td><code>for (i = [<span>start</span>:<span>step</span>:<span>end</span>]) { … }</code></td>
+          <td><code>for (i = [start:step:end]) { … }</code></td>
           <td><code>for i = start, stop, step do … end</code></td>
         </tr>
         <tr>
@@ -736,14 +743,14 @@
         </tr>
         <tr>
           <td>Intersect multiple iterations</td>
-          <td><code>intersection_for(i = [<span>start</span>:<span>end</span>]) { … }</code></td>
+          <td><code>intersection_for(i = [start:end]) { … }</code></td>
           <td>
             <code>local models = {} for i = start, stop do table.insert(models, …) end cad.intersection(models)</code>
           </td>
         </tr>
         <tr>
           <td>Intersect with step</td>
-          <td><code>intersection_for(i = [<span>start</span>:<span>step</span>:<span>end</span>]) { … }</code>
+          <td><code>intersection_for(i = [start:step:end]) { … }</code>
           </td>
           <td>
             <code>local models = {} for i = start, stop, step do table.insert(models, …) end cad.intersection(models)</code>
