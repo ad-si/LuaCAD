@@ -13,9 +13,19 @@ which is then used to create DXF, SVG, or STL files.
 
 ## Installation
 
-- Install [OpenSCAD] if not already installed
+- Install OpenSCAD (
+      [macOS](https://openscad.org/downloads.html#macos),
+      [Linux](https://openscad.org/downloads.html#linux),
+      [Windows](https://openscad.org/downloads.html#windows)
+    )
+- Install LuaJIT
+    - macOS: `brew install luajit`
+    - Ubuntu: `sudo apt-get install luajit`
+    - [Linux](https://luajit.org/install.html#posix)
+    - [Windows](https://luajit.org/install.html#windows)
 - [Download the project](https://github.com/ad-si/LuaCAD/archive/refs/heads/main.zip)
 - Unzip the project
+- Change into the new directory: `cd ./LuaCAD-main`
 - Create your `<name>.lua` model file (including a `…:export("out.scad")` line)
 - Execute code with:
     ```sh
