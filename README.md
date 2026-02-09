@@ -69,6 +69,22 @@ model = my_cube + my_sphere(2)
 model:export("simple.scad")
 ```
 
+**FennelCAD:**
+```fennel
+(require :luacad)
+
+(local my_cube (cube {:size [1 2 3]}))
+(print "cube type:" (type my_cube)) ;print info
+(print "cube scad_content:\n" my_cube.scad_content)
+
+(fn my_sphere [radius]
+  (: (sphere {:r radius}) :translate [5 0 0]))
+
+(local model (+ my_cube (my_sphere 4)))
+
+(export "/tmp/simple.scad" model)
+```
+
 
 ## Additional Functions
 

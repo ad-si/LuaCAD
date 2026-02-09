@@ -34,9 +34,6 @@ local file_dir = filename:match("(.*/)") or "./"
 
 -- Function to execute a file in its directory
 local function execute_file(file)
-  local old_dir = os.getenv("PWD") or io.popen("pwd"):read("*l")
-  os.execute("cd " .. file_dir)
-
   -- Reset the cad module to clear accumulated variable definitions
   for k, _ in pairs(package.loaded) do
     if k:match("^src%.") then
@@ -52,9 +49,31 @@ local function execute_file(file)
   -- Make sure we're working with a fresh environment
   package.loaded["luacad"] = nil
 
-  -- Execute the file with clean environment
-  local status, err = pcall(dofile, file)
-  os.execute("cd " .. old_dir)
+  local status, err
+
+  -- Fennel file support
+  if file:match("%.fnl$") then
+    -- Require fennel once (error if missing)
+    local fennel_ok, fennel = pcall(require, "fennel")
+    if not fennel_ok or not fennel then
+      print("Fennel not installed or failed to load. Try `luarocks install fennel`.")
+      return false, "fennel missing"
+    end
+
+    -- Install the Fennel searcher once so (require :mod) inside Fennel works.
+    fennel.install()
+
+    -- Create sandbox env that falls back to the real globals:
+    local env = setmetatable({}, { __index = _G })
+
+    -- Execute the file exactly once inside the shared env
+    status, err = pcall(function()
+      fennel.dofile(file, { env = env })
+    end)
+  else
+    -- For Lua files
+    status, err = pcall(dofile, file)
+  end
 
   -- Print errors if any occurred
   if not status then
