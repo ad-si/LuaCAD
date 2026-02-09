@@ -34,19 +34,19 @@ local file_dir = filename:match("(.*/)") or "./"
 
 -- Function to execute a file in its directory
 local function execute_file(file)
-  -- Reset cached modules for a clean environment
+  -- Reset the cad module to clear accumulated variable definitions
   for k, _ in pairs(package.loaded) do
     if k:match("^src%.") then
       package.loaded[k] = nil
     end
   end
 
-  -- Reset any accumulated scad variables if cad module exists
+  -- Reset cad.scad_variables to clear accumulated variable definitions
   if cad and cad.scad_variables then
     cad.scad_variables = ""
   end
 
-  -- luacad module reloaded each run
+  -- Make sure we're working with a fresh environment
   package.loaded["luacad"] = nil
 
   local status, err
@@ -75,13 +75,13 @@ local function execute_file(file)
     status, err = pcall(dofile, file)
   end
 
+  -- Print errors if any occurred
   if not status then
     print("\n❌ Error: " .. tostring(err))
   end
 
   return status, err
 end
-
 
 -- Function to get the file modification time using system commands
 local function get_mtime(file)
