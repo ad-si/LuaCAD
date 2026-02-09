@@ -74,8 +74,9 @@ model:export("simple.scad")
 (require :luacad)
 
 (local my_cube (cube {:size [1 2 3]}))
-(print "cube type:" (type my_cube))
+(print "cube type:" (type my_cube)) ;print info
 (print "cube scad_content:\n" my_cube.scad_content)
+
 (fn my_sphere [radius]
   (: (sphere {:r radius}) :translate [5 0 0]))
 
