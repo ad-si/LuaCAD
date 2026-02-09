@@ -70,7 +70,7 @@ model:export("simple.scad")
 ```
 
 **FennelCAD:**
-```lua
+```fennel
 (require :luacad)
 
 (local my_cube (cube {:size [1 2 3]}))
