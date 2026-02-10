@@ -2,6 +2,51 @@ use egui_extras::syntax_highlighting;
 use mlua::{Lua, Result as LuaResult};
 use three_d::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ThemeMode {
+  System,
+  Light,
+  Dark,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ThemeColors {
+  bg: (f32, f32, f32),
+  egui_dark: bool,
+}
+
+impl ThemeColors {
+  fn dark() -> Self {
+    Self {
+      bg: (0.12, 0.12, 0.16),
+      egui_dark: true,
+    }
+  }
+
+  fn light() -> Self {
+    Self {
+      bg: (0.85, 0.85, 0.88),
+      egui_dark: false,
+    }
+  }
+}
+
+/// Detect system dark mode. On macOS, checks AppleInterfaceStyle.
+fn system_is_dark_mode() -> bool {
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("defaults")
+      .args(["read", "-g", "AppleInterfaceStyle"])
+      .output()
+      .map(|o| String::from_utf8_lossy(&o.stdout).contains("Dark"))
+      .unwrap_or(false)
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    true // default to dark on other platforms
+  }
+}
+
 #[derive(Debug, Clone)]
 struct Cube {
   position: [f32; 3],
@@ -17,10 +62,13 @@ struct AppState {
   camera_distance: f32,
   orthogonal_view: bool,
   scene_dirty: bool,
+  theme_mode: ThemeMode,
+  theme_colors: ThemeColors,
 }
 
 impl AppState {
   fn new() -> Self {
+    let is_dark = system_is_dark_mode();
     let mut app = Self {
             text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 1, 3})\ncube({0, 3, 1}, {1.5, 1.5, 1})".to_string(),
             cubes: vec![],
@@ -30,9 +78,25 @@ impl AppState {
             camera_distance: 5.0,
             orthogonal_view: true,
             scene_dirty: true,
+            theme_mode: ThemeMode::System,
+            theme_colors: if is_dark { ThemeColors::dark() } else { ThemeColors::light() },
         };
     app.execute_lua_code();
     app
+  }
+
+  fn resolve_theme(&self) -> ThemeColors {
+    match self.theme_mode {
+      ThemeMode::Dark => ThemeColors::dark(),
+      ThemeMode::Light => ThemeColors::light(),
+      ThemeMode::System => {
+        if system_is_dark_mode() {
+          ThemeColors::dark()
+        } else {
+          ThemeColors::light()
+        }
+      }
+    }
   }
 
   fn execute_lua_code(&mut self) {
@@ -193,6 +257,13 @@ fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
 }
 
 fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
+  // Apply theme visuals
+  if app.theme_colors.egui_dark {
+    gui_context.set_visuals(egui::Visuals::dark());
+  } else {
+    gui_context.set_visuals(egui::Visuals::light());
+  }
+
   // Right panel: code editor
   egui::SidePanel::right("code_editor")
         .default_width(400.0)
@@ -332,6 +403,29 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
         app.camera_azimuth = 90.0;
         app.camera_elevation = 0.0;
       }
+      ui.separator();
+      ui.label("Theme:");
+      if ui
+        .selectable_label(app.theme_mode == ThemeMode::System, "Auto")
+        .clicked()
+      {
+        app.theme_mode = ThemeMode::System;
+        app.theme_colors = app.resolve_theme();
+      }
+      if ui
+        .selectable_label(app.theme_mode == ThemeMode::Light, "Light")
+        .clicked()
+      {
+        app.theme_mode = ThemeMode::Light;
+        app.theme_colors = app.resolve_theme();
+      }
+      if ui
+        .selectable_label(app.theme_mode == ThemeMode::Dark, "Dark")
+        .clicked()
+      {
+        app.theme_mode = ThemeMode::Dark;
+        app.theme_colors = app.resolve_theme();
+      }
     });
 
     ui.label("Mouse: Drag to rotate, Scroll to zoom");
@@ -355,6 +449,7 @@ fn main() {
   app.scene_dirty = false;
 
   let mut camera = build_camera(window.viewport(), &app);
+  let mut last_theme_check = 0.0_f64;
 
   // Lighting: ambient + two directional for CAD-style illumination
   let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
@@ -440,8 +535,17 @@ fn main() {
       objects.push(obj);
     }
 
+    // Re-check system theme every 2 seconds when in Auto mode
+    if app.theme_mode == ThemeMode::System
+      && frame_input.accumulated_time - last_theme_check > 2000.0
+    {
+      last_theme_check = frame_input.accumulated_time;
+      app.theme_colors = app.resolve_theme();
+    }
+
+    let (bg_r, bg_g, bg_b) = app.theme_colors.bg;
     screen
-      .clear(ClearState::color_and_depth(0.12, 0.12, 0.16, 1.0, 1.0))
+      .clear(ClearState::color_and_depth(bg_r, bg_g, bg_b, 1.0, 1.0))
       .render(
         &camera,
         objects,
