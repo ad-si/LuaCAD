@@ -210,19 +210,19 @@ fn build_scene(
     .map(|cube| {
       let mut cpu_mesh = CpuMesh::cube();
 
-      // CpuMesh::cube() is a unit cube centered at origin (-0.5 to 0.5).
-      // When center=false (OpenSCAD default), shift so corner is at origin.
+      // CpuMesh::cube() is a 2-unit cube centered at origin (-1 to 1).
+      // CAD (x,y,z) -> GL (y, z, x). Scale by half-size since base cube spans 2 units.
+      let half = [cube.size[0] * 0.5, cube.size[1] * 0.5, cube.size[2] * 0.5];
       let offset = if cube.center {
         vec3(0.0, 0.0, 0.0)
       } else {
-        // In CAD (Z-up) space: offset by half size in each axis
-        // Then convert to Y-up: (x, y, z) -> (x, z, -y)
-        vec3(cube.size[0] * 0.5, cube.size[2] * 0.5, -cube.size[1] * 0.5)
+        // One corner at CAD origin: shift by +half in each CAD axis
+        // GL coords: (+half_y, +half_z, +half_x)
+        vec3(half[1], half[2], half[0])
       };
 
-      // Z-up to Y-up: scale axes (x, y, z) -> (x, z, y)
       let transform = Mat4::from_translation(offset)
-        * Mat4::from_nonuniform_scale(cube.size[0], cube.size[2], cube.size[1]);
+        * Mat4::from_nonuniform_scale(half[1], half[2], half[0]);
       cpu_mesh.transform(transform).unwrap();
 
       Gm::new(
@@ -503,11 +503,64 @@ fn main() {
   let light2 =
     DirectionalLight::new(&context, 0.15, Srgba::WHITE, vec3(0.0, -1.0, 0.0));
 
-  // 3D axes at origin
-  let axes = Axes::new(&context, 0.02, 5.0);
+  // 3D axes at origin — CAD convention: Red=X(depth), Green=Y(right), Blue=Z(up)
+  // Mapping: CAD (x,y,z) → GL (y, z, x)
+  let cad_axes = {
+    let mut cpu_mesh = CpuMesh::arrow(0.95, 0.8, 16);
+    cpu_mesh
+      .transform(Mat4::from_nonuniform_scale(5.0, 0.02, 0.02))
+      .unwrap();
+    Gm::new(
+      InstancedMesh::new(
+        &context,
+        &Instances {
+          transformations: vec![
+            Mat4::from_angle_y(degrees(-90.0)), // GL +Z = CAD +X (Red, depth)
+            Mat4::identity(),                   // GL +X = CAD +Y (Green, right)
+            Mat4::from_angle_z(degrees(90.0)),  // GL +Y = CAD +Z (Blue, up)
+          ],
+          texture_transformations: None,
+          colors: Some(vec![Srgba::RED, Srgba::GREEN, Srgba::BLUE]),
+        },
+        &cpu_mesh,
+      ),
+      ColorMaterial::default(),
+    )
+  };
   let mut dragging_scene = false;
 
   window.render_loop(move |mut frame_input| {
+    // Project axis label positions (using camera from previous frame)
+    let dpr = frame_input.device_pixel_ratio;
+    let axis_labels: [(egui::Pos2, &str, egui::Color32); 3] = {
+      let tips_gl = [
+        vec3(0.0, 0.0, 5.2), // CAD +X → GL +Z (depth)
+        vec3(5.2, 0.0, 0.0), // CAD +Y → GL +X (right)
+        vec3(0.0, 5.2, 0.0), // CAD +Z → GL +Y (up)
+      ];
+      let labels = ["X", "Y", "Z"];
+      let colors = [
+        egui::Color32::RED,
+        egui::Color32::GREEN,
+        egui::Color32::from_rgb(80, 80, 255),
+      ];
+      let mut result = [
+        (egui::Pos2::ZERO, "X", egui::Color32::RED),
+        (egui::Pos2::ZERO, "Y", egui::Color32::GREEN),
+        (egui::Pos2::ZERO, "Z", egui::Color32::from_rgb(80, 80, 255)),
+      ];
+      for i in 0..3 {
+        let px = camera.pixel_at_position(tips_gl[i]);
+        // pixel_at_position returns physical pixels with Y from bottom;
+        // convert to egui logical coords (Y from top)
+        let vp = camera.viewport();
+        let ex = px.x as f32 / dpr;
+        let ey = (vp.height as f32 - px.y as f32) / dpr;
+        result[i] = (egui::Pos2::new(ex, ey), labels[i], colors[i]);
+      }
+      result
+    };
+
     // Process GUI (consumes events over egui panels)
     let mut panel_width = 0.0_f32;
     gui.update(
@@ -517,6 +570,21 @@ fn main() {
       frame_input.device_pixel_ratio,
       |gui_context| {
         panel_width = render_ui(gui_context, &mut app);
+
+        // Draw axis labels as overlay
+        let painter = gui_context.layer_painter(egui::LayerId::new(
+          egui::Order::Foreground,
+          egui::Id::new("axis_labels"),
+        ));
+        for (pos, label, color) in &axis_labels {
+          painter.text(
+            *pos,
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(14.0),
+            *color,
+          );
+        }
       },
     );
 
@@ -609,9 +677,7 @@ fn main() {
 
     // Collect all renderable objects as trait object references
     let mut objects: Vec<&dyn Object> = Vec::new();
-    for obj in axes.into_iter() {
-      objects.push(obj);
-    }
+    objects.push(&cad_axes);
     for obj in scene_objects.iter() {
       objects.push(obj);
     }
