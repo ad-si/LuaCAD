@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::editor::EditorAction;
-use crate::export::ExportFormat;
+use crate::export::{ExportFormat, OpenScadFormat};
 use crate::geometry::CsgGeometry;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 
@@ -33,6 +33,8 @@ pub struct AppState {
   pub current_file: Option<PathBuf>,
   /// Pending file action (save/open) requested this frame
   pub pending_file_action: Option<FileAction>,
+  /// Pending OpenSCAD-based export requested this frame
+  pub pending_openscad_export: Option<OpenScadFormat>,
 }
 
 impl AppState {
@@ -54,6 +56,7 @@ impl AppState {
       pending_export: None,
       current_file: None,
       pending_file_action: None,
+      pending_openscad_export: None,
     };
     app.execute_lua_code();
     app

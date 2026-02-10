@@ -240,6 +240,69 @@ fn main() {
       }
     }
 
+    // Handle OpenSCAD-based export (outside egui context so file dialog works)
+    if let Some(fmt) = app.pending_openscad_export.take() {
+      let nodes: Vec<_> = app
+        .geometries
+        .iter()
+        .filter_map(|g| g.scad.clone())
+        .collect();
+      if nodes.is_empty() {
+        app.export_status =
+          Some(("No SCAD geometry to export".to_string(), true));
+      } else if let Some(path) = rfd::FileDialog::new()
+        .set_title(format!("Export via OpenSCAD — {}", fmt.label()))
+        .add_filter(fmt.filter_name(), &[fmt.extension()])
+        .set_file_name(fmt.default_filename())
+        .save_file()
+      {
+        // Write temp .scad file
+        let scad_source = scad_export::generate_scad(&nodes);
+        let tmp_dir = std::env::temp_dir().join("luacad_openscad");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let tmp_scad = tmp_dir.join("export_temp.scad");
+        match std::fs::write(&tmp_scad, &scad_source) {
+          Ok(()) => {
+            // Call openscad -o <output> <input.scad>
+            match std::process::Command::new("openscad")
+              .arg("-o")
+              .arg(&path)
+              .arg(&tmp_scad)
+              .output()
+            {
+              Ok(output) => {
+                if output.status.success() {
+                  app.export_status = Some((
+                    format!("Exported via OpenSCAD to {}", path.display()),
+                    false,
+                  ));
+                } else {
+                  let stderr =
+                    String::from_utf8_lossy(&output.stderr);
+                  app.export_status = Some((
+                    format!("OpenSCAD failed: {}", stderr.trim()),
+                    true,
+                  ));
+                }
+              }
+              Err(e) => {
+                app.export_status = Some((
+                  format!(
+                    "Failed to run OpenSCAD: {e}. Is OpenSCAD installed and in PATH?"
+                  ),
+                  true,
+                ));
+              }
+            }
+          }
+          Err(e) => {
+            app.export_status =
+              Some((format!("Failed to write temp SCAD file: {e}"), true));
+          }
+        }
+      }
+    }
+
     // Handle file open/save requests (outside egui context so file dialog works)
     if let Some(action) = app.pending_file_action.take() {
       match action {

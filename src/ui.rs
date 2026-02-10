@@ -3,8 +3,27 @@ use three_d::egui;
 
 use crate::app::{AppState, FileAction};
 use crate::editor::apply_editor_action;
-use crate::export::ExportFormat;
+use crate::export::{ExportFormat, OpenScadFormat};
 use crate::theme::ThemeMode;
+
+/// Paint a small down-pointing triangle at the right edge of a button's rect.
+fn paint_dropdown_arrow(ui: &egui::Ui, response: &egui::Response) {
+  let rect = response.rect;
+  let color = ui.visuals().text_color();
+  let cx = rect.right() - 8.0;
+  let cy = rect.center().y;
+  let half = 3.0;
+  let points = vec![
+    egui::pos2(cx - half, cy - half * 0.5),
+    egui::pos2(cx + half, cy - half * 0.5),
+    egui::pos2(cx, cy + half * 0.5),
+  ];
+  ui.painter().add(egui::Shape::convex_polygon(
+    points,
+    color,
+    egui::Stroke::NONE,
+  ));
+}
 
 pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
   // Apply theme visuals
@@ -122,19 +141,39 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
             ui.horizontal(|ui| {
                 let has_geometry = !app.geometries.is_empty();
-                if ui.add_enabled(has_geometry, egui::Button::new("Export 3MF")).clicked() {
-                    app.pending_export = Some(ExportFormat::ThreeMF);
+                let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
+
+                let csgrs_popup_id = ui.make_persistent_id("csgrs_export_popup");
+                let csgrs_btn = ui.add_enabled(has_geometry,
+                    egui::Button::new(egui::RichText::new("Export via csgrs   ")));
+                paint_dropdown_arrow(ui, &csgrs_btn);
+                if csgrs_btn.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(csgrs_popup_id));
                 }
-                if ui.add_enabled(has_geometry, egui::Button::new("Export STL")).clicked() {
-                    app.pending_export = Some(ExportFormat::STL);
+                egui::popup_below_widget(ui, csgrs_popup_id, &csgrs_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+                    for &fmt in ExportFormat::ALL {
+                        if ui.button(fmt.label()).clicked() {
+                            app.pending_export = Some(fmt);
+                        }
+                    }
+                });
+
+                let openscad_popup_id = ui.make_persistent_id("openscad_export_popup");
+                let openscad_btn = ui.add_enabled(has_scad,
+                    egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")));
+                paint_dropdown_arrow(ui, &openscad_btn);
+                if openscad_btn.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(openscad_popup_id));
                 }
-                if ui.add_enabled(has_geometry, egui::Button::new("Export OBJ")).clicked() {
-                    app.pending_export = Some(ExportFormat::OBJ);
-                }
-                if ui.add_enabled(has_geometry, egui::Button::new("Export PLY")).clicked() {
-                    app.pending_export = Some(ExportFormat::PLY);
-                }
-                if ui.add_enabled(has_geometry, egui::Button::new("Export SCAD")).clicked() {
+                egui::popup_below_widget(ui, openscad_popup_id, &openscad_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+                    for &fmt in OpenScadFormat::ALL {
+                        if ui.button(fmt.label()).clicked() {
+                            app.pending_openscad_export = Some(fmt);
+                        }
+                    }
+                });
+
+                if ui.add_enabled(has_scad, egui::Button::new("Export SCAD")).clicked() {
                     app.pending_export = Some(ExportFormat::OpenSCAD);
                 }
             });

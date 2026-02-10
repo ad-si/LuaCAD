@@ -12,6 +12,85 @@ pub enum ExportFormat {
   OpenSCAD,
 }
 
+impl ExportFormat {
+  pub const ALL: &[ExportFormat] = &[
+    ExportFormat::ThreeMF,
+    ExportFormat::STL,
+    ExportFormat::OBJ,
+    ExportFormat::PLY,
+  ];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      Self::ThreeMF => "Export as 3MF",
+      Self::STL => "Export as STL",
+      Self::OBJ => "Export as OBJ",
+      Self::PLY => "Export as PLY",
+      Self::OpenSCAD => "Export as SCAD",
+    }
+  }
+}
+
+/// Formats that OpenSCAD can export to via command-line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OpenScadFormat {
+  Stl,
+  ThreeMf,
+  Off,
+  Amf,
+  Csg,
+}
+
+impl OpenScadFormat {
+  pub const ALL: &[OpenScadFormat] = &[
+    OpenScadFormat::Stl,
+    OpenScadFormat::ThreeMf,
+    OpenScadFormat::Off,
+    OpenScadFormat::Amf,
+    OpenScadFormat::Csg,
+  ];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      Self::Stl => "Export as STL",
+      Self::ThreeMf => "Export as 3MF",
+      Self::Off => "Export as OFF",
+      Self::Amf => "Export as AMF",
+      Self::Csg => "Export as CSG",
+    }
+  }
+
+  pub fn extension(self) -> &'static str {
+    match self {
+      Self::Stl => "stl",
+      Self::ThreeMf => "3mf",
+      Self::Off => "off",
+      Self::Amf => "amf",
+      Self::Csg => "csg",
+    }
+  }
+
+  pub fn filter_name(self) -> &'static str {
+    match self {
+      Self::Stl => "STL Files",
+      Self::ThreeMf => "3MF Files",
+      Self::Off => "OFF Files",
+      Self::Amf => "AMF Files",
+      Self::Csg => "CSG Files",
+    }
+  }
+
+  pub fn default_filename(self) -> &'static str {
+    match self {
+      Self::Stl => "model.stl",
+      Self::ThreeMf => "model.3mf",
+      Self::Off => "model.off",
+      Self::Amf => "model.amf",
+      Self::Csg => "model.csg",
+    }
+  }
+}
+
 type VKey = (i64, i64, i64);
 
 /// Quantize a float to an integer key for vertex deduplication.
