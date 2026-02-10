@@ -451,12 +451,14 @@ fn main() {
   let mut camera = build_camera(window.viewport(), &app);
   let mut last_theme_check = 0.0_f64;
 
-  // Lighting: ambient + two directional for CAD-style illumination
-  let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
+  // Lighting: low ambient + strong top-right key + soft fill
+  let ambient = AmbientLight::new(&context, 0.15, Srgba::WHITE);
   let light0 =
-    DirectionalLight::new(&context, 1.0, Srgba::WHITE, vec3(0.5, 1.0, 0.5));
+    DirectionalLight::new(&context, 0.7, Srgba::WHITE, vec3(1.0, 1.0, 0.5));
   let light1 =
-    DirectionalLight::new(&context, 0.3, Srgba::WHITE, vec3(-0.5, -0.5, -0.5));
+    DirectionalLight::new(&context, 0.25, Srgba::WHITE, vec3(-1.0, 0.3, -0.5));
+  let light2 =
+    DirectionalLight::new(&context, 0.15, Srgba::WHITE, vec3(0.0, -1.0, 0.0));
 
   // 3D axes at origin
   let axes = Axes::new(&context, 0.02, 5.0);
@@ -553,6 +555,7 @@ fn main() {
           &ambient as &dyn Light,
           &light0 as &dyn Light,
           &light1 as &dyn Light,
+          &light2 as &dyn Light,
         ],
       );
     screen.write(|| gui.render()).unwrap();
