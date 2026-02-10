@@ -155,20 +155,33 @@ and it should ideally be interpreted and have good
 Other CAD software that support programmatic creation of 3D models:
 
 - [BlocksCAD] - Blockly-based CAD software
+- [Flowscad] - Rust interface to OpenSCAD in the spirit of SolidPython
 - [FreeCAD] - Python scripting
+- [HelloTriangle] - 3D modeling with Python scripting.
 - [ImplicitCAD] - Haskell-based CAD software
 - [LibreCAD] - Lua scripting
 - [Liquid CAD] - 2D constraint-solving CAD for rapid prototyping
 - [ManifoldCAD] - Online CAD software using JavaScript
 - [OpenSCAD Rust] - Rust implementation of the OpenSCAD virtual machine
 - [OpenSCAD] - OpenSCAD language
+- [Rust Scad] - Library for generating OpenSCAD code using Rust
+- [scad_tree] - Rust solid modeling library that generates OpenSCAD code
+- [ScalaCad] - Constructive Solid Geometry in Scala
+- [SolidRS] - Rust library to generate OpenSCAD models
+- https://willpatrick.xyz/technology/2025/04/23/teaching-llms-how-to-solid-model.html
 
 [BlocksCAD]: https://www.blockscad3d.com/editor/
+[Flowscad]: https://github.com/SmoothDragon/flowscad
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
 [ImplicitCAD]: https://implicitcad.org/
 [Liquid CAD]: https://github.com/twitchyliquid64/liquid-cad
+[HelloTriangle]: https://www.hellotriangle.io/
 [ManifoldCAD]: https://manifoldcad.org/
 [OpenSCAD Rust]: https://github.com/Michael-F-Bryan/scad-rs
+[Rust Scad]: https://github.com/TheZoq2/Rust-Scad
+[scad_tree]: https://github.com/mrclean71774/scad_tree
+[ScalaCad]: https://github.com/joewing/ScalaCad
+[SolidRS]: https://github.com/MnlPhlp/solidrs
 
 
 ## History
@@ -242,3 +255,28 @@ Platform                  | Members
 [r/SolveSpace]: https://www.reddit.com/r/SolveSpace
 
 
+## Related Julia
+
+- [AD4SM]
+- [cadCAD]
+- [ConstructiveGeometry]
+- [Descartes]
+- [FinEtoolsVoxelMesher]
+- [MeshIO]
+- [Modia3D]
+- [OpticSim CSG]
+- [OpticSim]
+
+[AD4SM]: https://github.com/avigliotti/AD4SM.jl
+[cadCAD]: https://github.com/cadCAD-org/cadCAD.jl
+[ConstructiveGeometry]: https://github.com/plut/ConstructiveGeometry.jl
+[file]: https://github.com/brianguenter/OpticSim.jl
+[file]: https://github.com/JuliaGeometry/Descartes.jl
+[FinEtoolsVoxelMesher]: https://github.com/PetrKryslUCSD/FinEtoolsVoxelMesher.jl
+[MeshIO]: https://github.com/JuliaIO/MeshIO.jl
+[Modia3D]: https://github.com/ModiaSim/Modia3D.jl
+[OpticSim CSG]: https://microsoft.github.io/OpticSim.jl/dev/csg/
+
+
+Antyos/vscode-openscad: An OpenSCAD extension for VS Code
+https://github.com/Antyos/vscode-openscad
