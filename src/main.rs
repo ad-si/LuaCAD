@@ -267,14 +267,16 @@ fn compute_camera_vectors(app: &AppState) -> (Vec3, Vec3, Vec3) {
 fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
   let (pos, target, up) = compute_camera_vectors(app);
   if app.orthogonal_view {
+    // three-d multiplies height by camera-to-target distance internally,
+    // so use a fixed height. Negative z_near prevents any front clipping.
     Camera::new_orthographic(
       viewport,
       pos,
       target,
       up,
-      app.camera_distance * 2.0,
-      0.01,
-      1000.0,
+      2.0,
+      -100.0 * app.camera_distance,
+      100.0 * app.camera_distance,
     )
   } else {
     Camera::new_perspective(
@@ -283,8 +285,8 @@ fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
       target,
       up,
       degrees(45.0),
-      0.01,
-      1000.0,
+      0.1 * app.camera_distance,
+      100.0 * app.camera_distance,
     )
   }
 }
@@ -568,7 +570,7 @@ fn main() {
         } if !handled && position.x < scene_max_x => {
           let zoom_factor = (-delta.1 * 0.01).exp();
           app.camera_distance =
-            (app.camera_distance * zoom_factor).clamp(0.1, 50.0);
+            (app.camera_distance * zoom_factor).clamp(0.001, 10_000.0);
           camera_changed = true;
         }
         _ => {}
@@ -584,12 +586,16 @@ fn main() {
     // Update projection mode
     if app.orthogonal_view {
       camera.set_orthographic_projection(
-        app.camera_distance * 2.0,
-        0.01,
-        1000.0,
+        2.0,
+        -100.0 * app.camera_distance,
+        100.0 * app.camera_distance,
       );
     } else {
-      camera.set_perspective_projection(degrees(45.0), 0.01, 1000.0);
+      camera.set_perspective_projection(
+        degrees(45.0),
+        0.1 * app.camera_distance,
+        100.0 * app.camera_distance,
+      );
     }
 
     // Rebuild scene if Lua was re-executed
