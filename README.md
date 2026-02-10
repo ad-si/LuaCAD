@@ -91,6 +91,7 @@ that make it easier to create complex models:
     - List operations (`len()`, `each`, `range()`)
 - Special
     - `import_3mf()`, `rands()`, `search()`
+    - `scad(string)` - Insert verbatim OpenSCAD code
 
 
 ## Why Lua?

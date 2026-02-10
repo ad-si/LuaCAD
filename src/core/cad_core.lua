@@ -306,6 +306,18 @@ function cad_meta.__index.native(obj, str)
 end
 
 --[[----------------------------------------
+  function cad.scad(str)
+
+  Adds the passed string verbatim to the generated OpenSCAD code
+--]]
+----------------------------------------
+function cad.scad(str)
+  local obj = cad()
+  update_content(obj, str)
+  return obj
+end
+
+--[[----------------------------------------
   function <cad>:import(file)
 
   import an stl/dfx here
