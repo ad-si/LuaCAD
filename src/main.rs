@@ -3,6 +3,7 @@ mod editor;
 mod export;
 mod geometry;
 mod lua_engine;
+mod scad_export;
 mod scene;
 mod theme;
 mod ui;
@@ -199,6 +200,9 @@ fn main() {
         ExportFormat::STL => ("Export STL", "STL Files", "stl", "model.stl"),
         ExportFormat::OBJ => ("Export OBJ", "OBJ Files", "obj", "model.obj"),
         ExportFormat::PLY => ("Export PLY", "PLY Files", "ply", "model.ply"),
+        ExportFormat::OpenSCAD => {
+          ("Export OpenSCAD", "OpenSCAD Files", "scad", "model.scad")
+        }
       };
       if let Some(path) = rfd::FileDialog::new()
         .set_title(title)
@@ -211,6 +215,14 @@ fn main() {
           ExportFormat::STL => export::export_stl(&app.geometries, &path),
           ExportFormat::OBJ => export::export_obj(&app.geometries, &path),
           ExportFormat::PLY => export::export_ply(&app.geometries, &path),
+          ExportFormat::OpenSCAD => {
+            let nodes: Vec<_> = app
+              .geometries
+              .iter()
+              .filter_map(|g| g.scad.clone())
+              .collect();
+            scad_export::export_scad(&nodes, &path)
+          }
         };
         match result {
           Ok(()) => {

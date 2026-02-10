@@ -4,6 +4,7 @@ use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
 use crate::app::AppState;
 use crate::geometry::{CsgGeometry, CsgSketch, lua_val_to_f32};
+use crate::scad_export::ScadNode;
 
 // ---------------------------------------------------------------------------
 // Table helpers
@@ -226,7 +227,12 @@ impl AppState {
         } else {
           mesh
         };
-        Ok(CsgGeometry { mesh, color: None })
+        let scad = Some(ScadNode::Cube { w, d, h, center });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("cube", cube_fn)?;
 
@@ -239,7 +245,15 @@ impl AppState {
           segments as usize,
           None,
         );
-        Ok(CsgGeometry { mesh, color: None })
+        let scad = Some(ScadNode::Sphere {
+          r: radius,
+          segments,
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("sphere", sphere_fn)?;
 
@@ -252,7 +266,18 @@ impl AppState {
         } else {
           mesh
         };
-        Ok(CsgGeometry { mesh, color: None })
+        let scad = Some(ScadNode::Cylinder {
+          r1,
+          r2,
+          h,
+          segments,
+          center,
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("cylinder", cylinder_fn)?;
 
@@ -343,12 +368,30 @@ impl AppState {
               "polyhedron() error: {e:?}"
             ))
           })?;
+        let scad_base = ScadNode::Polyhedron {
+          points: points.clone(),
+          faces: faces.clone(),
+        };
+        let scad = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
+          Some(ScadNode::Translate {
+            x: tx,
+            y: ty,
+            z: tz,
+            child: Box::new(scad_base),
+          })
+        } else {
+          Some(scad_base)
+        };
         let mesh = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
           mesh.translate(tx, ty, tz)
         } else {
           mesh
         };
-        Ok(CsgGeometry { mesh, color: None })
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("polyhedron", polyhedron_fn)?;
 
@@ -375,12 +418,30 @@ impl AppState {
             .map_err(|e| {
               mlua::Error::RuntimeError(format!("pyramid() error: {e:?}"))
             })?;
+          let scad_base = ScadNode::Polyhedron {
+            points: points.clone(),
+            faces: faces.clone(),
+          };
+          let scad = if x != 0.0 || y != 0.0 || z != 0.0 {
+            Some(ScadNode::Translate {
+              x,
+              y,
+              z,
+              child: Box::new(scad_base),
+            })
+          } else {
+            Some(scad_base)
+          };
           let mesh = if x != 0.0 || y != 0.0 || z != 0.0 {
             mesh.translate(x, y, z)
           } else {
             mesh
           };
-          Ok(CsgGeometry { mesh, color: None })
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         },
       )?;
       lua.globals().set("pyramid", pyramid_fn)?;
@@ -403,12 +464,47 @@ impl AppState {
             table_get_u32(t, "segments_minor").unwrap_or(16) as usize;
           let mesh =
             CsgMesh::<()>::torus(major, minor, seg_major, seg_minor, None);
-          Ok(CsgGeometry { mesh, color: None })
+          // Torus via rotate_extrude of a translated circle
+          let scad = Some(ScadNode::RotateExtrude {
+            angle: 360.0,
+            segments: seg_major as u32,
+            child: Box::new(ScadNode::Translate {
+              x: major,
+              y: 0.0,
+              z: 0.0,
+              child: Box::new(ScadNode::Circle {
+                r: minor,
+                segments: seg_minor as u32,
+              }),
+            }),
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         } else if args.len() >= 2 {
           let major = lua_val_to_f32(&args[0]).unwrap_or(2.0);
           let minor = lua_val_to_f32(&args[1]).unwrap_or(0.5);
           let mesh = CsgMesh::<()>::torus(major, minor, 24, 16, None);
-          Ok(CsgGeometry { mesh, color: None })
+          let scad = Some(ScadNode::RotateExtrude {
+            angle: 360.0,
+            segments: 24,
+            child: Box::new(ScadNode::Translate {
+              x: major,
+              y: 0.0,
+              z: 0.0,
+              child: Box::new(ScadNode::Circle {
+                r: minor,
+                segments: 16,
+              }),
+            }),
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         } else {
           Err(mlua::Error::RuntimeError(
             "torus() requires {R=.., r=..} or (major, minor)".to_string(),
@@ -428,7 +524,32 @@ impl AppState {
             args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
           };
           let mesh = CsgMesh::<()>::octahedron(radius, None);
-          Ok(CsgGeometry { mesh, color: None })
+          let r = radius;
+          let scad = Some(ScadNode::Polyhedron {
+            points: vec![
+              [r, 0.0, 0.0],
+              [-r, 0.0, 0.0],
+              [0.0, r, 0.0],
+              [0.0, -r, 0.0],
+              [0.0, 0.0, r],
+              [0.0, 0.0, -r],
+            ],
+            faces: vec![
+              vec![0, 2, 4],
+              vec![2, 1, 4],
+              vec![1, 3, 4],
+              vec![3, 0, 4],
+              vec![2, 0, 5],
+              vec![1, 2, 5],
+              vec![3, 1, 5],
+              vec![0, 3, 5],
+            ],
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         })?;
       lua.globals().set("octahedron", octahedron_fn)?;
 
@@ -443,7 +564,53 @@ impl AppState {
             args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
           };
           let mesh = CsgMesh::<()>::icosahedron(radius, None);
-          Ok(CsgGeometry { mesh, color: None })
+          // Generate icosahedron vertices and faces for OpenSCAD polyhedron
+          let phi = (1.0 + 5.0_f32.sqrt()) / 2.0;
+          let a = radius / (1.0 + phi * phi).sqrt();
+          let b = a * phi;
+          let scad = Some(ScadNode::Polyhedron {
+            points: vec![
+              [-a, b, 0.0],
+              [a, b, 0.0],
+              [-a, -b, 0.0],
+              [a, -b, 0.0],
+              [0.0, -a, b],
+              [0.0, a, b],
+              [0.0, -a, -b],
+              [0.0, a, -b],
+              [b, 0.0, -a],
+              [b, 0.0, a],
+              [-b, 0.0, -a],
+              [-b, 0.0, a],
+            ],
+            faces: vec![
+              vec![0, 11, 5],
+              vec![0, 5, 1],
+              vec![0, 1, 7],
+              vec![0, 7, 10],
+              vec![0, 10, 11],
+              vec![1, 5, 9],
+              vec![5, 11, 4],
+              vec![11, 10, 2],
+              vec![10, 7, 6],
+              vec![7, 1, 8],
+              vec![3, 9, 4],
+              vec![3, 4, 2],
+              vec![3, 2, 6],
+              vec![3, 6, 8],
+              vec![3, 8, 9],
+              vec![4, 9, 5],
+              vec![2, 4, 11],
+              vec![6, 2, 10],
+              vec![8, 6, 7],
+              vec![9, 8, 1],
+            ],
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         })?;
       lua.globals().set("icosahedron", icosahedron_fn)?;
 
@@ -461,13 +628,39 @@ impl AppState {
           let rz = table_get_f32(t, "rz").unwrap_or(1.0);
           let segs = table_segments(t, 16) as usize;
           let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, segs, segs, None);
-          Ok(CsgGeometry { mesh, color: None })
+          let scad = Some(ScadNode::Scale {
+            x: rx,
+            y: ry,
+            z: rz,
+            child: Box::new(ScadNode::Sphere {
+              r: 1.0,
+              segments: segs as u32,
+            }),
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         } else if args.len() >= 3 {
           let rx = lua_val_to_f32(&args[0]).unwrap_or(1.0);
           let ry = lua_val_to_f32(&args[1]).unwrap_or(1.0);
           let rz = lua_val_to_f32(&args[2]).unwrap_or(1.0);
           let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None);
-          Ok(CsgGeometry { mesh, color: None })
+          let scad = Some(ScadNode::Scale {
+            x: rx,
+            y: ry,
+            z: rz,
+            child: Box::new(ScadNode::Sphere {
+              r: 1.0,
+              segments: 16,
+            }),
+          });
+          Ok(CsgGeometry {
+            mesh,
+            color: None,
+            scad,
+          })
         } else {
           Err(mlua::Error::RuntimeError(
             "ellipsoid() requires {rx=.., ry=.., rz=..} or (rx, ry, rz)"
@@ -498,16 +691,26 @@ impl AppState {
           let segments = table_segments(t, 32) as usize;
           let sketch =
             csgrs::sketch::Sketch::<()>::circle(radius, segments, None);
+          let scad = Some(ScadNode::Circle {
+            r: radius,
+            segments: segments as u32,
+          });
           Ok(CsgSketch {
             sketch,
             color: None,
+            scad,
           })
         } else {
           let radius = lua_val_to_f32(first).unwrap_or(1.0);
           let sketch = csgrs::sketch::Sketch::<()>::circle(radius, 32, None);
+          let scad = Some(ScadNode::Circle {
+            r: radius,
+            segments: 32,
+          });
           Ok(CsgSketch {
             sketch,
             color: None,
+            scad,
           })
         }
       })?;
@@ -536,17 +739,25 @@ impl AppState {
             use csgrs::traits::CSG;
             sketch = sketch.translate(-w / 2.0, -h / 2.0, 0.0);
           }
+          let scad = Some(ScadNode::Square { w, h, center });
           Ok(CsgSketch {
             sketch,
             color: None,
+            scad,
           })
         } else {
           let w = lua_val_to_f32(first).unwrap_or(1.0);
           let h = args.get(1).and_then(lua_val_to_f32).unwrap_or(w);
           let sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
+          let scad = Some(ScadNode::Square {
+            w,
+            h,
+            center: false,
+          });
           Ok(CsgSketch {
             sketch,
             color: None,
+            scad,
           })
         }
       })?;
@@ -581,9 +792,13 @@ impl AppState {
         }
 
         let sketch = csgrs::sketch::Sketch::<()>::polygon(&points, None);
+        let scad = Some(ScadNode::Polygon {
+          points: points.clone(),
+        });
         Ok(CsgSketch {
           sketch,
           color: None,
+          scad,
         })
       })?;
       lua.globals().set("polygon", polygon_fn)?;
@@ -944,4 +1159,137 @@ fn register_vector_type(lua: &Lua) -> LuaResult<()> {
   lua.globals().set("norm", norm_fn)?;
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::scad_export::generate_scad;
+
+  /// Helper: run Lua code and return the collected ScadNodes.
+  fn run_lua_scad(code: &str) -> Vec<ScadNode> {
+    let mut app = AppState {
+      text_content: code.to_string(),
+      geometries: vec![],
+      lua_error: None,
+      camera_azimuth: 0.0,
+      camera_elevation: 0.0,
+      camera_distance: 5.0,
+      orthogonal_view: true,
+      scene_dirty: false,
+      theme_mode: crate::theme::ThemeMode::Dark,
+      theme_colors: crate::theme::ThemeColors::dark(),
+      pending_editor_action: None,
+      export_status: None,
+      pending_export: None,
+      current_file: None,
+      pending_file_action: None,
+    };
+    app.execute_lua_code();
+    assert!(app.lua_error.is_none(), "Lua error: {:?}", app.lua_error);
+    app
+      .geometries
+      .iter()
+      .filter_map(|g| g.scad.clone())
+      .collect()
+  }
+
+  #[test]
+  fn e2e_cube_produces_scad() {
+    let nodes = run_lua_scad("render(cube(5, 10, 15))");
+    assert_eq!(nodes.len(), 1);
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([5, 10, 15]);"));
+  }
+
+  #[test]
+  fn e2e_centered_cube() {
+    let nodes = run_lua_scad("render(cube { 4, 2, 1, center = true })");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([4, 2, 1], center = true);"));
+  }
+
+  #[test]
+  fn e2e_difference_operator() {
+    let nodes = run_lua_scad(
+      "local a = cube(10, 10, 10)\n\
+       local b = sphere(5)\n\
+       render(a - b)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("difference()"));
+    assert!(scad.contains("cube([10, 10, 10]);"));
+    assert!(scad.contains("sphere("));
+  }
+
+  #[test]
+  fn e2e_union_operator() {
+    let nodes = run_lua_scad(
+      "local a = cube(5, 5, 5)\n\
+       local b = cube(5, 5, 5):translate(3, 0, 0)\n\
+       render(a + b)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("union()"));
+    assert!(scad.contains("translate([3, 0, 0])"));
+  }
+
+  #[test]
+  fn e2e_translate_and_rotate() {
+    let nodes = run_lua_scad(
+      "render(cylinder { h = 3, r = 1, center = true }:rotate(90, 0, 0):translate(5, 0, 0))",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("translate([5, 0, 0])"));
+    assert!(scad.contains("rotate([90, 0, 0])"));
+    assert!(scad.contains("cylinder("));
+  }
+
+  #[test]
+  fn e2e_default_welcome_code() {
+    // Test with the default code the app starts with
+    let nodes = run_lua_scad(
+      "local body = cube { 4, 2, 1, center = true }\n\
+       local hole = cylinder { h = 3, r = 0.5, center = true }\n\
+       render(body - hole)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("difference()"));
+    assert!(scad.contains("cube([4, 2, 1], center = true);"));
+    assert!(scad.contains("cylinder(h = 3"));
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn e2e_multiple_render_calls() {
+    let nodes = run_lua_scad(
+      "render(cube(1, 1, 1))\n\
+       render(sphere(2))",
+    );
+    assert_eq!(nodes.len(), 2);
+    let scad = generate_scad(&nodes);
+    // Multiple objects should be wrapped in union
+    assert!(scad.contains("union()"));
+    assert!(scad.contains("cube([1, 1, 1]);"));
+    assert!(scad.contains("sphere("));
+  }
+
+  #[test]
+  fn e2e_linear_extrude() {
+    let nodes = run_lua_scad(
+      "local c = circle(5)\n\
+       render(c:linear_extrude(10))",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("linear_extrude(height = 10)"));
+    assert!(scad.contains("circle(r = 5"));
+  }
+
+  #[test]
+  fn e2e_color() {
+    let nodes = run_lua_scad("render(cube(5, 5, 5):setcolor(1, 0, 0))");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("color([1, 0, 0])"));
+    assert!(scad.contains("cube([5, 5, 5]);"));
+  }
 }

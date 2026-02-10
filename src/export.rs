@@ -9,6 +9,7 @@ pub enum ExportFormat {
   PLY,
   STL,
   OBJ,
+  OpenSCAD,
 }
 
 type VKey = (i64, i64, i64);
@@ -337,6 +338,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: cube,
       color: None,
+      scad: None,
     };
 
     let (verts, tris) = build_export_mesh(&[geom]);
@@ -359,6 +361,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: result,
       color: None,
+      scad: None,
     };
 
     // Verify all triangles are oriented matching their polygon normal
@@ -386,6 +389,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: result,
       color: None,
+      scad: None,
     };
 
     assert_eq!(count_wrong_winding(&[geom.clone()]), 0);
@@ -405,6 +409,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: result,
       color: None,
+      scad: None,
     };
 
     assert_eq!(count_wrong_winding(&[geom.clone()]), 0);
@@ -423,6 +428,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: cube,
       color: None,
+      scad: None,
     };
 
     let (_, tris) = build_export_mesh(&[geom]);
@@ -439,6 +445,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: cube,
       color: None,
+      scad: None,
     };
 
     let dir = std::env::temp_dir().join("luacad_test");
@@ -467,6 +474,7 @@ mod tests {
     let geom = CsgGeometry {
       mesh: result,
       color: None,
+      scad: None,
     };
 
     let dir = std::env::temp_dir().join("luacad_test");

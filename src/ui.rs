@@ -134,6 +134,9 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 if ui.add_enabled(has_geometry, egui::Button::new("Export PLY")).clicked() {
                     app.pending_export = Some(ExportFormat::PLY);
                 }
+                if ui.add_enabled(has_geometry, egui::Button::new("Export SCAD")).clicked() {
+                    app.pending_export = Some(ExportFormat::OpenSCAD);
+                }
             });
 
             ui.add_space(6.0);
