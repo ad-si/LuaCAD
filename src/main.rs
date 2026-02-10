@@ -2,6 +2,8 @@ use egui_extras::syntax_highlighting;
 use mlua::{Lua, Result as LuaResult};
 use three_d::*;
 
+use mlua::Value as LuaValue;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ThemeMode {
   System,
@@ -47,10 +49,10 @@ fn system_is_dark_mode() -> bool {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct Cube {
-  position: [f32; 3],
   size: [f32; 3],
+  center: bool,
 }
 
 struct AppState {
@@ -70,7 +72,7 @@ impl AppState {
   fn new() -> Self {
     let is_dark = system_is_dark_mode();
     let mut app = Self {
-            text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 1, 3})\ncube({0, 3, 1}, {1.5, 1.5, 1})".to_string(),
+            text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n\ncube(2)\ncube({1, 1, 3})\ncube({1.5, 1.5, 1}, true)".to_string(),
             cubes: vec![],
             lua_error: None,
             camera_azimuth: -30.0,
@@ -122,22 +124,51 @@ impl AppState {
 
       let cube_calls_clone = cube_calls.clone();
       let cube_fn = lua.create_function(
-        move |_, (pos, size): (mlua::Table, mlua::Table)| {
-          let position = [
-            pos.get::<f32>(1).unwrap_or(0.0),
-            pos.get::<f32>(2).unwrap_or(0.0),
-            pos.get::<f32>(3).unwrap_or(0.0),
-          ];
-          let size_arr = [
-            size.get::<f32>(1).unwrap_or(1.0),
-            size.get::<f32>(2).unwrap_or(1.0),
-            size.get::<f32>(3).unwrap_or(1.0),
-          ];
+        move |_, args: mlua::MultiValue| {
+          let mut iter = args.into_iter();
+          let first = iter.next().ok_or_else(|| {
+            mlua::Error::RuntimeError(
+              "cube() requires at least 1 argument".to_string(),
+            )
+          })?;
+          let second = iter.next();
 
-          cube_calls_clone.borrow_mut().push(Cube {
-            position,
-            size: size_arr,
-          });
+          // Parse size from first argument
+          let size_arr = match &first {
+            LuaValue::Number(n) => {
+              let s = *n as f32;
+              [s, s, s]
+            }
+            LuaValue::Integer(n) => {
+              let s = *n as f32;
+              [s, s, s]
+            }
+            LuaValue::Table(t) => [
+              t.get::<f32>(1).unwrap_or(1.0),
+              t.get::<f32>(2).unwrap_or(1.0),
+              t.get::<f32>(3).unwrap_or(1.0),
+            ],
+            _ => {
+              return Err(mlua::Error::RuntimeError(
+                "cube() first argument must be a number or {width, depth, height} table".to_string(),
+              ));
+            }
+          };
+
+          // Parse optional center from second argument
+          let center = match second {
+            Some(LuaValue::Boolean(b)) => b,
+            Some(_) => {
+              return Err(mlua::Error::RuntimeError(
+                "cube() second argument (center) must be a boolean".to_string(),
+              ));
+            }
+            None => false,
+          };
+
+          cube_calls_clone
+            .borrow_mut()
+            .push(Cube { size: size_arr, center });
 
           Ok(())
         },
@@ -154,8 +185,7 @@ impl AppState {
         self.cubes = cube_calls.borrow().clone();
         if self.cubes.is_empty() {
           self.lua_error = Some(
-            "No cubes found. Use cube({x, y, z}, {width, height, depth})"
-              .to_string(),
+            "No cubes found. Use cube(size) or cube({w, d, h})".to_string(),
           );
         }
       }
@@ -180,16 +210,19 @@ fn build_scene(
     .map(|cube| {
       let mut cpu_mesh = CpuMesh::cube();
 
-      // Z-up to Y-up: (x, y, z) -> (x, z, -y)
-      let transform = Mat4::from_translation(vec3(
-        cube.position[0],
-        cube.position[2],
-        -cube.position[1],
-      )) * Mat4::from_nonuniform_scale(
-        cube.size[0],
-        cube.size[2],
-        cube.size[1],
-      );
+      // CpuMesh::cube() is a unit cube centered at origin (-0.5 to 0.5).
+      // When center=false (OpenSCAD default), shift so corner is at origin.
+      let offset = if cube.center {
+        vec3(0.0, 0.0, 0.0)
+      } else {
+        // In CAD (Z-up) space: offset by half size in each axis
+        // Then convert to Y-up: (x, y, z) -> (x, z, -y)
+        vec3(cube.size[0] * 0.5, cube.size[2] * 0.5, -cube.size[1] * 0.5)
+      };
+
+      // Z-up to Y-up: scale axes (x, y, z) -> (x, z, y)
+      let transform = Mat4::from_translation(offset)
+        * Mat4::from_nonuniform_scale(cube.size[0], cube.size[2], cube.size[1]);
       cpu_mesh.transform(transform).unwrap();
 
       Gm::new(
@@ -256,7 +289,7 @@ fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
   }
 }
 
-fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
+fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
   // Apply theme visuals
   if app.theme_colors.egui_dark {
     gui_context.set_visuals(egui::Visuals::dark());
@@ -265,7 +298,7 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
   }
 
   // Right panel: code editor
-  egui::SidePanel::right("code_editor")
+  let panel_response = egui::SidePanel::right("code_editor")
         .default_width(400.0)
         .show(gui_context, |ui| {
             ui.heading("Code Editor");
@@ -307,10 +340,6 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.button("Run").clicked() {
-                    app.execute_lua_code();
-                }
-
                 if ui.button("Clear").clicked() {
                     app.text_content.clear();
                     app.cubes.clear();
@@ -319,7 +348,16 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
                 }
 
                 if ui.button("Load Example").clicked() {
-                    app.text_content = "-- LuaCAD Example\n-- Create cubes with position and size\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 3, 1})\ncube({-2, 2, 1}, {1.5, 1, 2})\n\n-- You can also use variables\nlocal pos = {1, -2, 0}\nlocal size = {1, 1, 1}\ncube(pos, size)".to_string();
+                    app.text_content = "-- LuaCAD Example\n-- cube(size) — uniform cube\n-- cube({w, d, h}) — sized cube\n-- cube(size, true) — centered\n\ncube(2)\ncube({3, 1, 1})\ncube({1.5, 1, 2}, true)\n\n-- You can also use variables\nlocal size = {1, 1, 1}\ncube(size)".to_string();
+                }
+
+                let remaining = ui.available_width();
+                ui.add_space(remaining - 60.0);
+                let run_btn = egui::Button::new(
+                    egui::RichText::new("Run").size(18.0),
+                ).min_size(egui::vec2(60.0, 30.0));
+                if ui.add(run_btn).clicked() {
+                    app.execute_lua_code();
                 }
             });
 
@@ -345,6 +383,7 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
                 );
             }
         });
+  let right_panel_width = panel_response.response.rect.width();
 
   // Bottom panel: camera controls and view presets
   egui::TopBottomPanel::bottom("controls").show(gui_context, |ui| {
@@ -430,12 +469,14 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
 
     ui.label("Mouse: Drag to rotate, Scroll to zoom");
   });
+
+  right_panel_width
 }
 
 fn main() {
   let window = Window::new(WindowSettings {
     title: "LuaCAD Studio".to_string(),
-    max_size: Some((1200, 800)),
+    max_size: None,
     ..Default::default()
   })
   .unwrap();
@@ -462,37 +503,69 @@ fn main() {
 
   // 3D axes at origin
   let axes = Axes::new(&context, 0.02, 5.0);
+  let mut dragging_scene = false;
 
   window.render_loop(move |mut frame_input| {
-    // Update camera viewport on resize
-    camera.set_viewport(frame_input.viewport);
-
     // Process GUI (consumes events over egui panels)
+    let mut panel_width = 0.0_f32;
     gui.update(
       &mut frame_input.events,
       frame_input.accumulated_time,
       frame_input.viewport,
       frame_input.device_pixel_ratio,
       |gui_context| {
-        render_ui(gui_context, &mut app);
+        panel_width = render_ui(gui_context, &mut app);
       },
     );
 
+    // Compute 3D viewport: left area excluding right panel
+    let full = frame_input.viewport;
+    let panel_px =
+      (panel_width * frame_input.device_pixel_ratio).round() as u32;
+    let scene_width = full.width.saturating_sub(panel_px);
+    let scene_viewport = Viewport {
+      x: full.x,
+      y: full.y,
+      width: scene_width,
+      height: full.height,
+    };
+    camera.set_viewport(scene_viewport);
+
     // Handle camera input from remaining events (not consumed by GUI)
+    let scene_max_x = scene_width as f32;
     let mut camera_changed = false;
     for event in frame_input.events.iter() {
       match event {
+        Event::MousePress {
+          button: MouseButton::Left,
+          position,
+          handled,
+          ..
+        } if !handled && position.x < scene_max_x => {
+          dragging_scene = true;
+        }
+        Event::MouseRelease {
+          button: MouseButton::Left,
+          ..
+        } => {
+          dragging_scene = false;
+        }
         Event::MouseMotion {
           delta,
           button: Some(MouseButton::Left),
           ..
-        } => {
+        } if dragging_scene => {
           app.camera_azimuth -= delta.0 * 0.5;
           app.camera_elevation =
             (app.camera_elevation + delta.1 * 0.5).clamp(-85.0, 85.0);
           camera_changed = true;
         }
-        Event::MouseWheel { delta, .. } => {
+        Event::MouseWheel {
+          delta,
+          handled,
+          position,
+          ..
+        } if !handled && position.x < scene_max_x => {
           let zoom_factor = (-delta.1 * 0.01).exp();
           app.camera_distance =
             (app.camera_distance * zoom_factor).clamp(0.1, 50.0);
