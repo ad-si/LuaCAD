@@ -1,20 +1,6 @@
-use eframe::egui;
 use egui_extras::syntax_highlighting;
 use mlua::{Lua, Result as LuaResult};
-use nalgebra::{Matrix4, Point3};
-
-fn main() -> Result<(), eframe::Error> {
-  let options = eframe::NativeOptions {
-    viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
-    ..Default::default()
-  };
-
-  eframe::run_native(
-    "LuaCAD Studio",
-    options,
-    Box::new(|_cc| Ok(Box::new(MyApp::new()))),
-  )
-}
+use three_d::*;
 
 #[derive(Debug, Clone)]
 struct Cube {
@@ -22,115 +8,31 @@ struct Cube {
   size: [f32; 3],
 }
 
-struct MyApp {
+struct AppState {
   text_content: String,
-  camera_angles: (f32, f32), // (azimuth, elevation)
-  camera_distance: f32,
   cubes: Vec<Cube>,
   lua_error: Option<String>,
+  camera_azimuth: f32,
+  camera_elevation: f32,
+  camera_distance: f32,
   orthogonal_view: bool,
+  scene_dirty: bool,
 }
 
-impl MyApp {
+impl AppState {
   fn new() -> Self {
     let mut app = Self {
             text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 1, 3})\ncube({0, 3, 1}, {1.5, 1.5, 1})".to_string(),
-            camera_angles: (-30.0, 30.0), // X forward-right, Y backward-right
-            camera_distance: 5.0,
             cubes: vec![],
             lua_error: None,
+            camera_azimuth: -30.0,
+            camera_elevation: 30.0,
+            camera_distance: 5.0,
             orthogonal_view: true,
+            scene_dirty: true,
         };
-
-    // Execute the initial code on startup
     app.execute_lua_code();
     app
-  }
-
-  /// Project a world-space 3D point to 2D screen coordinates.
-  fn project_point(
-    &self,
-    point: &Point3<f32>,
-    center: egui::Pos2,
-  ) -> egui::Pos2 {
-    let azimuth = self.camera_angles.0.to_radians();
-    let elevation = self.camera_angles.1.to_radians();
-
-    // Rotate in world space
-    let rotation_z = Matrix4::from_euler_angles(0.0, 0.0, azimuth);
-    let rotation_x = Matrix4::from_euler_angles(-elevation, 0.0, 0.0);
-    let transform = rotation_x * rotation_z;
-    let rotated = transform.transform_point(point);
-
-    // Zoom is purely a pixel multiplier — independent of perspective
-    let zoom = 100.0 / self.camera_distance;
-
-    if self.orthogonal_view {
-      egui::Pos2::new(center.x + rotated.x * zoom, center.y - rotated.z * zoom)
-    } else {
-      // Camera always sits 30 world-units behind the origin along the
-      // view axis. This is far enough that typical scenes never clip,
-      // and the perspective amount stays consistent regardless of zoom.
-      let camera_depth = 30.0;
-      let depth = camera_depth - rotated.y;
-
-      if depth > 0.1 {
-        // At the origin (rotated.y == 0) we want perspective_scale == zoom,
-        // so focal_length = zoom * camera_depth.
-        let focal_length = zoom * camera_depth;
-        let perspective_scale = focal_length / depth;
-        egui::Pos2::new(
-          center.x + rotated.x * perspective_scale,
-          center.y - rotated.z * perspective_scale,
-        )
-      } else {
-        egui::Pos2::new(
-          center.x + rotated.x * zoom,
-          center.y - rotated.z * zoom,
-        )
-      }
-    }
-  }
-
-  fn draw_coordinate_axes(
-    &self,
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    axis_length: f32,
-  ) {
-    let axes_3d = [
-      ([0.0, 0.0, 0.0], [axis_length, 0.0, 0.0]), // X axis
-      ([0.0, 0.0, 0.0], [0.0, axis_length, 0.0]), // Y axis
-      ([0.0, 0.0, 0.0], [0.0, 0.0, axis_length]), // Z axis (up)
-    ];
-
-    let colors = [
-      egui::Color32::RED,   // X axis
-      egui::Color32::GREEN, // Y axis
-      egui::Color32::BLUE,  // Z axis
-    ];
-
-    let labels = ["X", "Y", "Z"];
-
-    for (i, ((start, end), color)) in
-      axes_3d.iter().zip(colors.iter()).enumerate()
-    {
-      let start_pos =
-        self.project_point(&Point3::new(start[0], start[1], start[2]), center);
-      let end_pos =
-        self.project_point(&Point3::new(end[0], end[1], end[2]), center);
-
-      painter
-        .line_segment([start_pos, end_pos], egui::Stroke::new(2.0, *color));
-
-      painter.text(
-        end_pos + egui::Vec2::new(5.0, -5.0),
-        egui::Align2::LEFT_CENTER,
-        labels[i],
-        egui::FontId::default(),
-        *color,
-      );
-    }
   }
 
   fn execute_lua_code(&mut self) {
@@ -141,7 +43,6 @@ impl MyApp {
     let cube_calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
 
     let result: LuaResult<()> = (|| {
-      // Create a custom print function that captures output
       let print_fn =
         lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
           let output = args
@@ -155,7 +56,6 @@ impl MyApp {
 
       lua.globals().set("print", print_fn)?;
 
-      // Create cube function that captures cube calls
       let cube_calls_clone = cube_calls.clone();
       let cube_fn = lua.create_function(
         move |_, (pos, size): (mlua::Table, mlua::Table)| {
@@ -180,8 +80,6 @@ impl MyApp {
       )?;
 
       lua.globals().set("cube", cube_fn)?;
-
-      // Execute the user's code
       lua.load(&self.text_content).exec()?;
 
       Ok(())
@@ -201,359 +99,360 @@ impl MyApp {
         self.lua_error = Some(format!("Lua error: {e}"));
       }
     }
-  }
 
-  fn draw_cubes(&self, painter: &egui::Painter, center: egui::Pos2) {
-    for cube in &self.cubes {
-      self.draw_single_cube(painter, center, cube);
-    }
-  }
-
-  fn draw_single_cube(
-    &self,
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    cube: &Cube,
-  ) {
-    let color = egui::Color32::from_rgb(150, 150, 255);
-    let stroke = egui::Stroke::new(1.5, color);
-
-    let half_size =
-      [cube.size[0] / 2.0, cube.size[1] / 2.0, cube.size[2] / 2.0];
-    let vertices_3d = [
-      Point3::new(
-        cube.position[0] - half_size[0],
-        cube.position[1] - half_size[1],
-        cube.position[2] - half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] + half_size[0],
-        cube.position[1] - half_size[1],
-        cube.position[2] - half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] + half_size[0],
-        cube.position[1] + half_size[1],
-        cube.position[2] - half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] - half_size[0],
-        cube.position[1] + half_size[1],
-        cube.position[2] - half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] - half_size[0],
-        cube.position[1] - half_size[1],
-        cube.position[2] + half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] + half_size[0],
-        cube.position[1] - half_size[1],
-        cube.position[2] + half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] + half_size[0],
-        cube.position[1] + half_size[1],
-        cube.position[2] + half_size[2],
-      ),
-      Point3::new(
-        cube.position[0] - half_size[0],
-        cube.position[1] + half_size[1],
-        cube.position[2] + half_size[2],
-      ),
-    ];
-
-    let vertices_2d: Vec<egui::Pos2> = vertices_3d
-      .iter()
-      .map(|v| self.project_point(v, center))
-      .collect();
-
-    let edges = [
-      (0, 1),
-      (1, 2),
-      (2, 3),
-      (3, 0), // Front face
-      (4, 5),
-      (5, 6),
-      (6, 7),
-      (7, 4), // Back face
-      (0, 4),
-      (1, 5),
-      (2, 6),
-      (3, 7), // Connecting edges
-    ];
-
-    for (i, j) in edges {
-      painter.line_segment([vertices_2d[i], vertices_2d[j]], stroke);
-    }
+    self.scene_dirty = true;
   }
 }
 
-impl eframe::App for MyApp {
-  fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-            let total_height = ui.available_height();
-            let total_width = ui.available_width();
+/// Build 3D mesh objects from cube data.
+/// Applies Z-up (CAD) to Y-up (OpenGL) coordinate swap.
+fn build_scene(
+  context: &Context,
+  app: &AppState,
+) -> Vec<Gm<Mesh, PhysicalMaterial>> {
+  app
+    .cubes
+    .iter()
+    .map(|cube| {
+      let mut cpu_mesh = CpuMesh::cube();
+
+      // Z-up to Y-up: (x, y, z) -> (x, z, -y)
+      let transform = Mat4::from_translation(vec3(
+        cube.position[0],
+        cube.position[2],
+        -cube.position[1],
+      )) * Mat4::from_nonuniform_scale(
+        cube.size[0],
+        cube.size[2],
+        cube.size[1],
+      );
+      cpu_mesh.transform(transform).unwrap();
+
+      Gm::new(
+        Mesh::new(context, &cpu_mesh),
+        PhysicalMaterial::new_opaque(
+          context,
+          &CpuMaterial {
+            albedo: Srgba {
+              r: 150,
+              g: 150,
+              b: 255,
+              a: 255,
+            },
+            metallic: 0.0,
+            roughness: 0.7,
+            ..Default::default()
+          },
+        ),
+      )
+    })
+    .collect()
+}
+
+/// Compute camera position from azimuth/elevation/distance.
+/// Returns (position, target, up) in Y-up coordinate system.
+fn compute_camera_vectors(app: &AppState) -> (Vec3, Vec3, Vec3) {
+  let az = app.camera_azimuth.to_radians();
+  let el = app.camera_elevation.to_radians();
+  let d = app.camera_distance;
+
+  let x = d * el.cos() * az.sin();
+  let y = d * el.sin();
+  let z = d * el.cos() * az.cos();
+
+  let position = vec3(x, y, z);
+  let target = vec3(0.0, 0.0, 0.0);
+  let up = vec3(0.0, 1.0, 0.0);
+
+  (position, target, up)
+}
+
+fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
+  let (pos, target, up) = compute_camera_vectors(app);
+  if app.orthogonal_view {
+    Camera::new_orthographic(
+      viewport,
+      pos,
+      target,
+      up,
+      app.camera_distance * 2.0,
+      0.01,
+      1000.0,
+    )
+  } else {
+    Camera::new_perspective(
+      viewport,
+      pos,
+      target,
+      up,
+      degrees(45.0),
+      0.01,
+      1000.0,
+    )
+  }
+}
+
+fn render_ui(gui_context: &egui::Context, app: &mut AppState) {
+  // Right panel: code editor
+  egui::SidePanel::right("code_editor")
+        .default_width(400.0)
+        .show(gui_context, |ui| {
+            ui.heading("Code Editor");
+
+            let editor_height = ui.available_height() - 100.0;
+            egui::ScrollArea::vertical()
+                .max_height(editor_height)
+                .show(ui, |ui| {
+                    let mut layouter =
+                        |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                            let theme = if ui.style().visuals.dark_mode {
+                                syntax_highlighting::CodeTheme::dark(14.0)
+                            } else {
+                                syntax_highlighting::CodeTheme::light(14.0)
+                            };
+
+                            let mut layout_job =
+                                syntax_highlighting::highlight(
+                                    ui.ctx(),
+                                    ui.style(),
+                                    &theme,
+                                    string,
+                                    "lua",
+                                );
+                            layout_job.wrap.max_width = wrap_width;
+                            ui.fonts(|f| f.layout_job(layout_job))
+                        };
+
+                    ui.add(
+                        egui::TextEdit::multiline(&mut app.text_content)
+                            .desired_width(ui.available_width())
+                            .desired_rows(30)
+                            .font(egui::TextStyle::Monospace)
+                            .code_editor()
+                            .layouter(&mut layouter),
+                    );
+                });
+
+            ui.separator();
 
             ui.horizontal(|ui| {
-                // Left panel - 3D viewer
-                ui.allocate_ui_with_layout(
-                    egui::Vec2::new(total_width * 0.5, total_height),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.heading("3D Viewer");
+                if ui.button("Run").clicked() {
+                    app.execute_lua_code();
+                }
 
-                        let viewer_height = ui.available_height() - 120.0; // More space for controls at bottom
-                        let (rect, response) = ui.allocate_exact_size(
-                            egui::Vec2::new(ui.available_width(), viewer_height),
-                            egui::Sense::drag(),
-                        );
+                if ui.button("Clear").clicked() {
+                    app.text_content.clear();
+                    app.cubes.clear();
+                    app.lua_error = None;
+                    app.scene_dirty = true;
+                }
 
-                        // Handle camera controls
-                        if response.dragged() {
-                            let delta = response.drag_delta();
-                            self.camera_angles.0 -= delta.x * 0.5; // Invert horizontal rotation
-                            self.camera_angles.1 = (self.camera_angles.1 + delta.y * 0.5)
-                                .clamp(-85.0, 85.0); // Limit elevation to prevent gimbal lock
-                        }
-
-                        if response.hovered() {
-                            let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
-                            if scroll_delta != 0.0 {
-                                // Multiplicative zoom for consistent feel at all distances
-                                let zoom_factor = (-scroll_delta * 0.01_f32).exp();
-                                self.camera_distance = (self.camera_distance * zoom_factor)
-                                    .clamp(0.1, 50.0);
-                            }
-                        }
-
-                        // Render 3D scene background
-                        ui.painter().rect_filled(
-                            rect,
-                            egui::Rounding::same(4.0),
-                            egui::Color32::from_rgb(30, 30, 40),
-                        );
-
-                        // Clip all 3D content to the viewer rectangle
-                        let clipped_painter = ui.painter().with_clip_rect(rect);
-
-                        // Draw cubes from Lua execution
-                        let center = rect.center();
-                        self.draw_cubes(&clipped_painter, center);
-
-                        // Draw coordinate axes in the 3D view (half length)
-                        self.draw_coordinate_axes(&clipped_painter, center, 5.0);
-
-                        // Calculate rotation values for gizmo
-                        let azimuth = self.camera_angles.0.to_radians();
-                        let elevation = self.camera_angles.1.to_radians();
-                        let cos_az = azimuth.cos();
-                        let sin_az = azimuth.sin();
-                        let cos_el = elevation.cos();
-
-                        // View gizmo in upper right corner
-                        let gizmo_center = rect.right_top() + egui::Vec2::new(-50.0, 50.0);
-                        let gizmo_size = 30.0;
-
-                        // Gizmo background circle
-                        ui.painter().circle_filled(
-                            gizmo_center,
-                            gizmo_size,
-                            egui::Color32::from_rgba_unmultiplied(50, 50, 50, 180),
-                        );
-                        ui.painter().circle_stroke(
-                            gizmo_center,
-                            gizmo_size,
-                            egui::Stroke::new(1.0, egui::Color32::GRAY),
-                        );
-
-                        // Gizmo axes (same rotation as main view)
-                        let gizmo_axis_length = 20.0;
-
-                        // X axis gizmo (Z-up coordinate system)
-                        let gizmo_x_end = gizmo_center + egui::Vec2::new(
-                            gizmo_axis_length * cos_az * 0.8,
-                            0.0,
-                        );
-                        ui.painter().line_segment(
-                            [gizmo_center, gizmo_x_end],
-                            egui::Stroke::new(2.0, egui::Color32::RED),
-                        );
-                        ui.painter().text(
-                            gizmo_x_end + egui::Vec2::new(3.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            "X",
-                            egui::FontId::monospace(10.0),
-                            egui::Color32::RED,
-                        );
-
-                        // Y axis gizmo (Z-up coordinate system)
-                        let gizmo_y_end = gizmo_center + egui::Vec2::new(
-                            -gizmo_axis_length * sin_az * 0.8,
-                            0.0,
-                        );
-                        ui.painter().line_segment(
-                            [gizmo_center, gizmo_y_end],
-                            egui::Stroke::new(2.0, egui::Color32::GREEN),
-                        );
-                        ui.painter().text(
-                            gizmo_y_end + egui::Vec2::new(0.0, -5.0),
-                            egui::Align2::CENTER_BOTTOM,
-                            "Y",
-                            egui::FontId::monospace(10.0),
-                            egui::Color32::GREEN,
-                        );
-
-                        // Z axis gizmo (Z-up coordinate system)
-                        let gizmo_z_end = gizmo_center + egui::Vec2::new(
-                            0.0,
-                            -gizmo_axis_length * cos_el * 0.8,
-                        );
-                        ui.painter().line_segment(
-                            [gizmo_center, gizmo_z_end],
-                            egui::Stroke::new(2.0, egui::Color32::BLUE),
-                        );
-                        ui.painter().text(
-                            gizmo_z_end + egui::Vec2::new(3.0, 0.0),
-                            egui::Align2::LEFT_CENTER,
-                            "Z",
-                            egui::FontId::monospace(10.0),
-                            egui::Color32::BLUE,
-                        );
-
-                        // Camera controls info
-                        ui.separator();
-                        ui.label("Mouse: Drag to rotate, Scroll to zoom");
-                        ui.label(format!("Azimuth: {:.1}°, Elevation: {:.1}°",
-                            self.camera_angles.0, self.camera_angles.1));
-                        ui.label(format!("Distance: {:.1}", self.camera_distance));
-
-                        // Projection and view controls
-                        ui.separator();
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label("Projection:");
-                            if ui.selectable_label(self.orthogonal_view, "Orthogonal").clicked() {
-                                self.orthogonal_view = true;
-                            }
-                            if ui.selectable_label(!self.orthogonal_view, "Perspective").clicked() {
-                                self.orthogonal_view = false;
-                            }
-
-                            ui.separator();
-                            ui.label("Views:");
-
-                            // Check current view to highlight the selected one
-                            let current_angles = self.camera_angles;
-                            let is_default = (current_angles.0 - (-30.0)).abs() < 1.0 && (current_angles.1 - 30.0).abs() < 1.0;
-                            let is_top = (current_angles.0 - 0.0).abs() < 1.0 && (current_angles.1 - 90.0).abs() < 1.0;
-                            let is_bottom = (current_angles.0 - 0.0).abs() < 1.0 && (current_angles.1 - (-90.0)).abs() < 1.0;
-                            let is_front = (current_angles.0 - 0.0).abs() < 1.0 && (current_angles.1 - 0.0).abs() < 1.0;
-                            let is_back = (current_angles.0 - 180.0).abs() < 1.0 && (current_angles.1 - 0.0).abs() < 1.0;
-                            let is_left = (current_angles.0 - (-90.0)).abs() < 1.0 && (current_angles.1 - 0.0).abs() < 1.0;
-                            let is_right = (current_angles.0 - 90.0).abs() < 1.0 && (current_angles.1 - 0.0).abs() < 1.0;
-
-                            if ui.selectable_label(is_default, "Default").clicked() {
-                                self.camera_angles = (-30.0, 30.0);
-                            }
-                            if ui.selectable_label(is_top, "Top").clicked() {
-                                self.camera_angles = (0.0, 90.0);
-                            }
-                            if ui.selectable_label(is_bottom, "Bottom").clicked() {
-                                self.camera_angles = (0.0, -90.0);
-                            }
-                            if ui.selectable_label(is_front, "Front").clicked() {
-                                self.camera_angles = (0.0, 0.0);
-                            }
-                            if ui.selectable_label(is_back, "Back").clicked() {
-                                self.camera_angles = (180.0, 0.0);
-                            }
-                            if ui.selectable_label(is_left, "Left").clicked() {
-                                self.camera_angles = (-90.0, 0.0);
-                            }
-                            if ui.selectable_label(is_right, "Right").clicked() {
-                                self.camera_angles = (90.0, 0.0);
-                            }
-                        });
-                    }
-                );
-
-                ui.separator();
-
-                // Right panel - Text editor
-                ui.allocate_ui_with_layout(
-                    egui::Vec2::new(ui.available_width(), total_height),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.heading("Code Editor");
-
-                        let editor_height = ui.available_height() - 60.0; // Space for controls at bottom
-                        egui::ScrollArea::vertical()
-                            .max_height(editor_height)
-                            .show(ui, |ui| {
-                                let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                                    // Choose theme based on current UI style
-                                    let theme = if ui.style().visuals.dark_mode {
-                                        syntax_highlighting::CodeTheme::dark(14.0)
-                                    } else {
-                                        syntax_highlighting::CodeTheme::light(14.0)
-                                    };
-
-                                    let mut layout_job = syntax_highlighting::highlight(
-                                        ui.ctx(),
-                                        ui.style(),
-                                        &theme,
-                                        string,
-                                        "lua",
-                                    );
-                                    layout_job.wrap.max_width = wrap_width;
-                                    ui.fonts(|f| f.layout_job(layout_job))
-                                };
-
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.text_content)
-                                        .desired_width(ui.available_width())
-                                        .desired_rows(30)
-                                        .font(egui::TextStyle::Monospace)
-                                        .code_editor()
-                                        .layouter(&mut layouter),
-                                );
-                            });
-
-                        ui.separator();
-
-                        ui.horizontal(|ui| {
-                            if ui.button("Run").clicked() {
-                                self.execute_lua_code();
-                            }
-
-                            if ui.button("Clear").clicked() {
-                                self.text_content.clear();
-                                self.cubes.clear();
-                                self.lua_error = None;
-                            }
-
-                            if ui.button("Load Example").clicked() {
-                                self.text_content = "-- LuaCAD Example\n-- Create cubes with position and size\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 3, 1})\ncube({-2, 2, 1}, {1.5, 1, 2})\n\n-- You can also use variables\nlocal pos = {1, -2, 0}\nlocal size = {1, 1, 1}\ncube(pos, size)".to_string();
-                            }
-                        });
-
-                        ui.label(format!("Lines: {}", self.text_content.lines().count()));
-                        ui.label(format!("Characters: {}", self.text_content.len()));
-
-                        // Show error messages if any
-                        if let Some(error) = &self.lua_error {
-                            ui.separator();
-                            ui.colored_label(egui::Color32::RED, format!("Error: {error}"));
-                        }
-
-                        // Show cube count
-                        if !self.cubes.is_empty() {
-                            ui.separator();
-                            ui.colored_label(egui::Color32::GREEN, format!("✓ {} cube(s) rendered", self.cubes.len()));
-                        }
-                    }
-                );
+                if ui.button("Load Example").clicked() {
+                    app.text_content = "-- LuaCAD Example\n-- Create cubes with position and size\ncube({0, 0, 0}, {2, 2, 2})\ncube({3, 0, 0}, {1, 3, 1})\ncube({-2, 2, 1}, {1.5, 1, 2})\n\n-- You can also use variables\nlocal pos = {1, -2, 0}\nlocal size = {1, 1, 1}\ncube(pos, size)".to_string();
+                }
             });
+
+            ui.label(format!("Lines: {}", app.text_content.lines().count()));
+            ui.label(format!(
+                "Characters: {}",
+                app.text_content.len()
+            ));
+
+            if let Some(error) = &app.lua_error {
+                ui.separator();
+                ui.colored_label(
+                    egui::Color32::RED,
+                    format!("Error: {error}"),
+                );
+            }
+
+            if !app.cubes.is_empty() {
+                ui.separator();
+                ui.colored_label(
+                    egui::Color32::GREEN,
+                    format!("{} cube(s) rendered", app.cubes.len()),
+                );
+            }
         });
-  }
+
+  // Bottom panel: camera controls and view presets
+  egui::TopBottomPanel::bottom("controls").show(gui_context, |ui| {
+    ui.horizontal(|ui| {
+      ui.label(format!(
+        "Az: {:.1} El: {:.1} Dist: {:.1}",
+        app.camera_azimuth, app.camera_elevation, app.camera_distance
+      ));
+      ui.separator();
+
+      ui.label("Projection:");
+      if ui
+        .selectable_label(app.orthogonal_view, "Orthogonal")
+        .clicked()
+      {
+        app.orthogonal_view = true;
+      }
+      if ui
+        .selectable_label(!app.orthogonal_view, "Perspective")
+        .clicked()
+      {
+        app.orthogonal_view = false;
+      }
+
+      ui.separator();
+      ui.label("Views:");
+
+      let (az, el) = (app.camera_azimuth, app.camera_elevation);
+      let is = |a: f32, e: f32| (az - a).abs() < 1.0 && (el - e).abs() < 1.0;
+
+      if ui.selectable_label(is(-30.0, 30.0), "Default").clicked() {
+        app.camera_azimuth = -30.0;
+        app.camera_elevation = 30.0;
+      }
+      if ui.selectable_label(is(0.0, 90.0), "Top").clicked() {
+        app.camera_azimuth = 0.0;
+        app.camera_elevation = 89.0;
+      }
+      if ui.selectable_label(is(0.0, -90.0), "Bottom").clicked() {
+        app.camera_azimuth = 0.0;
+        app.camera_elevation = -89.0;
+      }
+      if ui.selectable_label(is(0.0, 0.0), "Front").clicked() {
+        app.camera_azimuth = 0.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui.selectable_label(is(180.0, 0.0), "Back").clicked() {
+        app.camera_azimuth = 180.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui.selectable_label(is(-90.0, 0.0), "Left").clicked() {
+        app.camera_azimuth = -90.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui.selectable_label(is(90.0, 0.0), "Right").clicked() {
+        app.camera_azimuth = 90.0;
+        app.camera_elevation = 0.0;
+      }
+    });
+
+    ui.label("Mouse: Drag to rotate, Scroll to zoom");
+  });
+}
+
+fn main() {
+  let window = Window::new(WindowSettings {
+    title: "LuaCAD Studio".to_string(),
+    max_size: Some((1200, 800)),
+    ..Default::default()
+  })
+  .unwrap();
+
+  let context = window.gl();
+  let mut gui = three_d::GUI::new(&context);
+  let mut app = AppState::new();
+
+  // Build initial scene
+  let mut scene_objects = build_scene(&context, &app);
+  app.scene_dirty = false;
+
+  let mut camera = build_camera(window.viewport(), &app);
+
+  // Lighting: ambient + two directional for CAD-style illumination
+  let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
+  let light0 =
+    DirectionalLight::new(&context, 1.0, Srgba::WHITE, vec3(0.5, 1.0, 0.5));
+  let light1 =
+    DirectionalLight::new(&context, 0.3, Srgba::WHITE, vec3(-0.5, -0.5, -0.5));
+
+  // 3D axes at origin
+  let axes = Axes::new(&context, 0.02, 5.0);
+
+  window.render_loop(move |mut frame_input| {
+    // Update camera viewport on resize
+    camera.set_viewport(frame_input.viewport);
+
+    // Process GUI (consumes events over egui panels)
+    gui.update(
+      &mut frame_input.events,
+      frame_input.accumulated_time,
+      frame_input.viewport,
+      frame_input.device_pixel_ratio,
+      |gui_context| {
+        render_ui(gui_context, &mut app);
+      },
+    );
+
+    // Handle camera input from remaining events (not consumed by GUI)
+    let mut camera_changed = false;
+    for event in frame_input.events.iter() {
+      match event {
+        Event::MouseMotion {
+          delta,
+          button: Some(MouseButton::Left),
+          ..
+        } => {
+          app.camera_azimuth -= delta.0 * 0.5;
+          app.camera_elevation =
+            (app.camera_elevation + delta.1 * 0.5).clamp(-85.0, 85.0);
+          camera_changed = true;
+        }
+        Event::MouseWheel { delta, .. } => {
+          let zoom_factor = (-delta.1 * 0.01).exp();
+          app.camera_distance =
+            (app.camera_distance * zoom_factor).clamp(0.1, 50.0);
+          camera_changed = true;
+        }
+        _ => {}
+      }
+    }
+
+    // Update camera if angles or projection changed
+    if camera_changed {
+      let (pos, target, up) = compute_camera_vectors(&app);
+      camera.set_view(pos, target, up);
+    }
+
+    // Update projection mode
+    if app.orthogonal_view {
+      camera.set_orthographic_projection(
+        app.camera_distance * 2.0,
+        0.01,
+        1000.0,
+      );
+    } else {
+      camera.set_perspective_projection(degrees(45.0), 0.01, 1000.0);
+    }
+
+    // Rebuild scene if Lua was re-executed
+    if app.scene_dirty {
+      scene_objects = build_scene(&context, &app);
+      app.scene_dirty = false;
+    }
+
+    // Render
+    let screen = frame_input.screen();
+
+    // Collect all renderable objects as trait object references
+    let mut objects: Vec<&dyn Object> = Vec::new();
+    for obj in axes.into_iter() {
+      objects.push(obj);
+    }
+    for obj in scene_objects.iter() {
+      objects.push(obj);
+    }
+
+    screen
+      .clear(ClearState::color_and_depth(0.12, 0.12, 0.16, 1.0, 1.0))
+      .render(
+        &camera,
+        objects,
+        &[
+          &ambient as &dyn Light,
+          &light0 as &dyn Light,
+          &light1 as &dyn Light,
+        ],
+      );
+    screen.write(|| gui.render()).unwrap();
+
+    FrameOutput::default()
+  });
 }
