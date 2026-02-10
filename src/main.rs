@@ -165,19 +165,23 @@ fn main() {
 
         panel_width = render_ui(gui_context, &mut app);
 
-        // Draw axis labels as overlay
+        // Draw axis labels as overlay, clipped to the 3D viewport area
+        let screen_width = gui_context.screen_rect().width();
+        let scene_right = screen_width - panel_width;
         let painter = gui_context.layer_painter(egui::LayerId::new(
           egui::Order::Foreground,
           egui::Id::new("axis_labels"),
         ));
         for (pos, label, color) in &axis_labels {
-          painter.text(
-            *pos,
-            egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(14.0),
-            *color,
-          );
+          if pos.x < scene_right {
+            painter.text(
+              *pos,
+              egui::Align2::CENTER_CENTER,
+              label,
+              egui::FontId::proportional(14.0),
+              *color,
+            );
+          }
         }
       },
     );
