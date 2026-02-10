@@ -47,18 +47,57 @@ impl MyApp {
     app
   }
 
+  /// Project a world-space 3D point to 2D screen coordinates.
+  fn project_point(
+    &self,
+    point: &Point3<f32>,
+    center: egui::Pos2,
+  ) -> egui::Pos2 {
+    let azimuth = self.camera_angles.0.to_radians();
+    let elevation = self.camera_angles.1.to_radians();
+
+    // Rotate in world space
+    let rotation_z = Matrix4::from_euler_angles(0.0, 0.0, azimuth);
+    let rotation_x = Matrix4::from_euler_angles(-elevation, 0.0, 0.0);
+    let transform = rotation_x * rotation_z;
+    let rotated = transform.transform_point(point);
+
+    // Zoom is purely a pixel multiplier — independent of perspective
+    let zoom = 100.0 / self.camera_distance;
+
+    if self.orthogonal_view {
+      egui::Pos2::new(center.x + rotated.x * zoom, center.y - rotated.z * zoom)
+    } else {
+      // Camera always sits 30 world-units behind the origin along the
+      // view axis. This is far enough that typical scenes never clip,
+      // and the perspective amount stays consistent regardless of zoom.
+      let camera_depth = 30.0;
+      let depth = camera_depth - rotated.y;
+
+      if depth > 0.1 {
+        // At the origin (rotated.y == 0) we want perspective_scale == zoom,
+        // so focal_length = zoom * camera_depth.
+        let focal_length = zoom * camera_depth;
+        let perspective_scale = focal_length / depth;
+        egui::Pos2::new(
+          center.x + rotated.x * perspective_scale,
+          center.y - rotated.z * perspective_scale,
+        )
+      } else {
+        egui::Pos2::new(
+          center.x + rotated.x * zoom,
+          center.y - rotated.z * zoom,
+        )
+      }
+    }
+  }
+
   fn draw_coordinate_axes(
     &self,
     painter: &egui::Painter,
     center: egui::Pos2,
     axis_length: f32,
   ) {
-    // Apply same rotation as cube
-    let azimuth = self.camera_angles.0.to_radians();
-    let elevation = self.camera_angles.1.to_radians();
-    let scale_factor = 25.0; // Fixed scale for axes (50% of original)
-
-    // Define axis endpoints in 3D space (Z-up coordinate system)
     let axes_3d = [
       ([0.0, 0.0, 0.0], [axis_length, 0.0, 0.0]), // X axis
       ([0.0, 0.0, 0.0], [0.0, axis_length, 0.0]), // Y axis
@@ -76,85 +115,14 @@ impl MyApp {
     for (i, ((start, end), color)) in
       axes_3d.iter().zip(colors.iter()).enumerate()
     {
-      // Transform start point (Z-up coordinate system)
-      let start_x = start[0] * scale_factor;
-      let start_y = start[1] * scale_factor;
-      let start_z = start[2] * scale_factor;
+      let start_pos =
+        self.project_point(&Point3::new(start[0], start[1], start[2]), center);
+      let end_pos =
+        self.project_point(&Point3::new(end[0], end[1], end[2]), center);
 
-      // Use nalgebra for proper 3D transformation
-      let start_point = Point3::new(start_x, start_y, start_z);
-
-      // Create rotation matrix: first around Z (azimuth), then around X (elevation)
-      let rotation_z = Matrix4::from_euler_angles(0.0, 0.0, azimuth);
-      let rotation_x = Matrix4::from_euler_angles(-elevation, 0.0, 0.0);
-      let transform = rotation_x * rotation_z;
-
-      let start_transformed = transform.transform_point(&start_point);
-      let start_x_rot = start_transformed.x;
-      let start_y_rot = start_transformed.y;
-      let start_z_rot = start_transformed.z;
-
-      let (start_screen_x, start_screen_y) = if self.orthogonal_view {
-        // Orthogonal projection - no perspective
-        (center.x + start_x_rot, center.y - start_z_rot)
-      } else {
-        // Perspective projection - simple focal length based
-        let focal_length = 300.0; // Fixed focal length for perspective
-        let depth = self.camera_distance * 50.0 - start_y_rot; // Depth from camera
-
-        if depth > 10.0 {
-          // Avoid near clipping
-          let perspective_scale = focal_length / depth;
-          (
-            center.x + start_x_rot * perspective_scale,
-            center.y - start_z_rot * perspective_scale,
-          )
-        } else {
-          (center.x + start_x_rot, center.y - start_z_rot)
-        }
-      };
-
-      // Transform end point (Z-up coordinate system)
-      let end_x = end[0] * scale_factor;
-      let end_y = end[1] * scale_factor;
-      let end_z = end[2] * scale_factor;
-
-      // Use nalgebra for proper 3D transformation
-      let end_point = Point3::new(end_x, end_y, end_z);
-
-      let end_transformed = transform.transform_point(&end_point);
-      let end_x_rot = end_transformed.x;
-      let end_y_rot = end_transformed.y;
-      let end_z_rot = end_transformed.z;
-
-      let (end_screen_x, end_screen_y) = if self.orthogonal_view {
-        // Orthogonal projection - no perspective
-        (center.x + end_x_rot, center.y - end_z_rot)
-      } else {
-        // Perspective projection - simple focal length based
-        let focal_length = 300.0; // Fixed focal length for perspective
-        let depth = self.camera_distance * 50.0 - end_y_rot; // Depth from camera
-
-        if depth > 10.0 {
-          // Avoid near clipping
-          let perspective_scale = focal_length / depth;
-          (
-            center.x + end_x_rot * perspective_scale,
-            center.y - end_z_rot * perspective_scale,
-          )
-        } else {
-          (center.x + end_x_rot, center.y - end_z_rot)
-        }
-      };
-
-      let start_pos = egui::Pos2::new(start_screen_x, start_screen_y);
-      let end_pos = egui::Pos2::new(end_screen_x, end_screen_y);
-
-      // Draw axis line
       painter
         .line_segment([start_pos, end_pos], egui::Stroke::new(2.0, *color));
 
-      // Draw axis label
       painter.text(
         end_pos + egui::Vec2::new(5.0, -5.0),
         egui::Align2::LEFT_CENTER,
@@ -250,118 +218,69 @@ impl MyApp {
     let color = egui::Color32::from_rgb(150, 150, 255);
     let stroke = egui::Stroke::new(1.5, color);
 
-    // Apply simple 3D projection based on camera angles
-    let azimuth = self.camera_angles.0.to_radians();
-    let elevation = self.camera_angles.1.to_radians();
-
-    // Define cube vertices relative to cube position and size
     let half_size =
       [cube.size[0] / 2.0, cube.size[1] / 2.0, cube.size[2] / 2.0];
     let vertices_3d = [
-      [
+      Point3::new(
         cube.position[0] - half_size[0],
         cube.position[1] - half_size[1],
         cube.position[2] - half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] + half_size[0],
         cube.position[1] - half_size[1],
         cube.position[2] - half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] + half_size[0],
         cube.position[1] + half_size[1],
         cube.position[2] - half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] - half_size[0],
         cube.position[1] + half_size[1],
         cube.position[2] - half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] - half_size[0],
         cube.position[1] - half_size[1],
         cube.position[2] + half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] + half_size[0],
         cube.position[1] - half_size[1],
         cube.position[2] + half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] + half_size[0],
         cube.position[1] + half_size[1],
         cube.position[2] + half_size[2],
-      ],
-      [
+      ),
+      Point3::new(
         cube.position[0] - half_size[0],
         cube.position[1] + half_size[1],
         cube.position[2] + half_size[2],
-      ],
+      ),
     ];
 
-    // Project 3D vertices to 2D (Z-up coordinate system)
-    let mut vertices_2d = Vec::new();
-    let scale_factor = 100.0 / self.camera_distance; // Use camera distance for zoom
-    for vertex in &vertices_3d {
-      let x = vertex[0] * scale_factor;
-      let y = vertex[1] * scale_factor;
-      let z = vertex[2] * scale_factor;
+    let vertices_2d: Vec<egui::Pos2> = vertices_3d
+      .iter()
+      .map(|v| self.project_point(v, center))
+      .collect();
 
-      // Use nalgebra for proper 3D transformation
-      let point = Point3::new(x, y, z);
-
-      // Create rotation matrix: first around Z (azimuth), then around X (elevation)
-      let rotation_z = Matrix4::from_euler_angles(0.0, 0.0, azimuth);
-      let rotation_x = Matrix4::from_euler_angles(-elevation, 0.0, 0.0);
-      let transform = rotation_x * rotation_z;
-
-      let transformed = transform.transform_point(&point);
-      let x_rot = transformed.x;
-      let y_rot = transformed.y;
-      let z_rot = transformed.z;
-
-      // Apply projection (orthogonal or perspective)
-      let (screen_x, screen_y) = if self.orthogonal_view {
-        // Orthogonal projection - no perspective
-        (center.x + x_rot, center.y - z_rot)
-      } else {
-        // Perspective projection - simple focal length based
-        let focal_length = 300.0; // Fixed focal length for perspective
-        let depth = self.camera_distance * 50.0 - y_rot; // Depth from camera (y_rot is toward/away from camera)
-
-        if depth > 10.0 {
-          // Avoid near clipping
-          let perspective_scale = focal_length / depth;
-          (
-            center.x + x_rot * perspective_scale,
-            center.y - z_rot * perspective_scale,
-          )
-        } else {
-          (center.x + x_rot, center.y - z_rot)
-        }
-      };
-
-      vertices_2d.push(egui::Pos2::new(screen_x, screen_y));
-    }
-
-    // Draw cube edges
     let edges = [
-      // Front face
       (0, 1),
       (1, 2),
       (2, 3),
-      (3, 0),
-      // Back face
+      (3, 0), // Front face
       (4, 5),
       (5, 6),
       (6, 7),
-      (7, 4),
-      // Connecting edges
+      (7, 4), // Back face
       (0, 4),
       (1, 5),
       (2, 6),
-      (3, 7),
+      (3, 7), // Connecting edges
     ];
 
     for (i, j) in edges {
@@ -401,8 +320,10 @@ impl eframe::App for MyApp {
                         if response.hovered() {
                             let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
                             if scroll_delta != 0.0 {
-                                self.camera_distance = (self.camera_distance - scroll_delta * 0.1)
-                                    .clamp(1.0, 20.0);
+                                // Multiplicative zoom for consistent feel at all distances
+                                let zoom_factor = (-scroll_delta * 0.01_f32).exp();
+                                self.camera_distance = (self.camera_distance * zoom_factor)
+                                    .clamp(0.1, 50.0);
                             }
                         }
 

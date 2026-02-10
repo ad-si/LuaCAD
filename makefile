@@ -31,6 +31,11 @@ run:
 	cargo run
 
 
+.PHONY: dev
+dev:
+	watchexec --restart --exts rs,toml -- cargo run
+
+
 .PHONY: release
 release:
 	@echo '1. `cai changelog <first-commit-hash>`'
