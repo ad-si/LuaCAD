@@ -106,17 +106,17 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.button("Open").clicked() {
+                if ui.button("Open").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.pending_file_action = Some(FileAction::Open);
                 }
-                if ui.button("Save").clicked() {
+                if ui.button("Save").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.pending_file_action = Some(FileAction::Save);
                 }
-                if ui.button("Save As").clicked() {
+                if ui.button("Save As").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.pending_file_action = Some(FileAction::SaveAs);
                 }
                 ui.separator();
-                if ui.button("Clear").clicked() {
+                if ui.button("Clear").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.text_content.clear();
                     app.geometries.clear();
                     app.lua_error = None;
@@ -124,7 +124,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                     app.current_file = None;
                 }
 
-                if ui.button("Load Example").clicked() {
+                if ui.button("Load Example").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.text_content = "-- CSG Boolean Operations Demo\n\n-- Create a hollow box\nlocal outer = cube(30, 20, 15)\nlocal inner = cube(26, 16, 15):translate(2, 2, 2)\nlocal box = outer - inner\n\n-- Cut a window in the front\nlocal window = cube(10, 4, 8):translate(10, -1, 4)\nlocal result = box - window\n\nrender(result)".to_string();
                     app.current_file = None;
                 }
@@ -134,7 +134,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 let run_btn = egui::Button::new(
                     egui::RichText::new("Run").size(18.0),
                 ).min_size(egui::vec2(60.0, 30.0));
-                if ui.add(run_btn).clicked() {
+                if ui.add(run_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.execute_lua_code();
                 }
             });
@@ -145,14 +145,15 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
                 let csgrs_popup_id = ui.make_persistent_id("csgrs_export_popup");
                 let csgrs_btn = ui.add_enabled(has_geometry,
-                    egui::Button::new(egui::RichText::new("Export via csgrs   ")));
+                    egui::Button::new(egui::RichText::new("Export via csgrs   ")))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
                 paint_dropdown_arrow(ui, &csgrs_btn);
                 if csgrs_btn.clicked() {
                     ui.memory_mut(|mem| mem.toggle_popup(csgrs_popup_id));
                 }
                 egui::popup_below_widget(ui, csgrs_popup_id, &csgrs_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                     for &fmt in ExportFormat::ALL {
-                        if ui.button(fmt.label()).clicked() {
+                        if ui.button(fmt.label()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                             app.pending_export = Some(fmt);
                         }
                     }
@@ -160,20 +161,21 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
                 let openscad_popup_id = ui.make_persistent_id("openscad_export_popup");
                 let openscad_btn = ui.add_enabled(has_scad,
-                    egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")));
+                    egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
                 paint_dropdown_arrow(ui, &openscad_btn);
                 if openscad_btn.clicked() {
                     ui.memory_mut(|mem| mem.toggle_popup(openscad_popup_id));
                 }
                 egui::popup_below_widget(ui, openscad_popup_id, &openscad_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
                     for &fmt in OpenScadFormat::ALL {
-                        if ui.button(fmt.label()).clicked() {
+                        if ui.button(fmt.label()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                             app.pending_openscad_export = Some(fmt);
                         }
                     }
                 });
 
-                if ui.add_enabled(has_scad, egui::Button::new("Export SCAD")).clicked() {
+                if ui.add_enabled(has_scad, egui::Button::new("Export SCAD")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     app.pending_export = Some(ExportFormat::OpenSCAD);
                 }
             });
@@ -221,12 +223,14 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       ui.label("Projection:");
       if ui
         .selectable_label(app.orthogonal_view, "Orthogonal")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.orthogonal_view = true;
       }
       if ui
         .selectable_label(!app.orthogonal_view, "Perspective")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.orthogonal_view = false;
@@ -238,31 +242,59 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       let (az, el) = (app.camera_azimuth, app.camera_elevation);
       let is = |a: f32, e: f32| (az - a).abs() < 1.0 && (el - e).abs() < 1.0;
 
-      if ui.selectable_label(is(-30.0, 30.0), "Default").clicked() {
+      if ui
+        .selectable_label(is(-30.0, 30.0), "Default")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = -30.0;
         app.camera_elevation = 30.0;
       }
-      if ui.selectable_label(is(0.0, 90.0), "Top").clicked() {
+      if ui
+        .selectable_label(is(0.0, 90.0), "Top")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = 0.0;
         app.camera_elevation = 89.0;
       }
-      if ui.selectable_label(is(0.0, -90.0), "Bottom").clicked() {
+      if ui
+        .selectable_label(is(0.0, -90.0), "Bottom")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = 0.0;
         app.camera_elevation = -89.0;
       }
-      if ui.selectable_label(is(0.0, 0.0), "Front").clicked() {
+      if ui
+        .selectable_label(is(0.0, 0.0), "Front")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = 0.0;
         app.camera_elevation = 0.0;
       }
-      if ui.selectable_label(is(180.0, 0.0), "Back").clicked() {
+      if ui
+        .selectable_label(is(180.0, 0.0), "Back")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = 180.0;
         app.camera_elevation = 0.0;
       }
-      if ui.selectable_label(is(-90.0, 0.0), "Left").clicked() {
+      if ui
+        .selectable_label(is(-90.0, 0.0), "Left")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = -90.0;
         app.camera_elevation = 0.0;
       }
-      if ui.selectable_label(is(90.0, 0.0), "Right").clicked() {
+      if ui
+        .selectable_label(is(90.0, 0.0), "Right")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
         app.camera_azimuth = 90.0;
         app.camera_elevation = 0.0;
       }
@@ -270,6 +302,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       ui.label("Theme:");
       if ui
         .selectable_label(app.theme_mode == ThemeMode::System, "Auto")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.theme_mode = ThemeMode::System;
@@ -277,6 +310,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       }
       if ui
         .selectable_label(app.theme_mode == ThemeMode::Light, "Light")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.theme_mode = ThemeMode::Light;
@@ -284,6 +318,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       }
       if ui
         .selectable_label(app.theme_mode == ThemeMode::Dark, "Dark")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.theme_mode = ThemeMode::Dark;

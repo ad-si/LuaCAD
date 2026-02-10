@@ -16,15 +16,49 @@ use theme::ThemeMode;
 use three_d::*;
 use ui::render_ui;
 
-fn main() {
-  let window = Window::new(WindowSettings {
-    title: "LuaCAD Studio".to_string(),
-    max_size: None,
-    ..Default::default()
-  })
-  .unwrap();
+/// Convert an egui CursorIcon to a winit CursorIcon.
+fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
+  match cursor {
+    egui::CursorIcon::Default => winit::window::CursorIcon::Default,
+    egui::CursorIcon::PointingHand => winit::window::CursorIcon::Hand,
+    egui::CursorIcon::Text => winit::window::CursorIcon::Text,
+    egui::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
+    egui::CursorIcon::Grab => winit::window::CursorIcon::Grab,
+    egui::CursorIcon::Grabbing => winit::window::CursorIcon::Grabbing,
+    egui::CursorIcon::Move => winit::window::CursorIcon::Move,
+    egui::CursorIcon::NotAllowed => winit::window::CursorIcon::NotAllowed,
+    egui::CursorIcon::Wait => winit::window::CursorIcon::Wait,
+    egui::CursorIcon::Progress => winit::window::CursorIcon::Progress,
+    egui::CursorIcon::Help => winit::window::CursorIcon::Help,
+    egui::CursorIcon::ResizeHorizontal => winit::window::CursorIcon::EwResize,
+    egui::CursorIcon::ResizeVertical => winit::window::CursorIcon::NsResize,
+    egui::CursorIcon::ResizeNeSw => winit::window::CursorIcon::NeswResize,
+    egui::CursorIcon::ResizeNwSe => winit::window::CursorIcon::NwseResize,
+    egui::CursorIcon::ResizeEast => winit::window::CursorIcon::EResize,
+    egui::CursorIcon::ResizeWest => winit::window::CursorIcon::WResize,
+    egui::CursorIcon::ResizeNorth => winit::window::CursorIcon::NResize,
+    egui::CursorIcon::ResizeSouth => winit::window::CursorIcon::SResize,
+    egui::CursorIcon::ZoomIn => winit::window::CursorIcon::ZoomIn,
+    egui::CursorIcon::ZoomOut => winit::window::CursorIcon::ZoomOut,
+    _ => winit::window::CursorIcon::Default,
+  }
+}
 
-  let context = window.gl();
+fn main() {
+  let event_loop = winit::event_loop::EventLoop::new();
+  let winit_window = winit::window::WindowBuilder::new()
+    .with_title("LuaCAD Studio")
+    .with_maximized(true)
+    .build(&event_loop)
+    .unwrap();
+  winit_window.focus_window();
+
+  let gl = WindowedContext::from_winit_window(
+    &winit_window,
+    SurfaceSettings::default(),
+  )
+  .unwrap();
+  let context: Context = (*gl).clone();
   let mut gui = three_d::GUI::new(&context);
   let mut app = AppState::new();
 
@@ -32,7 +66,11 @@ fn main() {
   let mut scene_objects = build_scene(&context, &app);
   app.scene_dirty = false;
 
-  let mut camera = build_camera(window.viewport(), &app);
+  let initial_viewport = {
+    let (w, h): (u32, u32) = winit_window.inner_size().into();
+    Viewport::new_at_origo(w, h)
+  };
+  let mut camera = build_camera(initial_viewport, &app);
   let mut last_theme_check = 0.0_f64;
 
   // Lighting: low ambient + strong top-right key + soft fill
@@ -70,8 +108,15 @@ fn main() {
   };
   let mut dragging_scene = false;
   let mut clipboard = arboard::Clipboard::new().ok();
+  let mut frame_input_generator =
+    FrameInputGenerator::from_winit_window(&winit_window);
 
-  window.render_loop(move |mut frame_input| {
+  event_loop.run(move |event, _, control_flow| match event {
+    winit::event::Event::MainEventsCleared => {
+      winit_window.request_redraw();
+    }
+    winit::event::Event::RedrawRequested(_) => {
+    let mut frame_input = frame_input_generator.generate(&gl);
     // Detect clipboard key combos (Cmd+V/C/X) that three-d doesn't forward to egui
     let mut paste_text: Option<String> = None;
     let mut wants_copy = false;
@@ -144,6 +189,7 @@ fn main() {
 
     // Process GUI (consumes events over egui panels)
     let mut panel_width = 0.0_f32;
+    let mut egui_cursor = egui::CursorIcon::Default;
     gui.update(
       &mut frame_input.events,
       frame_input.accumulated_time,
@@ -183,6 +229,9 @@ fn main() {
             );
           }
         }
+
+        // Capture cursor icon before end_pass() clears it
+        egui_cursor = gui_context.output(|o| o.cursor_icon);
       },
     );
 
@@ -507,6 +556,28 @@ fn main() {
       );
     screen.write(|| gui.render()).unwrap();
 
-    FrameOutput::default()
+    // Apply egui's cursor icon to the winit window
+    winit_window.set_cursor_icon(egui_to_winit_cursor(egui_cursor));
+
+    gl.swap_buffers().unwrap();
+    *control_flow = winit::event_loop::ControlFlow::Poll;
+    winit_window.request_redraw();
+    }
+    winit::event::Event::WindowEvent { ref event, .. } => {
+      frame_input_generator.handle_winit_window_event(event);
+      match event {
+        winit::event::WindowEvent::Resized(physical_size) => {
+          gl.resize(*physical_size);
+        }
+        winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+          gl.resize(**new_inner_size);
+        }
+        winit::event::WindowEvent::CloseRequested => {
+          *control_flow = winit::event_loop::ControlFlow::Exit;
+        }
+        _ => {}
+      }
+    }
+    _ => {}
   });
 }
