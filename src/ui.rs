@@ -33,9 +33,34 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
     gui_context.set_visuals(egui::Visuals::light());
   }
 
-  // Right panel: code editor
+  // Right panel: code editor (~1/3 of screen)
+  let screen_width = gui_context.screen_rect().width();
+  // Force panel to 30% of screen width for the first few frames while the
+  // window size settles (default_width alone is unreliable on frame 0 with
+  // maximized windows because screen_rect may not reflect the final size yet).
+  let panel_id = egui::Id::new("code_editor");
+  let frame_count: u32 = gui_context.data_mut(|d| {
+    let c = d.get_temp_mut_or_default::<u32>(panel_id.with("_frames"));
+    *c += 1;
+    *c
+  });
+  if frame_count <= 3 {
+    let target_width = screen_width * 0.4;
+    let screen = gui_context.screen_rect();
+    let rect = egui::Rect::from_min_max(
+      egui::pos2(screen.right() - target_width, screen.top()),
+      screen.right_bottom(),
+    );
+    gui_context.data_mut(|d| {
+      d.insert_persisted(
+        panel_id,
+        egui::containers::panel::PanelState { rect },
+      );
+    });
+  }
   let panel_response = egui::SidePanel::right("code_editor")
-        .default_width(400.0)
+        .default_width(screen_width * 0.4)
+        .min_width(screen_width * 0.2)
         .show(gui_context, |ui| {
             let title = match &app.current_file {
                 Some(path) => format!("Code Editor - {}", path.file_name().unwrap_or_default().to_string_lossy()),
