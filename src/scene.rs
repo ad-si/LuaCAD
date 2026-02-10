@@ -15,17 +15,22 @@ pub fn build_scene(
     .filter(|geom| !geom.mesh.polygons.is_empty())
     .map(|geom| {
       let cpu_mesh = csg_to_cpu_mesh(&geom.mesh);
+      let (r, g, b) = geom
+        .color
+        .map(|c| {
+          (
+            (c[0] * 255.0) as u8,
+            (c[1] * 255.0) as u8,
+            (c[2] * 255.0) as u8,
+          )
+        })
+        .unwrap_or((150, 150, 255));
       Gm::new(
         Mesh::new(context, &cpu_mesh),
         PhysicalMaterial::new_opaque(
           context,
           &CpuMaterial {
-            albedo: Srgba {
-              r: 150,
-              g: 150,
-              b: 255,
-              a: 255,
-            },
+            albedo: Srgba { r, g, b, a: 255 },
             metallic: 0.0,
             roughness: 0.7,
             ..Default::default()
