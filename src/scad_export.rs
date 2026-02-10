@@ -43,10 +43,21 @@ pub enum ScadNode {
   Polygon {
     points: Vec<[f32; 2]>,
   },
+  Text {
+    text: String,
+    size: f32,
+    font: String,
+    halign: String,
+    valign: String,
+  },
 
   // Extrusions
   LinearExtrude {
     height: f32,
+    center: bool,
+    twist: f32,
+    slices: u32,
+    scale: f32,
     child: Box<ScadNode>,
   },
   RotateExtrude {
@@ -94,6 +105,21 @@ pub enum ScadNode {
     r: f32,
     g: f32,
     b: f32,
+    a: f32,
+    child: Box<ScadNode>,
+  },
+  Offset {
+    delta: Option<f32>,
+    r: Option<f32>,
+    chamfer: bool,
+    child: Box<ScadNode>,
+  },
+  Projection {
+    cut: bool,
+    child: Box<ScadNode>,
+  },
+  Render {
+    convexity: u32,
     child: Box<ScadNode>,
   },
 
@@ -103,6 +129,36 @@ pub enum ScadNode {
   Intersection(Vec<ScadNode>),
   Hull(Box<ScadNode>),
   Minkowski(Vec<ScadNode>),
+
+  // File operations (ScadNode-only, no mesh)
+  Import {
+    file: String,
+    convexity: u32,
+  },
+  Surface {
+    file: String,
+    center: bool,
+    convexity: u32,
+  },
+
+  // Modifier characters
+  Modifier {
+    kind: ModifierKind,
+    child: Box<ScadNode>,
+  },
+}
+
+/// OpenSCAD modifier characters: *, !, #, %
+#[derive(Clone, Debug)]
+pub enum ModifierKind {
+  /// `*` — disable/skip this subtree
+  Skip,
+  /// `!` — show only this subtree
+  Only,
+  /// `#` — highlight/debug
+  Debug,
+  /// `%` — transparent/background
+  Transparent,
 }
 
 fn fmt_f32(v: f32) -> String {
@@ -251,10 +307,48 @@ impl ScadNode {
         out.push_str("]);\n");
       }
 
-      ScadNode::LinearExtrude { height, child } => {
+      ScadNode::Text {
+        text,
+        size,
+        font,
+        halign,
+        valign,
+      } => {
         write_indent(out, depth);
-        let _ =
-          writeln!(out, "linear_extrude(height = {}) {{", fmt_f32(*height));
+        let _ = writeln!(
+          out,
+          "text(\"{}\", size = {}, font = \"{}\", halign = \"{}\", valign = \"{}\");",
+          text,
+          fmt_f32(*size),
+          font,
+          halign,
+          valign
+        );
+      }
+
+      ScadNode::LinearExtrude {
+        height,
+        center,
+        twist,
+        slices,
+        scale,
+        child,
+      } => {
+        write_indent(out, depth);
+        let mut params = format!("height = {}", fmt_f32(*height));
+        if *center {
+          params.push_str(", center = true");
+        }
+        if *twist != 0.0 {
+          params.push_str(&format!(", twist = {}", fmt_f32(*twist)));
+        }
+        if *slices > 0 {
+          params.push_str(&format!(", slices = {}", slices));
+        }
+        if *scale != 1.0 {
+          params.push_str(&format!(", scale = {}", fmt_f32(*scale)));
+        }
+        let _ = writeln!(out, "linear_extrude({}) {{", params);
         child.write_to(out, depth + 1);
         write_indent(out, depth);
         out.push_str("}\n");
@@ -369,15 +463,71 @@ impl ScadNode {
         out.push_str("}\n");
       }
 
-      ScadNode::Color { r, g, b, child } => {
+      ScadNode::Color { r, g, b, a, child } => {
         write_indent(out, depth);
-        let _ = writeln!(
-          out,
-          "color([{}, {}, {}]) {{",
-          fmt_f32(*r),
-          fmt_f32(*g),
-          fmt_f32(*b)
-        );
+        if *a < 1.0 {
+          let _ = writeln!(
+            out,
+            "color([{}, {}, {}, {}]) {{",
+            fmt_f32(*r),
+            fmt_f32(*g),
+            fmt_f32(*b),
+            fmt_f32(*a)
+          );
+        } else {
+          let _ = writeln!(
+            out,
+            "color([{}, {}, {}]) {{",
+            fmt_f32(*r),
+            fmt_f32(*g),
+            fmt_f32(*b)
+          );
+        }
+        child.write_to(out, depth + 1);
+        write_indent(out, depth);
+        out.push_str("}\n");
+      }
+
+      ScadNode::Offset {
+        delta,
+        r,
+        chamfer,
+        child,
+      } => {
+        write_indent(out, depth);
+        let param = if let Some(d) = delta {
+          format!("delta = {}", fmt_f32(*d))
+        } else if let Some(rv) = r {
+          format!("r = {}", fmt_f32(*rv))
+        } else {
+          "delta = 0".to_string()
+        };
+        let chamfer_str = if *chamfer { ", chamfer = true" } else { "" };
+        let _ = writeln!(out, "offset({}{}) {{", param, chamfer_str);
+        child.write_to(out, depth + 1);
+        write_indent(out, depth);
+        out.push_str("}\n");
+      }
+
+      ScadNode::Projection { cut, child } => {
+        write_indent(out, depth);
+        if *cut {
+          let _ = writeln!(out, "projection(cut = true) {{");
+        } else {
+          let _ = writeln!(out, "projection() {{");
+        }
+        child.write_to(out, depth + 1);
+        write_indent(out, depth);
+        out.push_str("}\n");
+      }
+
+      ScadNode::Render { convexity, child } => {
+        write_indent(out, depth);
+        if *convexity > 0 {
+          let _ = writeln!(out, "render(convexity = {}) {{", convexity);
+        } else {
+          let _ = writeln!(out, "render() {{");
+        }
         child.write_to(out, depth + 1);
         write_indent(out, depth);
         out.push_str("}\n");
@@ -429,6 +579,54 @@ impl ScadNode {
         }
         write_indent(out, depth);
         out.push_str("}\n");
+      }
+
+      ScadNode::Import { file, convexity } => {
+        write_indent(out, depth);
+        if *convexity > 0 {
+          let _ =
+            writeln!(out, "import(\"{}\", convexity = {});", file, convexity);
+        } else {
+          let _ = writeln!(out, "import(\"{}\");", file);
+        }
+      }
+
+      ScadNode::Surface {
+        file,
+        center,
+        convexity,
+      } => {
+        write_indent(out, depth);
+        let center_str = if *center { ", center = true" } else { "" };
+        let convexity_str = if *convexity > 0 {
+          format!(", convexity = {}", convexity)
+        } else {
+          String::new()
+        };
+        let _ = writeln!(
+          out,
+          "surface(file = \"{}\"{}{}); ",
+          file, center_str, convexity_str
+        );
+      }
+
+      ScadNode::Modifier { kind, child } => {
+        write_indent(out, depth);
+        let prefix = match kind {
+          ModifierKind::Skip => "*",
+          ModifierKind::Only => "!",
+          ModifierKind::Debug => "#",
+          ModifierKind::Transparent => "%",
+        };
+        // Render child into a temporary buffer, then prepend the modifier char
+        // The child output starts with indentation, so we write the prefix
+        // directly before the child's first character.
+        let mut child_out = String::new();
+        child.write_to(&mut child_out, depth);
+        // Trim leading whitespace from child output and replace with modifier + indent
+        let trimmed = child_out.trim_start();
+        out.push_str(prefix);
+        out.push_str(trimmed);
       }
     }
   }
@@ -596,6 +794,10 @@ mod tests {
   fn linear_extrude_wraps_2d() {
     let node = ScadNode::LinearExtrude {
       height: 10.0,
+      center: false,
+      twist: 0.0,
+      slices: 0,
+      scale: 1.0,
       child: Box::new(ScadNode::Circle {
         r: 5.0,
         segments: 32,
@@ -664,6 +866,7 @@ mod tests {
       r: 1.0,
       g: 0.0,
       b: 0.0,
+      a: 1.0,
       child: Box::new(ScadNode::Cube {
         w: 5.0,
         d: 5.0,

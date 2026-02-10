@@ -1,11 +1,25 @@
 use csgrs::mesh::Mesh as CsgMesh;
 use csgrs::mesh::plane::Plane;
 use csgrs::traits::CSG;
-use mlua::{UserData, UserDataMethods};
+use mlua::{UserData, UserDataMethods, Value as LuaValue};
 use nalgebra::{Matrix4, Vector3};
 use three_d::*;
 
 use crate::scad_export::ScadNode;
+
+fn table_get_f32(t: &mlua::Table, key: &str) -> Option<f32> {
+  t.get::<mlua::Value>(key)
+    .ok()
+    .and_then(|v| lua_val_to_f32(&v))
+}
+
+fn table_get_bool(t: &mlua::Table, key: &str) -> bool {
+  t.get::<bool>(key).unwrap_or(false)
+}
+
+fn table_get_u32(t: &mlua::Table, key: &str) -> Option<u32> {
+  table_get_f32(t, key).map(|v| v as u32)
+}
 
 pub fn lua_val_to_f32(v: &mlua::Value) -> Option<f32> {
   match v {
@@ -282,11 +296,132 @@ impl UserData for CsgGeometry {
         r: color[0],
         g: color[1],
         b: color[2],
+        a: 1.0,
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
         mesh: this.mesh.clone(),
         color: Some(color),
+        scad,
+      })
+    });
+
+    // --- color() alias for setcolor() with alpha support ---
+
+    methods.add_method("color", |_, this, args: mlua::MultiValue| {
+      let (color, alpha) = if args.len() >= 3 {
+        let r = lua_val_to_f32(&args[0]).unwrap_or(1.0);
+        let g = lua_val_to_f32(&args[1]).unwrap_or(1.0);
+        let b = lua_val_to_f32(&args[2]).unwrap_or(1.0);
+        let a = args.get(3).and_then(lua_val_to_f32).unwrap_or(1.0);
+        ([r, g, b], a)
+      } else if let mlua::Value::Table(t) = &args[0] {
+        let r: f32 = t.get::<f32>(1).unwrap_or(1.0);
+        let g: f32 = t.get::<f32>(2).unwrap_or(1.0);
+        let b: f32 = t.get::<f32>(3).unwrap_or(1.0);
+        let a: f32 = t.get::<f32>(4).unwrap_or(1.0);
+        ([r, g, b], a)
+      } else if let mlua::Value::String(s) = &args[0] {
+        let color = match s.to_str() {
+          Ok(name) => named_color(&name).unwrap_or([1.0, 1.0, 1.0]),
+          Err(_) => [1.0, 1.0, 1.0],
+        };
+        let a = args.get(1).and_then(lua_val_to_f32).unwrap_or(1.0);
+        (color, a)
+      } else {
+        ([1.0, 1.0, 1.0], 1.0)
+      };
+      let scad = this.scad.as_ref().map(|s| ScadNode::Color {
+        r: color[0],
+        g: color[1],
+        b: color[2],
+        a: alpha,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: Some(color),
+        scad,
+      })
+    });
+
+    // --- Projection (3D → 2D, ScadNode-only) ---
+
+    methods.add_method("projection", |_, this, cut: Option<bool>| {
+      let cut = cut.unwrap_or(false);
+      let scad = this.scad.as_ref().map(|s| ScadNode::Projection {
+        cut,
+        child: Box::new(s.clone()),
+      });
+      // Projection produces a 2D result; keep mesh as-is for viewport
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    // --- Render with convexity (ScadNode wrapper) ---
+
+    methods.add_method("render_node", |_, this, convexity: Option<u32>| {
+      let convexity = convexity.unwrap_or(0);
+      let scad = this.scad.as_ref().map(|s| ScadNode::Render {
+        convexity,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    // --- Modifier methods ---
+
+    methods.add_method("skip", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Skip,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("only", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Only,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("debug", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Debug,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("transparent", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Transparent,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh.clone(),
+        color: this.color,
         scad,
       })
     });
@@ -563,28 +698,110 @@ impl UserData for CsgSketch {
       })
     });
 
-    methods.add_method("offset", |_, this, d: f32| {
-      // OpenSCAD offset() is 2D-only; we pass it through as-is
-      // No direct ScadNode for offset — use scale as approximation
-      // Actually offset doesn't map to a simple OpenSCAD node, keep scad as-is
+    methods.add_method(
+      "offset",
+      |_, this, (d, chamfer): (f32, Option<bool>)| {
+        let chamfer = chamfer.unwrap_or(false);
+        let scad = this.scad.as_ref().map(|s| ScadNode::Offset {
+          delta: Some(d),
+          r: None,
+          chamfer,
+          child: Box::new(s.clone()),
+        });
+        Ok(CsgSketch {
+          sketch: this.sketch.offset(d),
+          color: this.color,
+          scad,
+        })
+      },
+    );
+
+    methods.add_method(
+      "offsetradius",
+      |_, this, (r, chamfer): (f32, Option<bool>)| {
+        let chamfer = chamfer.unwrap_or(false);
+        let scad = this.scad.as_ref().map(|s| ScadNode::Offset {
+          delta: None,
+          r: Some(r),
+          chamfer,
+          child: Box::new(s.clone()),
+        });
+        Ok(CsgSketch {
+          sketch: this.sketch.offset(r),
+          color: this.color,
+          scad,
+        })
+      },
+    );
+
+    // --- Hull + Minkowski ---
+
+    // hull() — ScadNode-only on 2D sketches (no native convex hull for Sketch)
+    methods.add_method("hull", |_, this, ()| {
+      let scad = this
+        .scad
+        .as_ref()
+        .map(|s| ScadNode::Hull(Box::new(s.clone())));
       Ok(CsgSketch {
-        sketch: this.sketch.offset(d),
+        sketch: this.sketch.clone(),
         color: this.color,
-        scad: this.scad.clone(),
+        scad,
+      })
+    });
+
+    // minkowski() — ScadNode-only on 2D sketches
+    methods.add_method("minkowski", |_, this, other: mlua::AnyUserData| {
+      let other_ref = other.borrow::<CsgSketch>()?;
+      let mut children = Vec::new();
+      if let Some(s) = &this.scad {
+        children.push(s.clone());
+      }
+      if let Some(s) = &other_ref.scad {
+        children.push(s.clone());
+      }
+      let scad = if children.is_empty() {
+        None
+      } else {
+        Some(ScadNode::Minkowski(children))
+      };
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: this.color,
+        scad,
       })
     });
 
     // --- Extrusion ---
 
     methods.add_method("linear_extrude", |_, this, args: mlua::MultiValue| {
-      let height = if let Some(first) = args.front() {
-        lua_val_to_f32(first).unwrap_or(1.0)
-      } else {
-        1.0
-      };
+      let (height, center, twist, slices, scale) =
+        if let Some(LuaValue::Table(t)) = args.front() {
+          let h = table_get_f32(t, "height")
+            .or_else(|| table_get_f32(t, "h"))
+            .or_else(|| t.get::<f32>(1).ok())
+            .unwrap_or(1.0);
+          let center = table_get_bool(t, "center");
+          let twist = table_get_f32(t, "twist").unwrap_or(0.0);
+          let slices = table_get_u32(t, "slices").unwrap_or(0);
+          let scale = table_get_f32(t, "scale").unwrap_or(1.0);
+          (h, center, twist, slices, scale)
+        } else {
+          let h = args.front().and_then(lua_val_to_f32).unwrap_or(1.0);
+          (h, false, 0.0, 0, 1.0)
+        };
       let mesh = this.sketch.extrude(height);
+      let mesh = if center {
+        use csgrs::traits::CSG;
+        mesh.translate(0.0, 0.0, -height / 2.0)
+      } else {
+        mesh
+      };
       let scad = this.scad.as_ref().map(|s| ScadNode::LinearExtrude {
         height,
+        center,
+        twist,
+        slices,
+        scale,
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
@@ -666,6 +883,89 @@ impl UserData for CsgSketch {
         sketch: this.sketch.clone(),
         color: Some(color),
         scad: this.scad.clone(),
+      })
+    });
+
+    // --- color() alias with alpha ---
+
+    methods.add_method("color", |_, this, args: mlua::MultiValue| {
+      let (color, alpha) = if args.len() >= 3 {
+        let r = lua_val_to_f32(&args[0]).unwrap_or(1.0);
+        let g = lua_val_to_f32(&args[1]).unwrap_or(1.0);
+        let b = lua_val_to_f32(&args[2]).unwrap_or(1.0);
+        let a = args.get(3).and_then(lua_val_to_f32).unwrap_or(1.0);
+        ([r, g, b], a)
+      } else if let mlua::Value::String(s) = &args[0] {
+        let c = match s.to_str() {
+          Ok(name) => named_color(&name).unwrap_or([1.0, 1.0, 1.0]),
+          Err(_) => [1.0, 1.0, 1.0],
+        };
+        let a = args.get(1).and_then(lua_val_to_f32).unwrap_or(1.0);
+        (c, a)
+      } else {
+        ([1.0, 1.0, 1.0], 1.0)
+      };
+      let scad = this.scad.as_ref().map(|s| ScadNode::Color {
+        r: color[0],
+        g: color[1],
+        b: color[2],
+        a: alpha,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: Some(color),
+        scad,
+      })
+    });
+
+    // --- Modifier methods ---
+
+    methods.add_method("skip", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Skip,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("only", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Only,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("debug", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Debug,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: this.color,
+        scad,
+      })
+    });
+
+    methods.add_method("transparent", |_, this, ()| {
+      let scad = this.scad.as_ref().map(|s| ScadNode::Modifier {
+        kind: crate::scad_export::ModifierKind::Transparent,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: this.sketch.clone(),
+        color: this.color,
+        scad,
       })
     });
 

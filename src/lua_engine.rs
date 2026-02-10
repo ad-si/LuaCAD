@@ -913,22 +913,284 @@ impl AppState {
       register_vector_type(&lua)?;
 
       // ==================================================================
-      // UNSUPPORTED STUBS (warn on use)
+      // TEXT (ScadNode-only, no viewport rendering)
       // ==================================================================
 
-      let text_fn = lua.create_function(|_, _args: mlua::MultiValue| {
-        Err::<CsgGeometry, _>(mlua::Error::RuntimeError(
-          "text() is not yet supported in LuaCAD Studio".to_string(),
-        ))
+      let text_fn = lua.create_function(|_, args: mlua::MultiValue| {
+        let first = args.front().ok_or_else(|| {
+          mlua::Error::RuntimeError("text() requires arguments".to_string())
+        })?;
+
+        let (text_str, size, font, halign, valign) =
+          if let LuaValue::String(s) = first {
+            let text = s.to_str().map(|s| s.to_string()).unwrap_or_default();
+            // Optional second arg: table with options
+            let (size, font, halign, valign) =
+              if let Some(LuaValue::Table(t)) = args.get(1) {
+                (
+                  table_get_f32(t, "size").unwrap_or(10.0),
+                  t.get::<String>("font")
+                    .unwrap_or_else(|_| "Arial".to_string()),
+                  t.get::<String>("halign")
+                    .unwrap_or_else(|_| "left".to_string()),
+                  t.get::<String>("valign")
+                    .unwrap_or_else(|_| "baseline".to_string()),
+                )
+              } else {
+                (
+                  10.0,
+                  "Arial".to_string(),
+                  "left".to_string(),
+                  "baseline".to_string(),
+                )
+              };
+            (text, size, font, halign, valign)
+          } else {
+            return Err(mlua::Error::RuntimeError(
+              "text() first argument must be a string".to_string(),
+            ));
+          };
+
+        let scad = Some(ScadNode::Text {
+          text: text_str,
+          size,
+          font,
+          halign,
+          valign,
+        });
+        // Return a minimal 2D sketch (point) — text can't be rendered in viewport
+        let sketch = csgrs::sketch::Sketch::<()>::rectangle(0.001, 0.001, None);
+        Ok(CsgSketch {
+          sketch,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("text", text_fn)?;
 
-      let text3d_fn = lua.create_function(|_, _args: mlua::MultiValue| {
-        Err::<CsgGeometry, _>(mlua::Error::RuntimeError(
-          "text3d() is not yet supported in LuaCAD Studio".to_string(),
-        ))
+      // text3d() — text with linear_extrude in ScadNode
+      let text3d_fn = lua.create_function(|_, args: mlua::MultiValue| {
+        let first = args.front().ok_or_else(|| {
+          mlua::Error::RuntimeError("text3d() requires arguments".to_string())
+        })?;
+
+        let text_str = if let LuaValue::String(s) = first {
+          s.to_str().map(|s| s.to_string()).unwrap_or_default()
+        } else {
+          return Err(mlua::Error::RuntimeError(
+            "text3d() first argument must be a string".to_string(),
+          ));
+        };
+
+        let (size, depth, font, halign, valign) =
+          if let Some(LuaValue::Table(t)) = args.get(1) {
+            (
+              table_get_f32(t, "size").unwrap_or(10.0),
+              table_get_f32(t, "depth").unwrap_or(1.0),
+              t.get::<String>("font")
+                .unwrap_or_else(|_| "Arial".to_string()),
+              t.get::<String>("halign")
+                .unwrap_or_else(|_| "left".to_string()),
+              t.get::<String>("valign")
+                .unwrap_or_else(|_| "baseline".to_string()),
+            )
+          } else {
+            (
+              10.0,
+              1.0,
+              "Arial".to_string(),
+              "left".to_string(),
+              "baseline".to_string(),
+            )
+          };
+
+        let text_node = ScadNode::Text {
+          text: text_str,
+          size,
+          font,
+          halign,
+          valign,
+        };
+        let scad = Some(ScadNode::LinearExtrude {
+          height: depth,
+          center: false,
+          twist: 0.0,
+          slices: 0,
+          scale: 1.0,
+          child: Box::new(text_node),
+        });
+        // Minimal mesh placeholder
+        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
       })?;
       lua.globals().set("text3d", text3d_fn)?;
+
+      // ==================================================================
+      // FILE OPERATIONS (ScadNode-only)
+      // ==================================================================
+
+      // ---- import() ----
+      let import_fn = lua.create_function(|_, args: mlua::MultiValue| {
+        let file = if let Some(LuaValue::String(s)) = args.front() {
+          s.to_str().map(|s| s.to_string()).unwrap_or_default()
+        } else {
+          return Err(mlua::Error::RuntimeError(
+            "import() requires a filename string".to_string(),
+          ));
+        };
+        let convexity = args
+          .get(1)
+          .and_then(lua_val_to_f32)
+          .map(|v| v as u32)
+          .unwrap_or(0);
+        let scad = Some(ScadNode::Import { file, convexity });
+        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      })?;
+      lua.globals().set("import", import_fn)?;
+
+      // ---- surface() ----
+      let surface_fn = lua.create_function(|_, args: mlua::MultiValue| {
+        let file = if let Some(LuaValue::String(s)) = args.front() {
+          s.to_str().map(|s| s.to_string()).unwrap_or_default()
+        } else {
+          return Err(mlua::Error::RuntimeError(
+            "surface() requires a filename string".to_string(),
+          ));
+        };
+        let center = args
+          .get(1)
+          .and_then(|v| {
+            if let LuaValue::Boolean(b) = v {
+              Some(*b)
+            } else {
+              None
+            }
+          })
+          .unwrap_or(false);
+        let convexity = args
+          .get(2)
+          .and_then(lua_val_to_f32)
+          .map(|v| v as u32)
+          .unwrap_or(0);
+        let scad = Some(ScadNode::Surface {
+          file,
+          center,
+          convexity,
+        });
+        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      })?;
+      lua.globals().set("surface", surface_fn)?;
+
+      // ==================================================================
+      // MODIFIER FUNCTIONS (global wrappers)
+      // ==================================================================
+
+      lua
+        .load(
+          r#"
+        function s(obj) return obj:skip() end
+        function o(obj) return obj:only() end
+        function d(obj) return obj:debug() end
+        function t(obj) return obj:transparent() end
+        "#,
+        )
+        .exec()?;
+
+      // ==================================================================
+      // SETTINGS OBJECT
+      // ==================================================================
+
+      lua
+        .load(
+          r#"
+        settings = {
+          fa = 12,
+          fs = 2,
+          fn = 0,
+          t = 0,
+          vpr = {55, 0, 25},
+          vpt = {0, 0, 0},
+          vpd = 140,
+          vpf = 22.5,
+          children = {},
+          preview = true,
+        }
+        "#,
+        )
+        .exec()?;
+
+      // ==================================================================
+      // UTILITY FUNCTIONS
+      // ==================================================================
+
+      // ---- lookup() ----
+      let lookup_fn =
+        lua.create_function(|_, (key, table): (f64, mlua::Table)| {
+          // lookup(key, [[k1,v1], [k2,v2], ...]) — linear interpolation
+          let mut pairs: Vec<(f64, f64)> = Vec::new();
+          for i in 1..=table.len().unwrap_or(0) {
+            if let Ok(entry) = table.get::<mlua::Table>(i) {
+              let k: f64 = entry.get::<f64>(1).unwrap_or(0.0);
+              let v: f64 = entry.get::<f64>(2).unwrap_or(0.0);
+              pairs.push((k, v));
+            }
+          }
+          if pairs.is_empty() {
+            return Ok(0.0);
+          }
+          pairs.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+          });
+          // Clamp to range
+          if key <= pairs[0].0 {
+            return Ok(pairs[0].1);
+          }
+          if key >= pairs[pairs.len() - 1].0 {
+            return Ok(pairs[pairs.len() - 1].1);
+          }
+          // Linear interpolation
+          for i in 0..pairs.len() - 1 {
+            if key >= pairs[i].0 && key <= pairs[i + 1].0 {
+              let t = (key - pairs[i].0) / (pairs[i + 1].0 - pairs[i].0);
+              return Ok(pairs[i].1 + t * (pairs[i + 1].1 - pairs[i].1));
+            }
+          }
+          Ok(pairs[pairs.len() - 1].1)
+        })?;
+      lua.globals().set("lookup", lookup_fn)?;
+
+      // ---- version() ----
+      let version_fn = lua.create_function(|lua, ()| {
+        let t = lua.create_table()?;
+        t.set(
+          1,
+          env!("CARGO_PKG_VERSION_MAJOR").parse::<i32>().unwrap_or(0),
+        )?;
+        t.set(
+          2,
+          env!("CARGO_PKG_VERSION_MINOR").parse::<i32>().unwrap_or(0),
+        )?;
+        t.set(
+          3,
+          env!("CARGO_PKG_VERSION_PATCH").parse::<i32>().unwrap_or(0),
+        )?;
+        Ok(t)
+      })?;
+      lua.globals().set("version", version_fn)?;
 
       lua.load(&self.text_content).eval::<mlua::MultiValue>()
     })();
@@ -1184,6 +1446,7 @@ mod tests {
       pending_export: None,
       current_file: None,
       pending_file_action: None,
+      pending_openscad_export: None,
     };
     app.execute_lua_code();
     assert!(app.lua_error.is_none(), "Lua error: {:?}", app.lua_error);
