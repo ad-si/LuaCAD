@@ -1,5 +1,7 @@
+use csgrs::mesh::Mesh as CsgMesh;
+use csgrs::traits::CSG;
 use egui_extras::syntax_highlighting;
-use mlua::{Lua, Result as LuaResult};
+use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
 use three_d::*;
 
 use mlua::Value as LuaValue;
@@ -49,15 +51,155 @@ fn system_is_dark_mode() -> bool {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Cube {
-  size: [f32; 3],
-  center: bool,
+#[derive(Clone, Debug)]
+struct CsgGeometry {
+  mesh: CsgMesh<()>,
+}
+
+impl UserData for CsgGeometry {
+  fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+    methods.add_method("translate", |_, this, (x, y, z): (f32, f32, f32)| {
+      Ok(CsgGeometry {
+        mesh: this.mesh.translate(x, y, z),
+      })
+    });
+
+    methods.add_method("rotate", |_, this, (x, y, z): (f32, f32, f32)| {
+      Ok(CsgGeometry {
+        mesh: this.mesh.rotate(x, y, z),
+      })
+    });
+
+    methods.add_method("scale", |_, this, (sx, sy, sz): (f32, f32, f32)| {
+      Ok(CsgGeometry {
+        mesh: this.mesh.scale(sx, sy, sz),
+      })
+    });
+
+    // CSG difference: a - b
+    methods.add_meta_method(
+      mlua::MetaMethod::Sub,
+      |_, this, other: mlua::AnyUserData| {
+        let other_ref = other.borrow::<CsgGeometry>()?;
+        Ok(CsgGeometry {
+          mesh: this.mesh.difference(&other_ref.mesh),
+        })
+      },
+    );
+
+    // CSG union: a + b
+    methods.add_meta_method(
+      mlua::MetaMethod::Add,
+      |_, this, other: mlua::AnyUserData| {
+        let other_ref = other.borrow::<CsgGeometry>()?;
+        Ok(CsgGeometry {
+          mesh: this.mesh.union(&other_ref.mesh),
+        })
+      },
+    );
+
+    // CSG intersection: a * b
+    methods.add_meta_method(
+      mlua::MetaMethod::Mul,
+      |_, this, other: mlua::AnyUserData| {
+        let other_ref = other.borrow::<CsgGeometry>()?;
+        Ok(CsgGeometry {
+          mesh: this.mesh.intersection(&other_ref.mesh),
+        })
+      },
+    );
+
+    methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+      Ok(format!(
+        "CsgGeometry(polygons: {})",
+        this.mesh.polygons.len()
+      ))
+    });
+  }
+}
+
+/// Convert a csgrs mesh to a three-d CpuMesh.
+/// Applies CAD Z-up → GL Y-up coordinate swap: (x,y,z) → (y,z,x)
+fn csg_to_cpu_mesh(csg: &CsgMesh<()>) -> CpuMesh {
+  let tri_mesh = csg.triangulate();
+
+  let mut positions: Vec<Vec3> = Vec::new();
+  let mut normals: Vec<Vec3> = Vec::new();
+  let mut indices: Vec<u32> = Vec::new();
+
+  for polygon in &tri_mesh.polygons {
+    let base_idx = positions.len() as u32;
+    for vertex in &polygon.vertices {
+      let p = &vertex.pos;
+      let n = &vertex.normal;
+      // CAD (x,y,z) → GL (y,z,x)
+      positions.push(vec3(p.y, p.z, p.x));
+      normals.push(vec3(n.y, n.z, n.x));
+    }
+    // Fan-triangulate polygons with more than 3 vertices
+    for i in 1..polygon.vertices.len().saturating_sub(1) {
+      indices.push(base_idx);
+      indices.push(base_idx + i as u32);
+      indices.push(base_idx + i as u32 + 1);
+    }
+  }
+
+  CpuMesh {
+    positions: Positions::F32(positions),
+    indices: Indices::U32(indices),
+    normals: Some(normals),
+    ..Default::default()
+  }
+}
+
+fn lua_val_to_f32(v: &LuaValue) -> Option<f32> {
+  match v {
+    LuaValue::Number(n) => Some(*n as f32),
+    LuaValue::Integer(n) => Some(*n as f32),
+    _ => None,
+  }
+}
+
+/// Parse cube() arguments: cube(size), cube(w, d, h), or cube({w, d, h})
+fn parse_cube_args(args: &mlua::MultiValue) -> mlua::Result<(f32, f32, f32)> {
+  if args.is_empty() {
+    return Err(mlua::Error::RuntimeError(
+      "cube() requires at least 1 argument".to_string(),
+    ));
+  }
+
+  let first = &args[0];
+
+  // Table form: cube({w, d, h})
+  if let LuaValue::Table(t) = first {
+    let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
+    let d: f32 = t.get::<f32>(2).unwrap_or(1.0);
+    let h: f32 = t.get::<f32>(3).unwrap_or(1.0);
+    return Ok((w, d, h));
+  }
+
+  // Number forms
+  let s = lua_val_to_f32(first).ok_or_else(|| {
+    mlua::Error::RuntimeError(
+      "cube() argument must be a number, three numbers, or {w, d, h} table"
+        .to_string(),
+    )
+  })?;
+
+  // cube(w, d, h) — three separate number args
+  if args.len() >= 3 {
+    let d = lua_val_to_f32(&args[1]).unwrap_or(s);
+    let h = lua_val_to_f32(&args[2]).unwrap_or(s);
+    return Ok((s, d, h));
+  }
+
+  // cube(size) — uniform
+  Ok((s, s, s))
 }
 
 struct AppState {
   text_content: String,
-  cubes: Vec<Cube>,
+  geometries: Vec<CsgGeometry>,
   lua_error: Option<String>,
   camera_azimuth: f32,
   camera_elevation: f32,
@@ -72,8 +214,8 @@ impl AppState {
   fn new() -> Self {
     let is_dark = system_is_dark_mode();
     let mut app = Self {
-            text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n\ncube(2)\ncube({1, 1, 3})\ncube({1.5, 1.5, 1}, true)".to_string(),
-            cubes: vec![],
+            text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n-- Use + for union, - for difference, * for intersection\n\nrender(cube(2))\nrender(cube(3, 1, 1):translate(0, 3, 0))".to_string(),
+            geometries: vec![],
             lua_error: None,
             camera_azimuth: -30.0,
             camera_elevation: 30.0,
@@ -103,12 +245,13 @@ impl AppState {
 
   fn execute_lua_code(&mut self) {
     self.lua_error = None;
-    self.cubes.clear();
+    self.geometries.clear();
 
     let lua = Lua::new();
-    let cube_calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let collector =
+      std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
 
-    let result: LuaResult<()> = (|| {
+    let result: LuaResult<mlua::MultiValue> = (|| {
       let print_fn =
         lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
           let output = args
@@ -119,73 +262,66 @@ impl AppState {
           println!("Lua output: {output}");
           Ok(())
         })?;
-
       lua.globals().set("print", print_fn)?;
 
-      let cube_calls_clone = cube_calls.clone();
-      let cube_fn = lua.create_function(
-        move |_, args: mlua::MultiValue| {
-          let mut iter = args.into_iter();
-          let first = iter.next().ok_or_else(|| {
-            mlua::Error::RuntimeError(
-              "cube() requires at least 1 argument".to_string(),
-            )
-          })?;
-          let second = iter.next();
+      // cube() — returns CsgGeometry userdata
+      let cube_fn = lua.create_function(|_, args: mlua::MultiValue| {
+        let (w, d, h) = parse_cube_args(&args)?;
+        // cuboid() places one corner at origin (0,0,0)
+        let mesh = CsgMesh::<()>::cuboid(w, d, h, None);
+        Ok(CsgGeometry { mesh })
+      })?;
+      lua.globals().set("cube", cube_fn)?;
 
-          // Parse size from first argument
-          let size_arr = match &first {
-            LuaValue::Number(n) => {
-              let s = *n as f32;
-              [s, s, s]
-            }
-            LuaValue::Integer(n) => {
-              let s = *n as f32;
-              [s, s, s]
-            }
-            LuaValue::Table(t) => [
-              t.get::<f32>(1).unwrap_or(1.0),
-              t.get::<f32>(2).unwrap_or(1.0),
-              t.get::<f32>(3).unwrap_or(1.0),
-            ],
-            _ => {
-              return Err(mlua::Error::RuntimeError(
-                "cube() first argument must be a number or {width, depth, height} table".to_string(),
-              ));
-            }
-          };
+      // sphere() — returns CsgGeometry userdata
+      let sphere_fn =
+        lua.create_function(|_, (radius, segments): (f32, Option<u32>)| {
+          let segs = segments.unwrap_or(16);
+          let mesh =
+            CsgMesh::<()>::sphere(radius, segs as usize, segs as usize, None);
+          Ok(CsgGeometry { mesh })
+        })?;
+      lua.globals().set("sphere", sphere_fn)?;
 
-          // Parse optional center from second argument
-          let center = match second {
-            Some(LuaValue::Boolean(b)) => b,
-            Some(_) => {
-              return Err(mlua::Error::RuntimeError(
-                "cube() second argument (center) must be a boolean".to_string(),
-              ));
-            }
-            None => false,
-          };
-
-          cube_calls_clone
-            .borrow_mut()
-            .push(Cube { size: size_arr, center });
-
-          Ok(())
+      // cylinder() — returns CsgGeometry userdata
+      let cylinder_fn = lua.create_function(
+        |_, (radius, height, segments): (f32, f32, Option<u32>)| {
+          let segs = segments.unwrap_or(16);
+          let mesh =
+            CsgMesh::<()>::cylinder(radius, height, segs as usize, None);
+          Ok(CsgGeometry { mesh })
         },
       )?;
+      lua.globals().set("cylinder", cylinder_fn)?;
 
-      lua.globals().set("cube", cube_fn)?;
-      lua.load(&self.text_content).exec()?;
+      // render() — adds geometry to scene
+      let collector_clone = collector.clone();
+      let render_fn =
+        lua.create_function(move |_, ud: mlua::AnyUserData| {
+          let geom = ud.borrow::<CsgGeometry>()?.clone();
+          collector_clone.borrow_mut().push(geom);
+          Ok(())
+        })?;
+      lua.globals().set("render", render_fn)?;
 
-      Ok(())
+      lua.load(&self.text_content).eval::<mlua::MultiValue>()
     })();
 
     match result {
-      Ok(_) => {
-        self.cubes = cube_calls.borrow().clone();
-        if self.cubes.is_empty() {
+      Ok(returns) => {
+        // Auto-render any CsgGeometry returned from top-level
+        for val in returns.iter() {
+          if let LuaValue::UserData(ud) = val
+            && let Ok(geom) = ud.borrow::<CsgGeometry>()
+          {
+            collector.borrow_mut().push(geom.clone());
+          }
+        }
+        self.geometries = collector.borrow().clone();
+        if self.geometries.is_empty() {
           self.lua_error = Some(
-            "No cubes found. Use cube(size) or cube({w, d, h})".to_string(),
+            "No geometry to render. Use render(obj) or return a geometry object."
+              .to_string(),
           );
         }
       }
@@ -198,33 +334,18 @@ impl AppState {
   }
 }
 
-/// Build 3D mesh objects from cube data.
-/// Applies Z-up (CAD) to Y-up (OpenGL) coordinate swap.
+/// Build 3D mesh objects from CSG geometry.
+/// Coordinate transform (CAD Z-up → GL Y-up) is done inside csg_to_cpu_mesh.
 fn build_scene(
   context: &Context,
   app: &AppState,
 ) -> Vec<Gm<Mesh, PhysicalMaterial>> {
   app
-    .cubes
+    .geometries
     .iter()
-    .map(|cube| {
-      let mut cpu_mesh = CpuMesh::cube();
-
-      // CpuMesh::cube() is a 2-unit cube centered at origin (-1 to 1).
-      // CAD (x,y,z) -> GL (y, z, x). Scale by half-size since base cube spans 2 units.
-      let half = [cube.size[0] * 0.5, cube.size[1] * 0.5, cube.size[2] * 0.5];
-      let offset = if cube.center {
-        vec3(0.0, 0.0, 0.0)
-      } else {
-        // One corner at CAD origin: shift by +half in each CAD axis
-        // GL coords: (+half_y, +half_z, +half_x)
-        vec3(half[1], half[2], half[0])
-      };
-
-      let transform = Mat4::from_translation(offset)
-        * Mat4::from_nonuniform_scale(half[1], half[2], half[0]);
-      cpu_mesh.transform(transform).unwrap();
-
+    .filter(|geom| !geom.mesh.polygons.is_empty())
+    .map(|geom| {
+      let cpu_mesh = csg_to_cpu_mesh(&geom.mesh);
       Gm::new(
         Mesh::new(context, &cpu_mesh),
         PhysicalMaterial::new_opaque(
@@ -344,13 +465,13 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             ui.horizontal(|ui| {
                 if ui.button("Clear").clicked() {
                     app.text_content.clear();
-                    app.cubes.clear();
+                    app.geometries.clear();
                     app.lua_error = None;
                     app.scene_dirty = true;
                 }
 
                 if ui.button("Load Example").clicked() {
-                    app.text_content = "-- LuaCAD Example\n-- cube(size) — uniform cube\n-- cube({w, d, h}) — sized cube\n-- cube(size, true) — centered\n\ncube(2)\ncube({3, 1, 1})\ncube({1.5, 1, 2}, true)\n\n-- You can also use variables\nlocal size = {1, 1, 1}\ncube(size)".to_string();
+                    app.text_content = "-- CSG Boolean Operations Demo\n\n-- Create a hollow box\nlocal outer = cube(30, 20, 15)\nlocal inner = cube(26, 16, 15):translate(2, 2, 2)\nlocal box = outer - inner\n\n-- Cut a window in the front\nlocal window = cube(10, 4, 8):translate(10, -1, 4)\nlocal result = box - window\n\nrender(result)".to_string();
                 }
 
                 let remaining = ui.available_width();
@@ -377,11 +498,13 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 );
             }
 
-            if !app.cubes.is_empty() {
+            if !app.geometries.is_empty() {
+                let total_polys: usize = app.geometries.iter()
+                    .map(|g| g.mesh.polygons.len()).sum();
                 ui.separator();
                 ui.colored_label(
                     egui::Color32::GREEN,
-                    format!("{} cube(s) rendered", app.cubes.len()),
+                    format!("{} object(s), {} polygons", app.geometries.len(), total_polys),
                 );
             }
         });
@@ -528,8 +651,32 @@ fn main() {
     )
   };
   let mut dragging_scene = false;
+  let mut clipboard = arboard::Clipboard::new().ok();
 
   window.render_loop(move |mut frame_input| {
+    // Detect clipboard key combos (Cmd+V/C/X) that three-d doesn't forward to egui
+    let mut paste_text: Option<String> = None;
+    let mut wants_copy = false;
+    let mut wants_cut = false;
+    for event in frame_input.events.iter() {
+      if let Event::KeyPress {
+        kind, modifiers, ..
+      } = event
+        && modifiers.command
+      {
+        match kind {
+          Key::V => {
+            if let Some(cb) = clipboard.as_mut() {
+              paste_text = cb.get_text().ok();
+            }
+          }
+          Key::C => wants_copy = true,
+          Key::X => wants_cut = true,
+          _ => {}
+        }
+      }
+    }
+
     // Project axis label positions (using camera from previous frame)
     let dpr = frame_input.device_pixel_ratio;
     let axis_labels: [(egui::Pos2, &str, egui::Color32); 3] = {
@@ -569,6 +716,19 @@ fn main() {
       frame_input.viewport,
       frame_input.device_pixel_ratio,
       |gui_context| {
+        // Inject clipboard events that three-d doesn't handle
+        if let Some(text) = &paste_text {
+          gui_context.input_mut(|i| {
+            i.events.push(egui::Event::Paste(text.clone()));
+          });
+        }
+        if wants_copy {
+          gui_context.input_mut(|i| i.events.push(egui::Event::Copy));
+        }
+        if wants_cut {
+          gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
+        }
+
         panel_width = render_ui(gui_context, &mut app);
 
         // Draw axis labels as overlay
@@ -587,6 +747,15 @@ fn main() {
         }
       },
     );
+
+    // Handle copy/cut output from egui → system clipboard
+    gui.context().output_mut(|o| {
+      if !o.copied_text.is_empty()
+        && let Some(cb) = clipboard.as_mut()
+      {
+        let _ = cb.set_text(std::mem::take(&mut o.copied_text));
+      }
+    });
 
     // Compute 3D viewport: left area excluding right panel
     let full = frame_input.viewport;
