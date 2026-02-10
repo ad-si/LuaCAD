@@ -5,6 +5,7 @@ use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
 use three_d::*;
 
 use mlua::Value as LuaValue;
+use std::path::PathBuf;
 use threemf::Mesh as ThreemfMesh;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -437,6 +438,17 @@ struct AppState {
   export_status: Option<(String, bool)>, // (message, is_error)
   /// Pending export format requested this frame
   pending_export: Option<ExportFormat>,
+  /// Currently opened file path
+  current_file: Option<PathBuf>,
+  /// Pending file action (save/open) requested this frame
+  pending_file_action: Option<FileAction>,
+}
+
+#[derive(Debug, Clone)]
+enum FileAction {
+  Open,
+  Save,
+  SaveAs,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -471,6 +483,8 @@ impl AppState {
             pending_editor_action: None,
             export_status: None,
             pending_export: None,
+            current_file: None,
+            pending_file_action: None,
         };
     app.execute_lua_code();
     app
@@ -869,7 +883,11 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
   let panel_response = egui::SidePanel::right("code_editor")
         .default_width(400.0)
         .show(gui_context, |ui| {
-            ui.heading("Code Editor");
+            let title = match &app.current_file {
+                Some(path) => format!("Code Editor - {}", path.file_name().unwrap_or_default().to_string_lossy()),
+                None => "Code Editor".to_string(),
+            };
+            ui.heading(title);
 
             let editor_height = ui.available_height() - 100.0;
             egui::ScrollArea::vertical()
@@ -934,15 +952,27 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             ui.separator();
 
             ui.horizontal(|ui| {
+                if ui.button("Open").clicked() {
+                    app.pending_file_action = Some(FileAction::Open);
+                }
+                if ui.button("Save").clicked() {
+                    app.pending_file_action = Some(FileAction::Save);
+                }
+                if ui.button("Save As").clicked() {
+                    app.pending_file_action = Some(FileAction::SaveAs);
+                }
+                ui.separator();
                 if ui.button("Clear").clicked() {
                     app.text_content.clear();
                     app.geometries.clear();
                     app.lua_error = None;
                     app.scene_dirty = true;
+                    app.current_file = None;
                 }
 
                 if ui.button("Load Example").clicked() {
                     app.text_content = "-- CSG Boolean Operations Demo\n\n-- Create a hollow box\nlocal outer = cube(30, 20, 15)\nlocal inner = cube(26, 16, 15):translate(2, 2, 2)\nlocal box = outer - inner\n\n-- Cut a window in the front\nlocal window = cube(10, 4, 8):translate(10, -1, 4)\nlocal result = box - window\n\nrender(result)".to_string();
+                    app.current_file = None;
                 }
 
                 let remaining = ui.available_width();
@@ -974,7 +1004,7 @@ fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             ui.add_space(6.0);
             ui.label(format!("Lines: {}  Chars: {}", app.text_content.lines().count(), app.text_content.len()));
             ui.add_space(4.0);
-            ui.label("⌘D Select Word/Next  ⌘L Select Line  ⌘G Toggle Comment");
+            ui.label("⌘O Open  ⌘S Save  ⌘D Select Word/Next  ⌘L Select Line  ⌘G Toggle Comment");
 
             if let Some(error) = &app.lua_error {
                 ui.separator();
@@ -1174,6 +1204,12 @@ fn main() {
           Key::G => {
             app.pending_editor_action = Some(EditorAction::ToggleComment);
           }
+          Key::S => {
+            app.pending_file_action = Some(FileAction::Save);
+          }
+          Key::O => {
+            app.pending_file_action = Some(FileAction::Open);
+          }
           _ => {}
         }
       }
@@ -1288,6 +1324,93 @@ fn main() {
           }
           Err(e) => {
             app.export_status = Some((format!("Export failed: {e}"), true));
+          }
+        }
+      }
+    }
+
+    // Handle file open/save requests (outside egui context so file dialog works)
+    if let Some(action) = app.pending_file_action.take() {
+      match action {
+        FileAction::Open => {
+          if let Some(path) = rfd::FileDialog::new()
+            .set_title("Open Lua File")
+            .add_filter("Lua Files", &["lua"])
+            .pick_file()
+          {
+            match std::fs::read_to_string(&path) {
+              Ok(contents) => {
+                app.text_content = contents;
+                app.current_file = Some(path);
+                app.geometries.clear();
+                app.lua_error = None;
+                app.scene_dirty = true;
+              }
+              Err(e) => {
+                app.export_status =
+                  Some((format!("Failed to open: {e}"), true));
+              }
+            }
+          }
+        }
+        FileAction::Save => {
+          if let Some(path) = app.current_file.clone() {
+            match std::fs::write(&path, &app.text_content) {
+              Ok(()) => {
+                app.export_status =
+                  Some((format!("Saved to {}", path.display()), false));
+              }
+              Err(e) => {
+                app.export_status =
+                  Some((format!("Failed to save: {e}"), true));
+              }
+            }
+          } else {
+            // No current file — behave like Save As
+            if let Some(path) = rfd::FileDialog::new()
+              .set_title("Save Lua File")
+              .add_filter("Lua Files", &["lua"])
+              .set_file_name("untitled.lua")
+              .save_file()
+            {
+              match std::fs::write(&path, &app.text_content) {
+                Ok(()) => {
+                  app.current_file = Some(path.clone());
+                  app.export_status =
+                    Some((format!("Saved to {}", path.display()), false));
+                }
+                Err(e) => {
+                  app.export_status =
+                    Some((format!("Failed to save: {e}"), true));
+                }
+              }
+            }
+          }
+        }
+        FileAction::SaveAs => {
+          let default_name = app
+            .current_file
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "untitled.lua".to_string());
+          if let Some(path) = rfd::FileDialog::new()
+            .set_title("Save Lua File As")
+            .add_filter("Lua Files", &["lua"])
+            .set_file_name(&default_name)
+            .save_file()
+          {
+            match std::fs::write(&path, &app.text_content) {
+              Ok(()) => {
+                app.current_file = Some(path.clone());
+                app.export_status =
+                  Some((format!("Saved to {}", path.display()), false));
+              }
+              Err(e) => {
+                app.export_status =
+                  Some((format!("Failed to save: {e}"), true));
+              }
+            }
           }
         }
       }
