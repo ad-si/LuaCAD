@@ -64,27 +64,30 @@ local function execute_file(file)
   return status, err
 end
 
+-- Detect stat variant once at startup: GNU stat uses -c %Y, BSD stat uses -f %m
+local stat_fmt
+if not isWindows then
+  local handle = io.popen("stat --version 2>&1")
+  if handle then
+    local output = handle:read("*a")
+    handle:close()
+    if output:match("GNU") then
+      stat_fmt = "gnu"
+    else
+      stat_fmt = "bsd"
+    end
+  end
+end
+
 -- Function to get the file modification time using system commands
 local function get_mtime(file)
   local cmd
   if isWindows then
-    -- Windows: use `for %A in (file) do @echo %~tA`
     cmd = 'for %A in ("' .. file .. '") do @echo %~tA'
+  elseif stat_fmt == "gnu" then
+    cmd = 'stat -c %Y "' .. file .. '"'
   else
-    -- Detect OS: macOS uses `stat -f %m`, Linux uses `stat -c %Y`
-    local uname = io.popen("uname")
-    if not uname then
-      print("Error: Failed to determine OS")
-      return 0
-    end
-    local os_name = uname:read("*l")
-    uname:close()
-
-    if os_name == "Darwin" then
-      cmd = 'stat -f %m "' .. file .. '"'
-    else
-      cmd = 'stat -c %Y "' .. file .. '"'
-    end
+    cmd = 'stat -f %m "' .. file .. '"'
   end
 
   local handle = io.popen(cmd)
