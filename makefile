@@ -41,8 +41,8 @@ website/examples.html: website-src/examples_header.html website-src/example_temp
 	@cd website-src && lua build_examples.lua
 
 
-.PHONY: fmt
-fmt:
+.PHONY: format
+format:
 	@echo "🎨 Formatting Lua code with StyLua"
 	@stylua . luacad.lua bin/luacad
 
@@ -52,7 +52,7 @@ version.txt: .FORCE
 
 
 .PHONY: release
-release: version.txt fmt test website/examples.html
+release: version.txt format test website/examples.html
 
 
 .PHONY: clean

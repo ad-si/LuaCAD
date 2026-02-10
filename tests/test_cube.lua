@@ -119,7 +119,7 @@ function TestCube:testCubeWithArraySyntaxAndCenter()
     -- So we'll check that the file contains a translation that centers the cube
     luaunit.assertStrContains(
       content,
-      "translate([-2.0, -2.0, -3.0])",
+      "translate([-2, -2, -3])",
       false,
       "Translation for centering not found in generated SCAD file"
     )
