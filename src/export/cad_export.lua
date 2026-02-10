@@ -121,9 +121,18 @@ function cad._helpers.cad_meta.__index.export(obj, file, verbose)
     error("<cad>:export, unknown extension " .. ext)
   end
 
+  -- Resolve relative paths for display
+  local display_path = file
+  if file:sub(1, 1) ~= "/" and file:sub(1, 1) ~= "\\" then
+    local script_dir = get_export_script_path() or ""
+    if script_dir ~= "" and script_dir ~= "./" then
+      display_path = script_dir .. file
+    end
+  end
+
   -- Don't log during testing
   if not isTesting then
-    print('Exporting to "' .. file .. '"')
+    print("Exporting to " .. display_path)
   end
 
   f(obj, file)
