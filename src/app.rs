@@ -35,6 +35,8 @@ pub struct AppState {
   pub pending_file_action: Option<FileAction>,
   /// Pending OpenSCAD-based export requested this frame
   pub pending_openscad_export: Option<OpenScadFormat>,
+  /// Auto-zoom to fit on next scene rebuild (initial load / file open)
+  pub needs_fit_to_view: bool,
 }
 
 impl AppState {
@@ -57,6 +59,7 @@ impl AppState {
       current_file: None,
       pending_file_action: None,
       pending_openscad_export: None,
+      needs_fit_to_view: true,
     };
     app.execute_lua_code();
     app

@@ -11,7 +11,9 @@ mod ui;
 use app::{AppState, FileAction};
 use editor::EditorAction;
 use export::ExportFormat;
-use scene::{build_camera, build_scene, compute_camera_vectors};
+use scene::{
+  build_camera, build_scene, compute_camera_vectors, compute_fit_distance,
+};
 use theme::ThemeMode;
 use three_d::*;
 use ui::render_ui;
@@ -62,8 +64,13 @@ fn main() {
   let mut gui = three_d::GUI::new(&context);
   let mut app = AppState::new();
 
-  // Build initial scene
+  // Build initial scene and auto-zoom to fit
   let mut scene_objects = build_scene(&context, &app);
+  if let Some(dist) = compute_fit_distance(&app.geometries, app.orthogonal_view)
+  {
+    app.camera_distance = dist;
+  }
+  app.needs_fit_to_view = false;
   app.scene_dirty = false;
 
   let initial_viewport = {
@@ -367,6 +374,7 @@ fn main() {
                 app.current_file = Some(path);
                 app.execute_lua_code();
                 app.scene_dirty = true;
+                app.needs_fit_to_view = true;
               }
               Err(e) => {
                 app.export_status =
@@ -495,6 +503,21 @@ fn main() {
       }
     }
 
+    // Rebuild scene if Lua was re-executed
+    if app.scene_dirty {
+      scene_objects = build_scene(&context, &app);
+      if app.needs_fit_to_view {
+        if let Some(dist) =
+          compute_fit_distance(&app.geometries, app.orthogonal_view)
+        {
+          app.camera_distance = dist;
+          camera_changed = true;
+        }
+        app.needs_fit_to_view = false;
+      }
+      app.scene_dirty = false;
+    }
+
     // Update camera if angles or projection changed
     if camera_changed {
       let (pos, target, up) = compute_camera_vectors(&app);
@@ -514,12 +537,6 @@ fn main() {
         0.1 * app.camera_distance,
         100.0 * app.camera_distance,
       );
-    }
-
-    // Rebuild scene if Lua was re-executed
-    if app.scene_dirty {
-      scene_objects = build_scene(&context, &app);
-      app.scene_dirty = false;
     }
 
     // Render
@@ -582,6 +599,7 @@ fn main() {
                 app.current_file = Some(path.clone());
                 app.execute_lua_code();
                 app.scene_dirty = true;
+                app.needs_fit_to_view = true;
               }
               Err(e) => {
                 app.export_status =

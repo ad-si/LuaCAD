@@ -1447,6 +1447,7 @@ mod tests {
       current_file: None,
       pending_file_action: None,
       pending_openscad_export: None,
+      needs_fit_to_view: false,
     };
     app.execute_lua_code();
     assert!(app.lua_error.is_none(), "Lua error: {:?}", app.lua_error);

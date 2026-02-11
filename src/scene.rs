@@ -1,7 +1,9 @@
 use three_d::*;
 
+use csgrs::traits::CSG;
+
 use crate::app::AppState;
-use crate::geometry::csg_to_cpu_mesh;
+use crate::geometry::{CsgGeometry, csg_to_cpu_mesh};
 
 /// Build 3D mesh objects from CSG geometry.
 /// Coordinate transform (CAD Z-up → GL Y-up) is done inside csg_to_cpu_mesh.
@@ -39,6 +41,47 @@ pub fn build_scene(
       )
     })
     .collect()
+}
+
+/// Compute the camera distance needed to fit all geometries in view.
+/// Returns `None` if there are no geometries.
+pub fn compute_fit_distance(
+  geometries: &[CsgGeometry],
+  orthogonal: bool,
+) -> Option<f32> {
+  if geometries.is_empty() {
+    return None;
+  }
+
+  let mut max_extent: f32 = 0.0;
+  for geom in geometries {
+    if geom.mesh.polygons.is_empty() {
+      continue;
+    }
+    let bb = geom.mesh.bounding_box();
+    // Check all 8 corners, converting CAD (x,y,z) → GL (y,z,x)
+    for &cx in &[bb.mins.x, bb.maxs.x] {
+      for &cy in &[bb.mins.y, bb.maxs.y] {
+        for &cz in &[bb.mins.z, bb.maxs.z] {
+          let gl = vec3(cy, cz, cx);
+          max_extent = max_extent.max(gl.magnitude());
+        }
+      }
+    }
+  }
+
+  if max_extent < 1e-6 {
+    return None;
+  }
+
+  let padding = 1.3;
+  if orthogonal {
+    // Orthographic height is 2.0, three-d multiplies by distance
+    Some(max_extent * padding)
+  } else {
+    // Perspective FOV = 45°, half-angle = 22.5°
+    Some(max_extent * padding / 22.5_f32.to_radians().tan())
+  }
 }
 
 /// Compute camera position from azimuth/elevation/distance.
