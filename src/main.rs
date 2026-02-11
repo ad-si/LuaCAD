@@ -159,6 +159,9 @@ fn main() {
             Key::O => {
               app.pending_file_action = Some(FileAction::Open);
             }
+            Key::Enter => {
+              app.execute_lua_code();
+            }
             _ => {}
           }
         } else if *kind == Key::Tab {

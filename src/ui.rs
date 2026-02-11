@@ -309,7 +309,14 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
       .show(gui_context, |ui| {
         let sections: &[(&str, &[(&str, &str)])] = &[
-          ("File", &[("⌘ O", "Open file"), ("⌘ S", "Save file")]),
+          (
+            "File",
+            &[
+              ("⌘ O", "Open file"),
+              ("⌘ S", "Save file"),
+              ("⌘ ↵", "Run code"),
+            ],
+          ),
           (
             "Editing",
             &[
