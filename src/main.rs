@@ -461,7 +461,6 @@ fn main() {
 
     // Handle camera input from remaining events (not consumed by GUI)
     let scene_max_x = scene_width as f32;
-    let mut camera_changed = false;
     for event in frame_input.events.iter() {
       match event {
         Event::MousePress {
@@ -486,7 +485,6 @@ fn main() {
           app.camera_azimuth -= delta.0 * 0.5;
           app.camera_elevation =
             (app.camera_elevation + delta.1 * 0.5).clamp(-85.0, 85.0);
-          camera_changed = true;
         }
         Event::MouseWheel {
           delta,
@@ -497,7 +495,6 @@ fn main() {
           let zoom_factor = (-delta.1 * 0.01).exp();
           app.camera_distance =
             (app.camera_distance * zoom_factor).clamp(0.001, 10_000.0);
-          camera_changed = true;
         }
         _ => {}
       }
@@ -511,18 +508,15 @@ fn main() {
           compute_fit_distance(&app.geometries, app.orthogonal_view)
         {
           app.camera_distance = dist;
-          camera_changed = true;
         }
         app.needs_fit_to_view = false;
       }
       app.scene_dirty = false;
     }
 
-    // Update camera if angles or projection changed
-    if camera_changed {
-      let (pos, target, up) = compute_camera_vectors(&app);
-      camera.set_view(pos, target, up);
-    }
+    // Update camera view (position may change from UI controls, zoom, or projection toggle)
+    let (pos, target, up) = compute_camera_vectors(&app);
+    camera.set_view(pos, target, up);
 
     // Update projection mode
     if app.orthogonal_view {

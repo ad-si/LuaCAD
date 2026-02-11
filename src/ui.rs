@@ -246,18 +246,26 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       ui.separator();
 
       ui.label("Projection:");
+      // Ortho visible half-height = camera_distance (height_param=2.0, zoom=distance).
+      // Perspective visible half-height at target = camera_distance * tan(22.5°).
+      // Scale distance on toggle to keep same visible extent.
+      let ratio = 1.0 / (22.5_f32).to_radians().tan();
       if ui
         .selectable_label(app.orthogonal_view, "Orthogonal")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
+        && !app.orthogonal_view
       {
+        app.camera_distance /= ratio;
         app.orthogonal_view = true;
       }
       if ui
         .selectable_label(!app.orthogonal_view, "Perspective")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
+        && app.orthogonal_view
       {
+        app.camera_distance *= ratio;
         app.orthogonal_view = false;
       }
 
