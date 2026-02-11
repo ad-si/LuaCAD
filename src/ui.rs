@@ -71,67 +71,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       };
       ui.heading(title);
 
-      let editor_height = ui.available_height() - 100.0;
-      egui::ScrollArea::vertical()
-        .max_height(editor_height)
-        .show(ui, |ui| {
-          let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-            let theme = if ui.style().visuals.dark_mode {
-              syntax_highlighting::CodeTheme::dark(14.0)
-            } else {
-              syntax_highlighting::CodeTheme::light(14.0)
-            };
-
-            let mut layout_job = syntax_highlighting::highlight(
-              ui.ctx(),
-              ui.style(),
-              &theme,
-              string,
-              "lua",
-            );
-            layout_job.wrap.max_width = wrap_width;
-            ui.fonts(|f| f.layout_job(layout_job))
-          };
-
-          let te_output = egui::TextEdit::multiline(&mut app.text_content)
-            .desired_width(ui.available_width())
-            .desired_rows(30)
-            .font(egui::TextStyle::Monospace)
-            .code_editor()
-            .layouter(&mut layouter)
-            .show(ui);
-
-          // Apply pending editor action (Cmd+D, Cmd+L, Cmd+G)
-          if let Some(action) = app.pending_editor_action.take() {
-            let (cursor_start, cursor_end) =
-              if let Some(range) = te_output.cursor_range {
-                let sorted = range.as_sorted_char_range();
-                (sorted.start, sorted.end)
-              } else {
-                (0, 0)
-              };
-
-            let (new_start, new_end) = apply_editor_action(
-              &action,
-              &mut app.text_content,
-              cursor_start,
-              cursor_end,
-            );
-
-            // Update cursor/selection state
-            let mut state = te_output.state.clone();
-            use egui::text::CCursor;
-            use egui::text_selection::CCursorRange;
-            state.cursor.set_char_range(Some(CCursorRange::two(
-              CCursor::new(new_start),
-              CCursor::new(new_end),
-            )));
-            state.store(ui.ctx(), te_output.response.id);
-          }
-        });
-
-      ui.separator();
-
       ui.horizontal(|ui| {
         if ui
           .button("Open")
@@ -166,6 +105,112 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           app.scene_dirty = true;
           app.current_file = None;
         }
+      });
+      ui.add_space(8.0);
+
+      let mut cursor_line: usize = 1;
+      let mut cursor_col: usize = 1;
+      let mut selection_len: usize = 0;
+
+      // Reserve space for bottom content, let editor fill the rest
+      let bottom_reserve = 160.0; // status line + separator + export buttons + shortcuts + errors
+      let editor_height = (ui.available_height() - bottom_reserve).max(100.0);
+
+      egui::ScrollArea::vertical()
+        .min_scrolled_height(editor_height)
+        .max_height(editor_height)
+        .show(ui, |ui| {
+          let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+            let theme = if ui.style().visuals.dark_mode {
+              syntax_highlighting::CodeTheme::dark(14.0)
+            } else {
+              syntax_highlighting::CodeTheme::light(14.0)
+            };
+
+            let mut layout_job = syntax_highlighting::highlight(
+              ui.ctx(),
+              ui.style(),
+              &theme,
+              string,
+              "lua",
+            );
+            layout_job.wrap.max_width = wrap_width;
+            ui.fonts(|f| f.layout_job(layout_job))
+          };
+
+          let te_output = egui::TextEdit::multiline(&mut app.text_content)
+            .desired_width(ui.available_width())
+            .min_size(egui::vec2(0.0, editor_height))
+            .font(egui::TextStyle::Monospace)
+            .code_editor()
+            .layouter(&mut layouter)
+            .show(ui);
+
+          // Extract cursor position for status line
+          if let Some(range) = te_output.cursor_range {
+            let sorted = range.as_sorted_char_range();
+            let cursor_pos = sorted.end;
+            selection_len = sorted.end - sorted.start;
+
+            // Calculate line and column from character offset
+            let text_before_cursor =
+              &app.text_content[..cursor_pos.min(app.text_content.len())];
+            cursor_line = text_before_cursor.lines().count().max(1);
+            // If cursor is right after a newline, it's on the next line
+            if text_before_cursor.ends_with('\n') {
+              cursor_line += 1;
+              cursor_col = 1;
+            } else {
+              cursor_col = text_before_cursor
+                .rsplit_once('\n')
+                .map(|(_, after)| after.len() + 1)
+                .unwrap_or(text_before_cursor.len() + 1);
+            }
+          }
+
+          // Apply pending editor action (Cmd+D, Cmd+L, Cmd+G)
+          if let Some(action) = app.pending_editor_action.take() {
+            let (cursor_start, cursor_end) =
+              if let Some(range) = te_output.cursor_range {
+                let sorted = range.as_sorted_char_range();
+                (sorted.start, sorted.end)
+              } else {
+                (0, 0)
+              };
+
+            let (new_start, new_end) = apply_editor_action(
+              &action,
+              &mut app.text_content,
+              cursor_start,
+              cursor_end,
+            );
+
+            // Update cursor/selection state
+            let mut state = te_output.state.clone();
+            use egui::text::CCursor;
+            use egui::text_selection::CCursorRange;
+            state.cursor.set_char_range(Some(CCursorRange::two(
+              CCursor::new(new_start),
+              CCursor::new(new_end),
+            )));
+            state.store(ui.ctx(), te_output.response.id);
+          }
+        });
+
+      ui.add_space(6.0);
+      // Status line: cursor position + lines/chars + Run button
+      ui.horizontal(|ui| {
+        let mut status = format!("Ln {}, Col {}", cursor_line, cursor_col);
+        if selection_len > 0 {
+          status.push_str(&format!(" ({} selected)", selection_len));
+        }
+        ui.label(&status);
+        ui.separator();
+        ui.label(format!(
+          "Lines: {}  Chars: {}",
+          app.text_content.lines().count(),
+          app.text_content.len()
+        ));
 
         let remaining = ui.available_width();
         ui.add_space(remaining - 60.0);
@@ -179,6 +224,8 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           app.execute_lua_code();
         }
       });
+
+      ui.separator();
 
       ui.horizontal(|ui| {
         let has_geometry = !app.geometries.is_empty();
@@ -253,12 +300,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
       ui.add_space(6.0);
       ui.horizontal(|ui| {
-        ui.label(format!(
-          "Lines: {}  Chars: {}",
-          app.text_content.lines().count(),
-          app.text_content.len()
-        ));
-        ui.separator();
         if ui
           .button("Shortcuts")
           .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -271,20 +312,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if let Some(error) = &app.lua_error {
         ui.separator();
         ui.colored_label(egui::Color32::RED, format!("Error: {error}"));
-      }
-
-      if !app.geometries.is_empty() {
-        let total_polys: usize =
-          app.geometries.iter().map(|g| g.mesh.polygons.len()).sum();
-        ui.separator();
-        ui.colored_label(
-          egui::Color32::GREEN,
-          format!(
-            "{} object(s), {} polygons",
-            app.geometries.len(),
-            total_polys
-          ),
-        );
       }
 
       if let Some((msg, is_error)) = &app.export_status {
@@ -475,10 +502,33 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       }
     });
     ui.add_space(4.0);
-    ui.label(format!(
-      "Azimuth: {:.1}  Elevation: {:.1}  Distance: {:.1}",
-      app.camera_azimuth, app.camera_elevation, app.camera_distance
-    ));
+    ui.horizontal(|ui| {
+      ui.label(format!(
+        "Azimuth: {:.1}  Elevation: {:.1}  Distance: {:.1}",
+        app.camera_azimuth, app.camera_elevation, app.camera_distance
+      ));
+      if !app.geometries.is_empty() {
+        let total_polys: usize =
+          app.geometries.iter().map(|g| g.mesh.polygons.len()).sum();
+        ui.separator();
+        let num_objects = app.geometries.len();
+        ui.label(format!(
+          "{} {}, {} {}",
+          num_objects,
+          if num_objects == 1 {
+            "Object"
+          } else {
+            "Objects"
+          },
+          total_polys,
+          if total_polys == 1 {
+            "Polygon"
+          } else {
+            "Polygons"
+          },
+        ));
+      }
+    });
     ui.add_space(4.0);
   });
 
