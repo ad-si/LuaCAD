@@ -3,6 +3,8 @@ pub enum EditorAction {
   SelectNextOccurrence, // Cmd+D
   SelectLine,           // Cmd+L
   ToggleComment,        // Cmd+G (Cmd+/ blocked by three-d#571)
+  InsertTab,            // Tab — insert 2 spaces or indent selected lines
+  Unindent,             // Shift+Tab — unindent selected lines
 }
 
 /// Get the word boundaries around a character index in the text.
@@ -199,6 +201,108 @@ pub fn apply_editor_action(
 
       *text = new_text;
       (new_cursor_start, new_cursor_end)
+    }
+
+    EditorAction::InsertTab => {
+      if cursor_start == cursor_end {
+        // No selection: insert 2 spaces at cursor
+        let byte_idx: usize =
+          text.chars().take(cursor_start).collect::<String>().len();
+        text.insert_str(byte_idx, "  ");
+        (cursor_start + 2, cursor_start + 2)
+      } else {
+        // Selection: indent all selected lines by 2 spaces
+        let sel_start = cursor_start.min(cursor_end);
+        let sel_end = cursor_start.max(cursor_end);
+        let mut line_ranges: Vec<(usize, usize)> = Vec::new();
+        let total_chars = text.chars().count();
+        let (first_start, first_end) = line_range_at(text, sel_start);
+        line_ranges.push((first_start, first_end));
+        let mut pos = first_end;
+        while pos < sel_end && pos < total_chars {
+          let (ls, le) = line_range_at(text, pos);
+          line_ranges.push((ls, le));
+          if le == pos {
+            break;
+          }
+          pos = le;
+        }
+
+        let mut new_text = text.clone();
+        let mut offset: i64 = 0;
+        for (ls, _) in &line_ranges {
+          let adjusted = (*ls as i64 + offset) as usize;
+          let byte_idx: usize =
+            new_text.chars().take(adjusted).collect::<String>().len();
+          new_text.insert_str(byte_idx, "  ");
+          offset += 2;
+        }
+
+        let new_start = cursor_start + 2; // first line always indented
+        let new_end = (cursor_end as i64 + offset) as usize;
+        *text = new_text;
+        (new_start, new_end)
+      }
+    }
+
+    EditorAction::Unindent => {
+      let sel_start = cursor_start.min(cursor_end);
+      let sel_end = if cursor_start == cursor_end {
+        cursor_end
+      } else {
+        cursor_start.max(cursor_end)
+      };
+      let chars: Vec<char> = text.chars().collect();
+      let total_chars = chars.len();
+
+      let mut line_ranges: Vec<(usize, usize)> = Vec::new();
+      let (first_start, first_end) = line_range_at(text, sel_start);
+      line_ranges.push((first_start, first_end));
+      let mut pos = first_end;
+      while pos < sel_end && pos < total_chars {
+        let (ls, le) = line_range_at(text, pos);
+        line_ranges.push((ls, le));
+        if le == pos {
+          break;
+        }
+        pos = le;
+      }
+
+      let mut new_text = text.clone();
+      let mut offset: i64 = 0;
+      let mut first_line_removed: i64 = 0;
+      for (i, (ls, _)) in line_ranges.iter().enumerate() {
+        let adjusted = (*ls as i64 + offset) as usize;
+        let line_chars: Vec<char> = new_text.chars().collect();
+        // Count leading spaces to remove (up to 2)
+        let mut spaces = 0;
+        while spaces < 2
+          && adjusted + spaces < line_chars.len()
+          && line_chars[adjusted + spaces] == ' '
+        {
+          spaces += 1;
+        }
+        if spaces > 0 {
+          let byte_start: usize =
+            line_chars[..adjusted].iter().collect::<String>().len();
+          let byte_end: usize = line_chars[..adjusted + spaces]
+            .iter()
+            .collect::<String>()
+            .len();
+          new_text.replace_range(byte_start..byte_end, "");
+          offset -= spaces as i64;
+          if i == 0 {
+            first_line_removed = spaces as i64;
+          }
+        }
+      }
+
+      let new_start =
+        (cursor_start as i64 - first_line_removed).max(0) as usize;
+      let new_end = (cursor_end as i64 + offset).max(0) as usize;
+      let new_len = new_text.chars().count();
+      *text = new_text;
+      (new_start.min(new_len), new_end.min(new_len))
     }
   }
 }

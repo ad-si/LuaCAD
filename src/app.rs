@@ -43,7 +43,7 @@ impl AppState {
   pub fn new() -> Self {
     let is_dark = system_is_dark_mode();
     let mut app = Self {
-      text_content: "-- Welcome to LuaCAD Studio\n-- Z-axis points upward\n-- Use + for union, - for difference, * for intersection\n\nlocal body = cube { 4, 2, 1, center = true }\nlocal hole = cylinder { h = 3, r = 0.5, center = true }\n\nrender(body - hole)".to_string(),
+      text_content: "-- Welcome to LuaCAD Studio\n-- Use + for union, - for difference, * for intersection\n\nlocal body = cube { 4, 2, 1, center = true }\nlocal hole = cylinder { h = 3, r = 0.5, center = true }\n\nrender(body - hole)".to_string(),
       geometries: vec![],
       lua_error: None,
       camera_azimuth: -30.0,

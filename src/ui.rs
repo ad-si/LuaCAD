@@ -208,7 +208,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             ui.add_space(6.0);
             ui.label(format!("Lines: {}  Chars: {}", app.text_content.lines().count(), app.text_content.len()));
             ui.add_space(4.0);
-            ui.label("⌘O Open  ⌘S Save  ⌘D Select Word/Next  ⌘L Select Line  ⌘G Toggle Comment");
+            ui.label("⌘O Open  ⌘S Save  ⌘D Select Word/Next  ⌘L Select Line  ⌘G Toggle Comment  Tab Indent  ⇧Tab Unindent");
 
             if let Some(error) = &app.lua_error {
                 ui.separator();

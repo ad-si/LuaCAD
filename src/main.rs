@@ -128,39 +128,54 @@ fn main() {
     let mut paste_text: Option<String> = None;
     let mut wants_copy = false;
     let mut wants_cut = false;
+    let mut consume_tab = false;
     for event in frame_input.events.iter() {
       if let Event::KeyPress {
         kind, modifiers, ..
       } = event
-        && modifiers.command
       {
-        match kind {
-          Key::V => {
-            if let Some(cb) = clipboard.as_mut() {
-              paste_text = cb.get_text().ok();
+        if modifiers.command {
+          match kind {
+            Key::V => {
+              if let Some(cb) = clipboard.as_mut() {
+                paste_text = cb.get_text().ok();
+              }
             }
+            Key::C => wants_copy = true,
+            Key::X => wants_cut = true,
+            Key::D => {
+              app.pending_editor_action =
+                Some(EditorAction::SelectNextOccurrence);
+            }
+            Key::L => {
+              app.pending_editor_action = Some(EditorAction::SelectLine);
+            }
+            Key::G => {
+              app.pending_editor_action = Some(EditorAction::ToggleComment);
+            }
+            Key::S => {
+              app.pending_file_action = Some(FileAction::Save);
+            }
+            Key::O => {
+              app.pending_file_action = Some(FileAction::Open);
+            }
+            _ => {}
           }
-          Key::C => wants_copy = true,
-          Key::X => wants_cut = true,
-          Key::D => {
-            app.pending_editor_action =
-              Some(EditorAction::SelectNextOccurrence);
+        } else if *kind == Key::Tab {
+          if modifiers.shift {
+            app.pending_editor_action = Some(EditorAction::Unindent);
+          } else {
+            app.pending_editor_action = Some(EditorAction::InsertTab);
           }
-          Key::L => {
-            app.pending_editor_action = Some(EditorAction::SelectLine);
-          }
-          Key::G => {
-            app.pending_editor_action = Some(EditorAction::ToggleComment);
-          }
-          Key::S => {
-            app.pending_file_action = Some(FileAction::Save);
-          }
-          Key::O => {
-            app.pending_file_action = Some(FileAction::Open);
-          }
-          _ => {}
+          consume_tab = true;
         }
       }
+    }
+    // Remove Tab events so egui doesn't also insert a \t
+    if consume_tab {
+      frame_input.events.retain(|e| {
+        !matches!(e, Event::KeyPress { kind: Key::Tab, .. } | Event::KeyRelease { kind: Key::Tab, .. })
+      });
     }
 
     // Project axis label positions (using camera from previous frame)
