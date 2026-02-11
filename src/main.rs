@@ -197,6 +197,7 @@ fn main() {
     // Process GUI (consumes events over egui panels)
     let mut panel_width = 0.0_f32;
     let mut egui_cursor = egui::CursorIcon::Default;
+    let mut copied_text = String::new();
     gui.update(
       &mut frame_input.events,
       frame_input.accumulated_time,
@@ -237,19 +238,21 @@ fn main() {
           }
         }
 
-        // Capture cursor icon before end_pass() clears it
+        // Capture cursor icon and copied text before end_pass() clears them
         egui_cursor = gui_context.output(|o| o.cursor_icon);
+        gui_context.output_mut(|o| {
+          if !o.copied_text.is_empty() {
+            copied_text = std::mem::take(&mut o.copied_text);
+          }
+        });
       },
     );
 
     // Handle copy/cut output from egui → system clipboard
-    gui.context().output_mut(|o| {
-      if !o.copied_text.is_empty()
-        && let Some(cb) = clipboard.as_mut()
-      {
-        let _ = cb.set_text(std::mem::take(&mut o.copied_text));
+    if !copied_text.is_empty()
+      && let Some(cb) = clipboard.as_mut() {
+        let _ = cb.set_text(copied_text);
       }
-    });
 
     // Handle export requests (outside egui context so file dialog works)
     if let Some(fmt) = app.pending_export.take() {
