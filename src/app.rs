@@ -37,6 +37,8 @@ pub struct AppState {
   pub pending_openscad_export: Option<OpenScadFormat>,
   /// Auto-zoom to fit on next scene rebuild (initial load / file open)
   pub needs_fit_to_view: bool,
+  /// Whether the keyboard shortcuts modal is open
+  pub show_shortcuts: bool,
 }
 
 impl AppState {
@@ -60,6 +62,7 @@ impl AppState {
       pending_file_action: None,
       pending_openscad_export: None,
       needs_fit_to_view: true,
+      show_shortcuts: false,
     };
     app.execute_lua_code();
     app

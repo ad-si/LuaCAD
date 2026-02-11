@@ -59,187 +59,301 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
     });
   }
   let panel_response = egui::SidePanel::right("code_editor")
-        .default_width(screen_width * 0.4)
-        .min_width(screen_width * 0.2)
-        .show(gui_context, |ui| {
-            let title = match &app.current_file {
-                Some(path) => format!("Code Editor - {}", path.file_name().unwrap_or_default().to_string_lossy()),
-                None => "Code Editor".to_string(),
+    .default_width(screen_width * 0.4)
+    .min_width(screen_width * 0.2)
+    .show(gui_context, |ui| {
+      let title = match &app.current_file {
+        Some(path) => format!(
+          "Code Editor - {}",
+          path.file_name().unwrap_or_default().to_string_lossy()
+        ),
+        None => "Code Editor".to_string(),
+      };
+      ui.heading(title);
+
+      let editor_height = ui.available_height() - 100.0;
+      egui::ScrollArea::vertical()
+        .max_height(editor_height)
+        .show(ui, |ui| {
+          let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+            let theme = if ui.style().visuals.dark_mode {
+              syntax_highlighting::CodeTheme::dark(14.0)
+            } else {
+              syntax_highlighting::CodeTheme::light(14.0)
             };
-            ui.heading(title);
 
-            let editor_height = ui.available_height() - 100.0;
-            egui::ScrollArea::vertical()
-                .max_height(editor_height)
-                .show(ui, |ui| {
-                    let mut layouter =
-                        |ui: &egui::Ui, string: &str, wrap_width: f32| {
-                            let theme = if ui.style().visuals.dark_mode {
-                                syntax_highlighting::CodeTheme::dark(14.0)
-                            } else {
-                                syntax_highlighting::CodeTheme::light(14.0)
-                            };
+            let mut layout_job = syntax_highlighting::highlight(
+              ui.ctx(),
+              ui.style(),
+              &theme,
+              string,
+              "lua",
+            );
+            layout_job.wrap.max_width = wrap_width;
+            ui.fonts(|f| f.layout_job(layout_job))
+          };
 
-                            let mut layout_job =
-                                syntax_highlighting::highlight(
-                                    ui.ctx(),
-                                    ui.style(),
-                                    &theme,
-                                    string,
-                                    "lua",
-                                );
-                            layout_job.wrap.max_width = wrap_width;
-                            ui.fonts(|f| f.layout_job(layout_job))
-                        };
+          let te_output = egui::TextEdit::multiline(&mut app.text_content)
+            .desired_width(ui.available_width())
+            .desired_rows(30)
+            .font(egui::TextStyle::Monospace)
+            .code_editor()
+            .layouter(&mut layouter)
+            .show(ui);
 
-                    let te_output = egui::TextEdit::multiline(&mut app.text_content)
-                            .desired_width(ui.available_width())
-                            .desired_rows(30)
-                            .font(egui::TextStyle::Monospace)
-                            .code_editor()
-                            .layouter(&mut layouter)
-                            .show(ui);
+          // Apply pending editor action (Cmd+D, Cmd+L, Cmd+G)
+          if let Some(action) = app.pending_editor_action.take() {
+            let (cursor_start, cursor_end) =
+              if let Some(range) = te_output.cursor_range {
+                let sorted = range.as_sorted_char_range();
+                (sorted.start, sorted.end)
+              } else {
+                (0, 0)
+              };
 
-                    // Apply pending editor action (Cmd+D, Cmd+L, Cmd+G)
-                    if let Some(action) = app.pending_editor_action.take() {
-                        let (cursor_start, cursor_end) = if let Some(range) = te_output.cursor_range {
-                            let sorted = range.as_sorted_char_range();
-                            (sorted.start, sorted.end)
-                        } else {
-                            (0, 0)
-                        };
+            let (new_start, new_end) = apply_editor_action(
+              &action,
+              &mut app.text_content,
+              cursor_start,
+              cursor_end,
+            );
 
-                        let (new_start, new_end) = apply_editor_action(
-                            &action,
-                            &mut app.text_content,
-                            cursor_start,
-                            cursor_end,
-                        );
-
-                        // Update cursor/selection state
-                        let mut state = te_output.state.clone();
-                        use egui::text::CCursor;
-                        use egui::text_selection::CCursorRange;
-                        state.cursor.set_char_range(Some(CCursorRange::two(
-                            CCursor::new(new_start),
-                            CCursor::new(new_end),
-                        )));
-                        state.store(ui.ctx(), te_output.response.id);
-                    }
-                });
-
-            ui.separator();
-
-            ui.horizontal(|ui| {
-                if ui.button("Open").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.pending_file_action = Some(FileAction::Open);
-                }
-                if ui.button("Save").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.pending_file_action = Some(FileAction::Save);
-                }
-                if ui.button("Save As").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.pending_file_action = Some(FileAction::SaveAs);
-                }
-                ui.separator();
-                if ui.button("Clear").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.text_content.clear();
-                    app.geometries.clear();
-                    app.lua_error = None;
-                    app.scene_dirty = true;
-                    app.current_file = None;
-                }
-
-                let remaining = ui.available_width();
-                ui.add_space(remaining - 60.0);
-                let run_btn = egui::Button::new(
-                    egui::RichText::new("Run").size(18.0),
-                ).min_size(egui::vec2(60.0, 30.0));
-                if ui.add(run_btn).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.execute_lua_code();
-                }
-            });
-
-            ui.horizontal(|ui| {
-                let has_geometry = !app.geometries.is_empty();
-                let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
-
-                let csgrs_popup_id = ui.make_persistent_id("csgrs_export_popup");
-                let csgrs_btn = ui.add_enabled(has_geometry,
-                    egui::Button::new(egui::RichText::new("Export via csgrs   ")))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                paint_dropdown_arrow(ui, &csgrs_btn);
-                if csgrs_btn.clicked() {
-                    ui.memory_mut(|mem| mem.toggle_popup(csgrs_popup_id));
-                }
-                egui::popup_below_widget(ui, csgrs_popup_id, &csgrs_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-                    for &fmt in ExportFormat::ALL {
-                        if ui.button(fmt.label()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            app.pending_export = Some(fmt);
-                        }
-                    }
-                });
-
-                let openscad_popup_id = ui.make_persistent_id("openscad_export_popup");
-                let openscad_btn = ui.add_enabled(has_scad,
-                    egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")))
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                paint_dropdown_arrow(ui, &openscad_btn);
-                if openscad_btn.clicked() {
-                    ui.memory_mut(|mem| mem.toggle_popup(openscad_popup_id));
-                }
-                egui::popup_below_widget(ui, openscad_popup_id, &openscad_btn, egui::PopupCloseBehavior::CloseOnClick, |ui| {
-                    for &fmt in OpenScadFormat::ALL {
-                        if ui.button(fmt.label()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            app.pending_openscad_export = Some(fmt);
-                        }
-                    }
-                });
-
-                if ui.add_enabled(has_scad, egui::Button::new("Export SCAD")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.pending_export = Some(ExportFormat::OpenSCAD);
-                }
-            });
-
-            ui.add_space(6.0);
-            ui.label(format!("Lines: {}  Chars: {}", app.text_content.lines().count(), app.text_content.len()));
-            ui.add_space(4.0);
-            ui.label("⌘O Open  ⌘S Save  ⌘D Select Word/Next  ⌘L Select Line  ⌘G Toggle Comment  Tab Indent  ⇧Tab Unindent");
-
-            if let Some(error) = &app.lua_error {
-                ui.separator();
-                ui.colored_label(
-                    egui::Color32::RED,
-                    format!("Error: {error}"),
-                );
-            }
-
-            if !app.geometries.is_empty() {
-                let total_polys: usize = app.geometries.iter()
-                    .map(|g| g.mesh.polygons.len()).sum();
-                ui.separator();
-                ui.colored_label(
-                    egui::Color32::GREEN,
-                    format!("{} object(s), {} polygons", app.geometries.len(), total_polys),
-                );
-            }
-
-            if let Some((msg, is_error)) = &app.export_status {
-                ui.separator();
-                let color = if *is_error { egui::Color32::RED } else { egui::Color32::GREEN };
-                ui.colored_label(color, msg.as_str());
-            }
+            // Update cursor/selection state
+            let mut state = te_output.state.clone();
+            use egui::text::CCursor;
+            use egui::text_selection::CCursorRange;
+            state.cursor.set_char_range(Some(CCursorRange::two(
+              CCursor::new(new_start),
+              CCursor::new(new_end),
+            )));
+            state.store(ui.ctx(), te_output.response.id);
+          }
         });
+
+      ui.separator();
+
+      ui.horizontal(|ui| {
+        if ui
+          .button("Open")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_file_action = Some(FileAction::Open);
+        }
+        if ui
+          .button("Save")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_file_action = Some(FileAction::Save);
+        }
+        if ui
+          .button("Save As")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_file_action = Some(FileAction::SaveAs);
+        }
+        ui.separator();
+        if ui
+          .button("Clear")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.text_content.clear();
+          app.geometries.clear();
+          app.lua_error = None;
+          app.scene_dirty = true;
+          app.current_file = None;
+        }
+
+        let remaining = ui.available_width();
+        ui.add_space(remaining - 60.0);
+        let run_btn = egui::Button::new(egui::RichText::new("Run").size(18.0))
+          .min_size(egui::vec2(60.0, 30.0));
+        if ui
+          .add(run_btn)
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.execute_lua_code();
+        }
+      });
+
+      ui.horizontal(|ui| {
+        let has_geometry = !app.geometries.is_empty();
+        let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
+
+        let csgrs_popup_id = ui.make_persistent_id("csgrs_export_popup");
+        let csgrs_btn = ui
+          .add_enabled(
+            has_geometry,
+            egui::Button::new(egui::RichText::new("Export via csgrs   ")),
+          )
+          .on_hover_cursor(egui::CursorIcon::PointingHand);
+        paint_dropdown_arrow(ui, &csgrs_btn);
+        if csgrs_btn.clicked() {
+          ui.memory_mut(|mem| mem.toggle_popup(csgrs_popup_id));
+        }
+        egui::popup_below_widget(
+          ui,
+          csgrs_popup_id,
+          &csgrs_btn,
+          egui::PopupCloseBehavior::CloseOnClick,
+          |ui| {
+            for &fmt in ExportFormat::ALL {
+              if ui
+                .button(fmt.label())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+              {
+                app.pending_export = Some(fmt);
+              }
+            }
+          },
+        );
+
+        let openscad_popup_id = ui.make_persistent_id("openscad_export_popup");
+        let openscad_btn = ui
+          .add_enabled(
+            has_scad,
+            egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")),
+          )
+          .on_hover_cursor(egui::CursorIcon::PointingHand);
+        paint_dropdown_arrow(ui, &openscad_btn);
+        if openscad_btn.clicked() {
+          ui.memory_mut(|mem| mem.toggle_popup(openscad_popup_id));
+        }
+        egui::popup_below_widget(
+          ui,
+          openscad_popup_id,
+          &openscad_btn,
+          egui::PopupCloseBehavior::CloseOnClick,
+          |ui| {
+            for &fmt in OpenScadFormat::ALL {
+              if ui
+                .button(fmt.label())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+              {
+                app.pending_openscad_export = Some(fmt);
+              }
+            }
+          },
+        );
+
+        if ui
+          .add_enabled(has_scad, egui::Button::new("Export SCAD"))
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_export = Some(ExportFormat::OpenSCAD);
+        }
+      });
+
+      ui.add_space(6.0);
+      ui.horizontal(|ui| {
+        ui.label(format!(
+          "Lines: {}  Chars: {}",
+          app.text_content.lines().count(),
+          app.text_content.len()
+        ));
+        ui.separator();
+        if ui
+          .button("Shortcuts")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.show_shortcuts = true;
+        }
+      });
+
+      if let Some(error) = &app.lua_error {
+        ui.separator();
+        ui.colored_label(egui::Color32::RED, format!("Error: {error}"));
+      }
+
+      if !app.geometries.is_empty() {
+        let total_polys: usize =
+          app.geometries.iter().map(|g| g.mesh.polygons.len()).sum();
+        ui.separator();
+        ui.colored_label(
+          egui::Color32::GREEN,
+          format!(
+            "{} object(s), {} polygons",
+            app.geometries.len(),
+            total_polys
+          ),
+        );
+      }
+
+      if let Some((msg, is_error)) = &app.export_status {
+        ui.separator();
+        let color = if *is_error {
+          egui::Color32::RED
+        } else {
+          egui::Color32::GREEN
+        };
+        ui.colored_label(color, msg.as_str());
+      }
+    });
   let right_panel_width = panel_response.response.rect.width();
+
+  // Keyboard shortcuts modal
+  if app.show_shortcuts {
+    let mut open = true;
+    egui::Window::new("Keyboard Shortcuts")
+      .open(&mut open)
+      .collapsible(false)
+      .resizable(false)
+      .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+      .show(gui_context, |ui| {
+        let sections: &[(&str, &[(&str, &str)])] = &[
+          ("File", &[("⌘ O", "Open file"), ("⌘ S", "Save file")]),
+          (
+            "Editing",
+            &[
+              ("⌘ C", "Copy"),
+              ("⌘ X", "Cut"),
+              ("⌘ V", "Paste"),
+              ("⌘ D", "Select word / next occurrence"),
+              ("⌘ L", "Select line"),
+              ("⌘ G", "Toggle comment"),
+              ("Tab", "Indent selection"),
+              ("⇧ Tab", "Unindent selection"),
+            ],
+          ),
+          (
+            "Viewport",
+            &[("Drag", "Rotate camera"), ("Scroll", "Zoom in / out")],
+          ),
+        ];
+        for (i, &(section, shortcuts)) in sections.iter().enumerate() {
+          if i > 0 {
+            ui.add_space(6.0);
+          }
+          ui.label(egui::RichText::new(section).strong().size(14.0));
+          egui::Grid::new(format!("shortcuts_{section}"))
+            .num_columns(2)
+            .spacing([20.0, 4.0])
+            .show(ui, |ui| {
+              for &(key, desc) in shortcuts {
+                ui.label(egui::RichText::new(key).monospace());
+                ui.label(desc);
+                ui.end_row();
+              }
+            });
+        }
+      });
+    if !open {
+      app.show_shortcuts = false;
+    }
+  }
 
   // Bottom panel: camera controls and view presets
   egui::TopBottomPanel::bottom("controls").show(gui_context, |ui| {
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-      ui.label(format!(
-        "Az: {:.1} El: {:.1} Dist: {:.1}",
-        app.camera_azimuth, app.camera_elevation, app.camera_distance
-      ));
-      ui.separator();
-
       ui.label("Projection:");
       // Ortho visible half-height = camera_distance (height_param=2.0, zoom=distance).
       // Perspective visible half-height at target = camera_distance * tan(22.5°).
@@ -353,8 +467,12 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         app.theme_colors = app.resolve_theme();
       }
     });
-
-    ui.label("Mouse: Drag to rotate, Scroll to zoom");
+    ui.add_space(4.0);
+    ui.label(format!(
+      "Azimuth: {:.1}  Elevation: {:.1}  Distance: {:.1}",
+      app.camera_azimuth, app.camera_elevation, app.camera_distance
+    ));
+    ui.add_space(4.0);
   });
 
   right_panel_width
