@@ -149,11 +149,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                     app.current_file = None;
                 }
 
-                if ui.button("Load Example").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                    app.text_content = "-- CSG Boolean Operations Demo\n\n-- Create a hollow box\nlocal outer = cube(30, 20, 15)\nlocal inner = cube(26, 16, 15):translate(2, 2, 2)\nlocal box = outer - inner\n\n-- Cut a window in the front\nlocal window = cube(10, 4, 8):translate(10, -1, 4)\nlocal result = box - window\n\nrender(result)".to_string();
-                    app.current_file = None;
-                }
-
                 let remaining = ui.available_width();
                 ui.add_space(remaining - 60.0);
                 let run_btn = egui::Button::new(
