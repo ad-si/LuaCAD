@@ -1,10 +1,11 @@
 #[derive(Debug, Clone)]
 pub enum EditorAction {
-  SelectNextOccurrence, // Cmd+D
-  SelectLine,           // Cmd+L
-  ToggleComment,        // Cmd+G (Cmd+/ blocked by three-d#571)
-  InsertTab,            // Tab — insert 2 spaces or indent selected lines
-  Unindent,             // Shift+Tab — unindent selected lines
+  SelectNextOccurrence,   // Cmd+D
+  SelectLine,             // Cmd+L
+  ToggleComment,          // Cmd+G (Cmd+/ blocked by three-d#571)
+  InsertTab,              // Tab — insert 2 spaces or indent selected lines
+  Unindent,               // Shift+Tab — unindent selected lines
+  PasteLineAbove(String), // Paste whole-line clipboard above the current line
 }
 
 /// Get the word boundaries around a character index in the text.
@@ -243,6 +244,23 @@ pub fn apply_editor_action(
         *text = new_text;
         (new_start, new_end)
       }
+    }
+
+    EditorAction::PasteLineAbove(line_text) => {
+      // Insert the whole-line text at the start of the current line
+      let (line_start, _) = line_range_at(text, cursor_start);
+      let byte_idx: usize =
+        text.chars().take(line_start).collect::<String>().len();
+      let insert = if line_text.ends_with('\n') {
+        line_text.clone()
+      } else {
+        format!("{}\n", line_text)
+      };
+      let insert_chars = insert.chars().count();
+      text.insert_str(byte_idx, &insert);
+      // Keep cursor at its original position (shifted by inserted text), no selection
+      let new_pos = cursor_start + insert_chars;
+      (new_pos, new_pos)
     }
 
     EditorAction::Unindent => {

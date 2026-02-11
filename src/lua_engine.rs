@@ -1448,6 +1448,10 @@ mod tests {
       pending_file_action: None,
       pending_openscad_export: None,
       needs_fit_to_view: false,
+      show_shortcuts: false,
+      editor_cursor_pos: 0,
+      editor_selection_len: 0,
+      clipboard_is_line: false,
     };
     app.execute_lua_code();
     assert!(app.lua_error.is_none(), "Lua error: {:?}", app.lua_error);

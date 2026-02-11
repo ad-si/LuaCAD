@@ -151,6 +151,8 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             let sorted = range.as_sorted_char_range();
             let cursor_pos = sorted.end;
             selection_len = sorted.end - sorted.start;
+            app.editor_cursor_pos = cursor_pos;
+            app.editor_selection_len = selection_len;
 
             // Calculate line and column from character offset
             let text_before_cursor =

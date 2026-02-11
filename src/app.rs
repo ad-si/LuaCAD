@@ -39,6 +39,12 @@ pub struct AppState {
   pub needs_fit_to_view: bool,
   /// Whether the keyboard shortcuts modal is open
   pub show_shortcuts: bool,
+  /// Editor cursor character offset (updated each frame by UI)
+  pub editor_cursor_pos: usize,
+  /// Editor selection length in characters (updated each frame by UI)
+  pub editor_selection_len: usize,
+  /// True when clipboard contains a whole-line copy (Cmd+C with no selection)
+  pub clipboard_is_line: bool,
 }
 
 impl AppState {
@@ -63,6 +69,9 @@ impl AppState {
       pending_openscad_export: None,
       needs_fit_to_view: true,
       show_shortcuts: false,
+      editor_cursor_pos: 0,
+      editor_selection_len: 0,
+      clipboard_is_line: false,
     };
     app.execute_lua_code();
     app

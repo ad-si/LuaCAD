@@ -224,12 +224,31 @@ fn main() {
       |gui_context| {
         // Inject clipboard events that three-d doesn't handle
         if let Some(text) = &paste_text {
-          gui_context.input_mut(|i| {
-            i.events.push(egui::Event::Paste(text.clone()));
-          });
+          if app.clipboard_is_line {
+            // Whole-line paste: insert above the current line via editor action
+            app.pending_editor_action = Some(EditorAction::PasteLineAbove(text.clone()));
+          } else {
+            gui_context.input_mut(|i| {
+              i.events.push(egui::Event::Paste(text.clone()));
+            });
+          }
         }
         if wants_copy {
-          gui_context.input_mut(|i| i.events.push(egui::Event::Copy));
+          if app.editor_selection_len == 0 {
+            // No selection: copy the entire current line (including newline)
+            let text = &app.text_content;
+            let cursor = app.editor_cursor_pos.min(text.len());
+            let line_start = text[..cursor].rfind('\n').map_or(0, |p| p + 1);
+            let line_end = text[cursor..].find('\n').map_or(text.len(), |p| cursor + p + 1);
+            let line = &text[line_start..line_end];
+            if let Some(cb) = clipboard.as_mut() {
+              let _ = cb.set_text(line.to_string());
+            }
+            app.clipboard_is_line = true;
+          } else {
+            gui_context.input_mut(|i| i.events.push(egui::Event::Copy));
+            app.clipboard_is_line = false;
+          }
         }
         if wants_cut {
           gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
