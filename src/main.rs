@@ -365,8 +365,7 @@ fn main() {
               Ok(contents) => {
                 app.text_content = contents;
                 app.current_file = Some(path);
-                app.geometries.clear();
-                app.lua_error = None;
+                app.execute_lua_code();
                 app.scene_dirty = true;
               }
               Err(e) => {
@@ -574,6 +573,25 @@ fn main() {
         }
         winit::event::WindowEvent::CloseRequested => {
           *control_flow = winit::event_loop::ControlFlow::Exit;
+        }
+        winit::event::WindowEvent::DroppedFile(path) => {
+          if path.extension().and_then(|e| e.to_str()) == Some("lua") {
+            match std::fs::read_to_string(path) {
+              Ok(contents) => {
+                app.text_content = contents;
+                app.current_file = Some(path.clone());
+                app.execute_lua_code();
+                app.scene_dirty = true;
+              }
+              Err(e) => {
+                app.export_status =
+                  Some((format!("Failed to open: {e}"), true));
+              }
+            }
+          } else {
+            app.export_status =
+              Some(("Only .lua files can be opened".to_string(), true));
+          }
         }
         _ => {}
       }
