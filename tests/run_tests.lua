@@ -21,6 +21,7 @@ require("tests/test_sign")
 require("tests/test_simple")
 require("tests/test_sphere")
 require("tests/test_square")
+require("tests/test_text")
 require("tests/test_vector_cross")
 
 os.exit(luaunit.LuaUnit.run())

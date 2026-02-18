@@ -284,20 +284,22 @@ end
   style = depending on the font, usually "Bold","Italic", etc. default normal
   h_aling = horizontal alignment, Possible values are "left", "center" and "right". Default is "left".
   v_valign = vertical alignment for the text. Possible values are "top", "center", "baseline" and "bottom". Default is "baseline".
+  spacing = spacing between characters. Default is 1.
 
 --]]
 ------------------------------------------------------------------------------------
 
 local scad_text = [[
 translate([$X,$Y,$Z])
-text("$TEXT", size=$H, font="$FONT", halign="$HALIGN", valign="$VALIGN");
+text("$TEXT", size=$H, font="$FONT", halign="$HALIGN", valign="$VALIGN", spacing=$SPACING);
 ]]
-function cad.text(x, y, z, text, height, font, style, h_align, v_align)
+function cad.text(x, y, z, text, height, font, style, h_align, v_align, spacing)
   local height = height or 10
   local font = font or "Arial"
   local style = style and (":" .. style) or ""
   local h_align = h_align or "left"
   local v_align = v_align or "baseline"
+  local spacing = spacing or 1
   local t = {
     X = x,
     Y = y,
@@ -307,6 +309,7 @@ function cad.text(x, y, z, text, height, font, style, h_align, v_align)
     FONT = font .. style,
     HALIGN = h_align,
     VALIGN = v_align,
+    SPACING = spacing,
   }
   local obj = cad._helpers.cad_obj()
   cad._helpers.update_content_t(obj, scad_text, t)
