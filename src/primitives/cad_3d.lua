@@ -45,8 +45,9 @@ end
 
 --[[------------------------------------------
   cad.cube{size = {x, y, z}, center = true/false}
-  cad.cube(x, y, z)  -- Function call syntax
-  cad.cube{x, y, z}  -- Table as array syntax
+  cad.cube(n)         -- Single number for equal sides
+  cad.cube(x, y, z)   -- Function call syntax
+  cad.cube{x, y, z}   -- Table as array syntax
 
   Draw a cube or a cuboid
 --]]
@@ -58,7 +59,13 @@ cube([$WIDTH, $HEIGHT, $DEPTH]);
 function cad.cube(argsOrX, y, z)
   local xLen, yLen, zLen, isCenter
 
-  if argsOrX and y and z then
+  if type(argsOrX) == "number" and not y and not z then
+    -- Single number syntax: cad.cube(2) == cad.cube(2, 2, 2)
+    xLen = argsOrX
+    yLen = argsOrX
+    zLen = argsOrX
+    isCenter = false
+  elseif argsOrX and y and z then
     -- Function call syntax: cad.cube(x, y, z)
     xLen = argsOrX or 1
     yLen = y or 1

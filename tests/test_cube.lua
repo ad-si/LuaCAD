@@ -126,6 +126,24 @@ function TestCube:testCubeWithArraySyntaxAndCenter()
   end
 end
 
+function TestCube:testCubeWithSingleNumber()
+  local cube = cube(2)
+  cube:export("temp/test_cube_single_number.scad")
+
+  local file = io.open("tests/temp/test_cube_single_number.scad", "r")
+  luaunit.assertNotNil(file, "SCAD file for single number cube was not created")
+  if file then
+    local content = file:read("*all")
+    file:close()
+    luaunit.assertStrContains(
+      content,
+      "cube([2, 2, 2])",
+      false,
+      "Cube with equal dimensions not found in SCAD file"
+    )
+  end
+end
+
 -- Run the tests
 if not ... then
   os.exit(luaunit.LuaUnit.run())
