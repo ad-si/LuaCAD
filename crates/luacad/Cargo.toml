@@ -1,0 +1,10 @@
+[package]
+name = "luacad"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"] }
+nalgebra = "0.33"
+threemf = "0.5"

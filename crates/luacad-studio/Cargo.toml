@@ -1,0 +1,13 @@
+[package]
+name = "luacad-studio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+luacad = { path = "../luacad" }
+three-d = { version = "0.18", features = ["window", "egui-gui"] }
+egui_extras = { version = "0.29", features = ["default", "syntect"] }
+csgrs = { version = "0.20", default-features = false, features = ["f32"] }
+arboard = "3"
+rfd = "0.15"
+winit = "0.28"
