@@ -28,12 +28,12 @@ test:
 
 .PHONY: run
 run:
-	cargo run
+	cargo run --package luacad-studio
 
 
 .PHONY: dev
 dev:
-	watchexec --restart --exts rs,toml -- cargo run
+	watchexec --restart --exts rs,toml -- cargo run --package luacad-studio
 
 
 .PHONY: release
@@ -56,4 +56,5 @@ release:
 
 .PHONY: install
 install:
-	cargo install --path .
+	cargo install --path crates/luacad
+	cargo install --path crates/luacad-studio

@@ -1678,17 +1678,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "luacad_studio"
+name = "luacad"
+version = "0.1.0"
+dependencies = [
+ "csgrs",
+ "mlua",
+ "nalgebra",
+ "threemf",
+]
+
+[[package]]
+name = "luacad-studio"
 version = "0.1.0"
 dependencies = [
  "arboard",
  "csgrs",
  "egui_extras",
- "mlua",
- "nalgebra",
+ "luacad",
  "rfd",
  "three-d",
- "threemf",
  "winit",
 ]
 

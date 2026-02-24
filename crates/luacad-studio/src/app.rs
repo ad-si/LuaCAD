@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use crate::editor::EditorAction;
-use crate::export::{ExportFormat, OpenScadFormat};
-use crate::geometry::CsgGeometry;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
+use luacad::export::{ExportFormat, OpenScadFormat};
+use luacad::geometry::CsgGeometry;
 
 #[derive(Debug, Clone)]
 pub enum FileAction {
@@ -89,5 +89,21 @@ impl AppState {
         }
       }
     }
+  }
+
+  pub fn execute_lua_code(&mut self) {
+    self.lua_error = None;
+    self.geometries.clear();
+
+    match luacad::lua_engine::execute_lua(&self.text_content) {
+      Ok(geometries) => {
+        self.geometries = geometries;
+      }
+      Err(e) => {
+        self.lua_error = Some(e);
+      }
+    }
+
+    self.scene_dirty = true;
   }
 }

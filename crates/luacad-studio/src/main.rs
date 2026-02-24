@@ -1,16 +1,13 @@
 mod app;
 mod editor;
-mod export;
-mod geometry;
-mod lua_engine;
-mod scad_export;
 mod scene;
 mod theme;
 mod ui;
 
 use app::{AppState, FileAction};
 use editor::EditorAction;
-use export::ExportFormat;
+use luacad::export::ExportFormat;
+use luacad::scad_export;
 use scene::{
   build_camera, build_scene, compute_camera_vectors, compute_fit_distance,
 };
@@ -311,10 +308,10 @@ fn main() {
         .save_file()
       {
         let result = match fmt {
-          ExportFormat::ThreeMF => export::export_3mf(&app.geometries, &path),
-          ExportFormat::STL => export::export_stl(&app.geometries, &path),
-          ExportFormat::OBJ => export::export_obj(&app.geometries, &path),
-          ExportFormat::PLY => export::export_ply(&app.geometries, &path),
+          ExportFormat::ThreeMF => luacad::export::export_3mf(&app.geometries, &path),
+          ExportFormat::STL => luacad::export::export_stl(&app.geometries, &path),
+          ExportFormat::OBJ => luacad::export::export_obj(&app.geometries, &path),
+          ExportFormat::PLY => luacad::export::export_ply(&app.geometries, &path),
           ExportFormat::OpenSCAD => {
             let nodes: Vec<_> = app
               .geometries

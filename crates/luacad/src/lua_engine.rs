@@ -2,7 +2,6 @@ use csgrs::mesh::Mesh as CsgMesh;
 use csgrs::traits::CSG;
 use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
-use crate::app::AppState;
 use crate::geometry::{CsgGeometry, CsgSketch, lua_val_to_f32};
 use crate::scad_export::ScadNode;
 
@@ -191,11 +190,10 @@ fn parse_cylinder_args(
 // Lua environment setup and execution
 // ---------------------------------------------------------------------------
 
-impl AppState {
-  pub fn execute_lua_code(&mut self) {
-    self.lua_error = None;
-    self.geometries.clear();
-
+/// Execute LuaCAD code and return the resulting geometries.
+///
+/// Returns `Ok(geometries)` on success, or `Err(message)` on failure.
+pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     let lua = Lua::new();
     let collector =
       std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
@@ -1192,7 +1190,7 @@ impl AppState {
       })?;
       lua.globals().set("version", version_fn)?;
 
-      lua.load(&self.text_content).eval::<mlua::MultiValue>()
+      lua.load(code).eval::<mlua::MultiValue>()
     })();
 
     match result {
@@ -1205,21 +1203,18 @@ impl AppState {
             collector.borrow_mut().push(geom.clone());
           }
         }
-        self.geometries = collector.borrow().clone();
-        if self.geometries.is_empty() {
-          self.lua_error = Some(
+        let geometries = collector.borrow().clone();
+        if geometries.is_empty() {
+          Err(
             "No geometry to render. Use render(obj) or return a geometry object."
               .to_string(),
-          );
+          )
+        } else {
+          Ok(geometries)
         }
       }
-      Err(e) => {
-        self.lua_error = Some(format!("Lua error: {e}"));
-      }
+      Err(e) => Err(format!("Lua error: {e}")),
     }
-
-    self.scene_dirty = true;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1430,36 +1425,8 @@ mod tests {
 
   /// Helper: run Lua code and return the collected ScadNodes.
   fn run_lua_scad(code: &str) -> Vec<ScadNode> {
-    let mut app = AppState {
-      text_content: code.to_string(),
-      geometries: vec![],
-      lua_error: None,
-      camera_azimuth: 0.0,
-      camera_elevation: 0.0,
-      camera_distance: 5.0,
-      orthogonal_view: true,
-      scene_dirty: false,
-      theme_mode: crate::theme::ThemeMode::Dark,
-      theme_colors: crate::theme::ThemeColors::dark(),
-      pending_editor_action: None,
-      export_status: None,
-      pending_export: None,
-      current_file: None,
-      pending_file_action: None,
-      pending_openscad_export: None,
-      needs_fit_to_view: false,
-      show_shortcuts: false,
-      editor_cursor_pos: 0,
-      editor_selection_len: 0,
-      clipboard_is_line: false,
-    };
-    app.execute_lua_code();
-    assert!(app.lua_error.is_none(), "Lua error: {:?}", app.lua_error);
-    app
-      .geometries
-      .iter()
-      .filter_map(|g| g.scad.clone())
-      .collect()
+    let geometries = execute_lua(code).expect("Lua execution failed");
+    geometries.iter().filter_map(|g| g.scad.clone()).collect()
   }
 
   #[test]
