@@ -97,6 +97,12 @@ impl AppState {
 
     match luacad::lua_engine::execute_lua(&self.text_content) {
       Ok(geometries) => {
+        if geometries.is_empty() {
+          self.lua_error = Some(
+            "No geometry to render. Use render(obj) or return a geometry object."
+              .to_string(),
+          );
+        }
         self.geometries = geometries;
       }
       Err(e) => {

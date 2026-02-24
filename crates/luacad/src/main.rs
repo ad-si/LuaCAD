@@ -9,7 +9,7 @@ fn print_help() {
   println!("luacad {version} — Execute LuaCAD code from the command line");
   println!();
   println!("Usage:");
-  println!("  luacad <file.lua>                         Run a LuaCAD file");
+  println!("  luacad run <file.lua>                     Run a LuaCAD file");
   println!(
     "  luacad convert <input.lua> <output.stl>   Convert to a mesh format"
   );
@@ -131,46 +131,39 @@ fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
   Ok(count)
 }
 
-fn run_lua(path: &str) -> Result<Vec<luacad::geometry::CsgGeometry>, ExitCode> {
-  let code = match std::fs::read_to_string(path) {
+fn cmd_run(args: &[String]) -> ExitCode {
+  if args.is_empty() {
+    eprintln!("Missing input file. Usage: luacad run <file.lua>");
+    return ExitCode::FAILURE;
+  }
+
+  let code = match std::fs::read_to_string(&args[0]) {
     Ok(c) => c,
     Err(e) => {
-      eprintln!("Error reading {path}: {e}");
-      return Err(ExitCode::FAILURE);
+      eprintln!("Error reading {}: {e}", args[0]);
+      return ExitCode::FAILURE;
     }
   };
 
   match luacad::lua_engine::execute_lua(&code) {
-    Ok(g) => Ok(g),
+    Ok(geometries) => {
+      if geometries.is_empty() {
+        println!("OK");
+      } else {
+        let label = if geometries.len() == 1 {
+          "object"
+        } else {
+          "objects"
+        };
+        println!("OK: {} {label}", geometries.len());
+      }
+      ExitCode::SUCCESS
+    }
     Err(e) => {
       eprintln!("{e}");
-      Err(ExitCode::FAILURE)
+      ExitCode::FAILURE
     }
   }
-}
-
-fn cmd_run(args: &[String]) -> ExitCode {
-  if args.is_empty() {
-    eprintln!("Missing input file. Run `luacad --help` for usage.");
-    return ExitCode::FAILURE;
-  }
-
-  let geometries = match run_lua(&args[0]) {
-    Ok(g) => g,
-    Err(code) => return code,
-  };
-
-  println!(
-    "OK: {} {}",
-    geometries.len(),
-    if geometries.len() == 1 {
-      "object"
-    } else {
-      "objects"
-    }
-  );
-
-  ExitCode::SUCCESS
 }
 
 /// Parse convert/watch args into (input, output_str, format_override, via_openscad).
@@ -367,6 +360,7 @@ fn main() -> ExitCode {
       print_version();
       ExitCode::SUCCESS
     }
+    "run" => cmd_run(&args[1..]),
     "convert" => cmd_convert(&args[1..]),
     "watch" => cmd_watch(&args[1..]),
     _ => cmd_run(&args),

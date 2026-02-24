@@ -1203,15 +1203,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
             collector.borrow_mut().push(geom.clone());
           }
         }
-        let geometries = collector.borrow().clone();
-        if geometries.is_empty() {
-          Err(
-            "No geometry to render. Use render(obj) or return a geometry object."
-              .to_string(),
-          )
-        } else {
-          Ok(geometries)
-        }
+        Ok(collector.borrow().clone())
       }
       Err(e) => Err(format!("Lua error: {e}")),
     }
