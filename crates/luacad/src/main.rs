@@ -19,6 +19,7 @@ fn print_help() {
   println!();
   println!("Convert options:");
   println!("  --format <fmt>   Override output format (default: infer from extension)");
+  println!("  --via-openscad   Use OpenSCAD to generate the output instead of csgrs");
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
 }
@@ -105,10 +106,48 @@ fn cmd_run(args: &[String]) -> ExitCode {
   ExitCode::SUCCESS
 }
 
+fn export_via_openscad(
+  geometries: &[luacad::geometry::CsgGeometry],
+  output: &Path,
+) -> Result<(), String> {
+  let nodes: Vec<_> = geometries
+    .iter()
+    .filter_map(|g| g.scad.clone())
+    .collect();
+  if nodes.is_empty() {
+    return Err("No SCAD geometry to export".to_string());
+  }
+
+  let scad_source = luacad::scad_export::generate_scad(&nodes);
+  let tmp_dir = std::env::temp_dir().join("luacad_openscad");
+  std::fs::create_dir_all(&tmp_dir)
+    .map_err(|e| format!("Failed to create temp dir: {e}"))?;
+  let tmp_scad = tmp_dir.join("export_temp.scad");
+  std::fs::write(&tmp_scad, &scad_source)
+    .map_err(|e| format!("Failed to write temp SCAD file: {e}"))?;
+
+  let result = std::process::Command::new("openscad")
+    .arg("-o")
+    .arg(output)
+    .arg(&tmp_scad)
+    .output()
+    .map_err(|e| {
+      format!("Failed to run OpenSCAD: {e}. Is OpenSCAD installed and in PATH?")
+    })?;
+
+  if result.status.success() {
+    Ok(())
+  } else {
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    Err(format!("OpenSCAD failed: {}", stderr.trim()))
+  }
+}
+
 fn cmd_convert(args: &[String]) -> ExitCode {
   let mut input: Option<&str> = None;
   let mut output: Option<&str> = None;
   let mut format_override: Option<&str> = None;
+  let mut via_openscad = false;
   let mut i = 0;
 
   while i < args.len() {
@@ -120,6 +159,9 @@ fn cmd_convert(args: &[String]) -> ExitCode {
           return ExitCode::FAILURE;
         }
         format_override = Some(&args[i]);
+      }
+      "--via-openscad" => {
+        via_openscad = true;
       }
       arg if arg.starts_with('-') => {
         eprintln!("Unknown option: {arg}");
@@ -180,7 +222,13 @@ fn cmd_convert(args: &[String]) -> ExitCode {
     }
   );
 
-  match export(&geometries, format, output_path) {
+  let export_result = if via_openscad {
+    export_via_openscad(&geometries, output_path)
+  } else {
+    export(&geometries, format, output_path)
+  };
+
+  match export_result {
     Ok(()) => {
       println!("Exported to {}", output_path.display());
       ExitCode::SUCCESS
