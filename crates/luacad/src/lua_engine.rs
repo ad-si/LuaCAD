@@ -1519,4 +1519,1186 @@ mod tests {
     assert!(scad.contains("color([1, 0, 0])"));
     assert!(scad.contains("cube([5, 5, 5]);"));
   }
+
+  // =========================================================================
+  // Cube tests (adapted from LuaCAD test_cube.lua)
+  // =========================================================================
+
+  #[test]
+  fn cube_basic_size_table() {
+    let nodes = run_lua_scad("return cube { size = { 3, 3, 3 } }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube("), "cube command not found");
+    assert!(scad.contains("cube([3, 3, 3])"));
+  }
+
+  #[test]
+  fn cube_custom_size() {
+    let nodes = run_lua_scad("return cube { size = { 1, 2, 3 } }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([1, 2, 3])"));
+  }
+
+  #[test]
+  fn cube_with_center() {
+    let nodes =
+      run_lua_scad("return cube { size = { 2, 2, 2 }, center = true }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube("));
+    assert!(
+      scad.contains("center = true"),
+      "center parameter not found in SCAD output"
+    );
+  }
+
+  #[test]
+  fn cube_array_syntax() {
+    let nodes = run_lua_scad("return cube { 3, 3, 5 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([3, 3, 5])"));
+  }
+
+  #[test]
+  fn cube_array_syntax_with_center() {
+    let nodes = run_lua_scad("return cube { 4, 4, 6, center = true }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([4, 4, 6]"));
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn cube_single_number() {
+    let nodes = run_lua_scad("return cube(2)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([2, 2, 2])"));
+  }
+
+  #[test]
+  fn cube_three_number_args() {
+    let nodes = run_lua_scad("return cube(1, 2, 3)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([1, 2, 3])"));
+  }
+
+  #[test]
+  fn cube_nested_table() {
+    let nodes = run_lua_scad("return cube { {5, 10, 15}, center = true }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([5, 10, 15]"));
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn cube_requires_argument() {
+    let result = execute_lua("return cube()");
+    assert!(result.is_err(), "cube() with no args should error");
+  }
+
+  // =========================================================================
+  // Sphere tests (adapted from LuaCAD test_sphere.lua)
+  // =========================================================================
+
+  #[test]
+  fn sphere_with_radius() {
+    let nodes = run_lua_scad("return sphere { r = 5 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("sphere("));
+    assert!(scad.contains("r = 5"));
+  }
+
+  #[test]
+  fn sphere_with_diameter() {
+    let nodes = run_lua_scad("return sphere { d = 10 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("sphere("));
+    assert!(scad.contains("r = 5"), "diameter 10 should yield radius 5");
+  }
+
+  #[test]
+  fn sphere_translation() {
+    let nodes = run_lua_scad("return sphere { r = 3 }:translate(10, 10, 10)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("sphere("));
+    assert!(scad.contains("translate([10, 10, 10])"));
+  }
+
+  #[test]
+  fn sphere_color_setting() {
+    let nodes = run_lua_scad("return sphere { r = 4 }:setcolor(1, 0, 0)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("sphere("));
+    assert!(scad.contains("color([1, 0, 0])"));
+  }
+
+  #[test]
+  fn sphere_color_named() {
+    let nodes = run_lua_scad("return sphere { r = 4 }:setcolor('red')");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("sphere("));
+    assert!(scad.contains("color([1, 0, 0])"));
+  }
+
+  #[test]
+  fn sphere_requires_argument() {
+    let result = execute_lua("return sphere()");
+    assert!(result.is_err(), "sphere() with no args should error");
+  }
+
+  #[test]
+  fn sphere_positional_number() {
+    let nodes = run_lua_scad("return sphere(7)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("r = 7"));
+  }
+
+  // =========================================================================
+  // Cylinder tests (adapted from LuaCAD test_simple.lua)
+  // =========================================================================
+
+  #[test]
+  fn cylinder_with_radius() {
+    let nodes = run_lua_scad("return cylinder { h = 10, r = 5 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cylinder("));
+    assert!(scad.contains("h = 10"));
+    assert!(scad.contains("r1 = 5"));
+    assert!(scad.contains("r2 = 5"));
+  }
+
+  #[test]
+  fn cylinder_with_diameter() {
+    let nodes = run_lua_scad("return cylinder { h = 10, d = 10 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cylinder("));
+    assert!(scad.contains("h = 10"));
+    assert!(scad.contains("r1 = 5"));
+  }
+
+  #[test]
+  fn cylinder_cone_with_radii() {
+    let nodes = run_lua_scad("return cylinder { h = 15, r1 = 5, r2 = 2 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cylinder("));
+    assert!(scad.contains("h = 15"));
+    assert!(scad.contains("r1 = 5"));
+    assert!(scad.contains("r2 = 2"));
+  }
+
+  #[test]
+  fn cylinder_cone_with_diameters() {
+    let nodes = run_lua_scad("return cylinder { h = 15, d1 = 10, d2 = 4 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cylinder("));
+    assert!(scad.contains("r1 = 5"));
+    assert!(scad.contains("r2 = 2"));
+  }
+
+  #[test]
+  fn cylinder_centered() {
+    let nodes =
+      run_lua_scad("return cylinder { h = 10, r = 5, center = true }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cylinder("));
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn cylinder_requires_argument() {
+    let result = execute_lua("return cylinder()");
+    assert!(result.is_err(), "cylinder() with no args should error");
+  }
+
+  // =========================================================================
+  // Circle tests (adapted from LuaCAD test_circle.lua)
+  // =========================================================================
+
+  #[test]
+  fn circle_with_radius() {
+    let nodes = run_lua_scad("return circle { r = 10 }:linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("circle("));
+    assert!(scad.contains("r = 10"));
+  }
+
+  #[test]
+  fn circle_with_diameter() {
+    let nodes = run_lua_scad("return circle { d = 20 }:linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("circle("));
+    assert!(
+      scad.contains("r = 10"),
+      "diameter 20 should yield radius 10"
+    );
+  }
+
+  #[test]
+  fn circle_positional_number() {
+    let nodes = run_lua_scad("return circle(5):linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("circle("));
+    assert!(scad.contains("r = 5"));
+  }
+
+  // =========================================================================
+  // Square/rect tests (adapted from LuaCAD test_square.lua)
+  // =========================================================================
+
+  #[test]
+  fn square_with_size_and_center() {
+    let nodes = run_lua_scad(
+      "return square { size = { 10, 20 }, center = true }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("square("));
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn square_with_single_size() {
+    let nodes = run_lua_scad(
+      "return square { size = { 15 }, center = false }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("square("));
+  }
+
+  #[test]
+  fn rect_alias() {
+    let nodes = run_lua_scad(
+      "return rect { size = { 30, 40 }, center = true }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(
+      scad.contains("square("),
+      "rect should generate square() in SCAD"
+    );
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn square_array_syntax() {
+    let nodes = run_lua_scad("return square { 10, 20 }:linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("square([10, 20])"));
+  }
+
+  // =========================================================================
+  // Translate tests (adapted from LuaCAD test_translate.lua)
+  // =========================================================================
+
+  #[test]
+  fn translate_direct_parameters() {
+    let nodes =
+      run_lua_scad("return cube { size = { 1, 1, 1 } }:translate(10, 20, 30)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("translate([10, 20, 30])"));
+    assert!(scad.contains("cube("));
+  }
+
+  #[test]
+  fn translate_preserves_values() {
+    let nodes =
+      run_lua_scad("return cube { size = { 1, 1, 1 } }:translate(10, 20, 30)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("10"), "x value not found");
+    assert!(scad.contains("20"), "y value not found");
+    assert!(scad.contains("30"), "z value not found");
+  }
+
+  // =========================================================================
+  // Rotate extrude tests (adapted from LuaCAD test_rotate_extrude.lua)
+  // =========================================================================
+
+  #[test]
+  fn rotate_extrude_simple() {
+    let nodes = run_lua_scad(
+      "local c = circle { r = 2 }:translate(5, 0)\n\
+       return c:rotateextrude()",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("rotate_extrude("));
+  }
+
+  #[test]
+  fn rotate_extrude_with_angle() {
+    let nodes = run_lua_scad(
+      "local c = circle { r = 2 }:translate(5, 0)\n\
+       return c:rotateextrude(180)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("rotate_extrude(angle = 180"));
+  }
+
+  #[test]
+  fn rotate_extrude_alias() {
+    let nodes = run_lua_scad(
+      "local c = circle { r = 2 }:translate(5, 0)\n\
+       return c:rotate_extrude()",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("rotate_extrude("));
+  }
+
+  // =========================================================================
+  // Minkowski tests (adapted from LuaCAD test_minkowski.lua)
+  // =========================================================================
+
+  #[test]
+  fn minkowski_cube_sphere() {
+    let nodes = run_lua_scad(
+      "local c = cube { 10, 10, 10, center = true }\n\
+       local s = sphere { r = 2 }\n\
+       return c:minkowski(s)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("minkowski()"));
+    assert!(scad.contains("cube("));
+    assert!(scad.contains("sphere("));
+  }
+
+  #[test]
+  fn minkowski_rounded_cube() {
+    let nodes = run_lua_scad(
+      "local c = cube { 10, 10, 10, center = true }\n\
+       local s = sphere { r = 1 }\n\
+       return c:minkowski(s)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("minkowski()"));
+  }
+
+  // =========================================================================
+  // Projection tests (adapted from LuaCAD test_projection.lua)
+  // =========================================================================
+
+  #[test]
+  fn projection_simple() {
+    let nodes =
+      run_lua_scad("return cube { size = { 10, 10, 10 } }:projection()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("projection()"));
+  }
+
+  #[test]
+  fn projection_cut() {
+    let nodes =
+      run_lua_scad("return cube { size = { 10, 10, 10 } }:projection(true)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("projection(cut = true)"));
+  }
+
+  #[test]
+  fn projection_complex() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 20, 20, 10 } }\n\
+       local cyl = cylinder { h = 15, r = 5 }:translate(10, 10, 10)\n\
+       return (c + cyl):projection()",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("projection()"));
+    assert!(scad.contains("cube("));
+    assert!(scad.contains("cylinder("));
+  }
+
+  // =========================================================================
+  // Multmatrix tests (adapted from LuaCAD test_multmatrix.lua)
+  // =========================================================================
+
+  #[test]
+  fn multmatrix_identity() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 2, 2, 2 } }\n\
+       local m = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+    assert!(scad.contains("[1, 0, 0, 0]"));
+  }
+
+  #[test]
+  fn multmatrix_scale() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {2,0,0,0, 0,2,0,0, 0,0,2,0, 0,0,0,1}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+    assert!(scad.contains("[2, 0, 0, 0]"));
+  }
+
+  #[test]
+  fn multmatrix_translation() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {1,0,0,3, 0,1,0,2, 0,0,1,1, 0,0,0,1}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+    assert!(scad.contains("[1, 0, 0, 3]"));
+  }
+
+  #[test]
+  fn multmatrix_rotation() {
+    let nodes = run_lua_scad(
+      "local sin45 = 0.7071067811865475\n\
+       local cos45 = 0.7071067811865475\n\
+       local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {cos45, -sin45, 0, 0, sin45, cos45, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+    assert!(scad.contains("0.707107"));
+  }
+
+  #[test]
+  fn multmatrix_combined() {
+    let nodes = run_lua_scad(
+      "local sin45 = 0.7071067811865475\n\
+       local cos45 = 0.7071067811865475\n\
+       local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {2*cos45, -2*sin45, 0, 3, 2*sin45, 2*cos45, 0, 2, 0, 0, 2, 1, 0, 0, 0, 1}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+  }
+
+  // =========================================================================
+  // Sign function tests (adapted from LuaCAD test_sign.lua)
+  // =========================================================================
+
+  #[test]
+  fn sign_positive() {
+    let geoms = execute_lua(
+      "local r = sign(5)\n\
+       assert(r == 1, 'sign(5) should be 1, got ' .. r)\n\
+       assert(sign(0.1) == 1)\n\
+       assert(sign(1e100) == 1)\n\
+       return cube(1)",
+    )
+    .expect("sign positive tests failed");
+    assert!(!geoms.is_empty());
+  }
+
+  #[test]
+  fn sign_zero() {
+    let geoms = execute_lua(
+      "assert(sign(0) == 0, 'sign(0) should be 0')\n\
+       return cube(1)",
+    )
+    .expect("sign zero test failed");
+    assert!(!geoms.is_empty());
+  }
+
+  #[test]
+  fn sign_negative() {
+    let geoms = execute_lua(
+      "assert(sign(-5) == -1)\n\
+       assert(sign(-0.1) == -1)\n\
+       assert(sign(-1e100) == -1)\n\
+       return cube(1)",
+    )
+    .expect("sign negative tests failed");
+    assert!(!geoms.is_empty());
+  }
+
+  #[test]
+  fn sign_in_cad_model() {
+    // sign function used in arithmetic for a CAD model
+    let geoms = execute_lua(
+      "local value = -3\n\
+       local height = 2 * math.abs(value) * sign(value)\n\
+       assert(height == -6, 'expected -6, got ' .. height)\n\
+       return cube { size = { 10, 10, math.abs(height) } }",
+    )
+    .expect("sign in CAD model failed");
+    assert!(!geoms.is_empty());
+    let scad = generate_scad(
+      &geoms
+        .iter()
+        .filter_map(|g| g.scad.clone())
+        .collect::<Vec<_>>(),
+    );
+    assert!(scad.contains("cube([10, 10, 6])"));
+  }
+
+  // =========================================================================
+  // Combined shapes tests (adapted from LuaCAD test_simple.lua)
+  // =========================================================================
+
+  #[test]
+  fn combining_shapes_union() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 1, 2, 3 } }\n\
+       local s = sphere { r = 2 }\n\
+       return c + s",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("union()"));
+    assert!(scad.contains("cube("));
+    assert!(scad.contains("sphere("));
+  }
+
+  #[test]
+  fn combining_shapes_difference() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 10, 10, 10 } }\n\
+       local s = sphere { r = 5 }\n\
+       return c - s",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("difference()"));
+  }
+
+  #[test]
+  fn combining_shapes_intersection() {
+    let nodes = run_lua_scad(
+      "local c = cube { 10, 10, 10, center = true }\n\
+       local s = sphere(7)\n\
+       return c * s",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("intersection()"));
+  }
+
+  #[test]
+  fn modifier_skip() {
+    let nodes = run_lua_scad("return cube { size = { 10, 10, 10 } }:skip()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("*cube("), "skip modifier (*) not found");
+  }
+
+  #[test]
+  fn modifier_only() {
+    let nodes = run_lua_scad("return cube { size = { 10, 10, 10 } }:only()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("!cube("), "only modifier (!) not found");
+  }
+
+  #[test]
+  fn modifier_debug() {
+    let nodes = run_lua_scad("return cube { size = { 10, 10, 10 } }:debug()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("#cube("), "debug modifier (#) not found");
+  }
+
+  #[test]
+  fn modifier_transparent() {
+    let nodes =
+      run_lua_scad("return cube { size = { 10, 10, 10 } }:transparent()");
+    let scad = generate_scad(&nodes);
+    assert!(
+      scad.contains("%cube("),
+      "transparent modifier (%) not found"
+    );
+  }
+
+  #[test]
+  fn modifier_global_s_function() {
+    let nodes = run_lua_scad("return s(cube { size = { 10, 10, 10 } })");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("*cube("), "s() should produce skip modifier");
+  }
+
+  #[test]
+  fn modifier_global_o_function() {
+    let nodes = run_lua_scad("return o(cube { size = { 10, 10, 10 } })");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("!cube("), "o() should produce only modifier");
+  }
+
+  // =========================================================================
+  // Method-based boolean tests (add/sub/intersect)
+  // =========================================================================
+
+  #[test]
+  fn method_add() {
+    let nodes = run_lua_scad(
+      "local c = cube(5, 5, 5)\n\
+       local s = sphere(3)\n\
+       return c:add(s)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("union()"));
+  }
+
+  #[test]
+  fn method_sub() {
+    let nodes = run_lua_scad(
+      "local c = cube(10, 10, 10)\n\
+       local s = sphere(5)\n\
+       return c:sub(s)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("difference()"));
+  }
+
+  #[test]
+  fn method_intersect() {
+    let nodes = run_lua_scad(
+      "local c = cube { 10, 10, 10, center = true }\n\
+       local s = sphere(7)\n\
+       return c:intersect(s)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("intersection()"));
+  }
+
+  // =========================================================================
+  // Hull test
+  // =========================================================================
+
+  #[test]
+  fn hull_geometry() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):hull()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("hull()"));
+  }
+
+  // =========================================================================
+  // Rotate test
+  // =========================================================================
+
+  #[test]
+  fn rotate_basic() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):rotate(90, 0, 0)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("rotate([90, 0, 0])"));
+  }
+
+  #[test]
+  fn rotate_around_center() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):rotate(5, 5, 5, 0, 0, 45)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("translate([5, 5, 5])"));
+    assert!(scad.contains("rotate([0, 0, 45])"));
+    assert!(scad.contains("translate([-5, -5, -5])"));
+  }
+
+  // =========================================================================
+  // Scale and resize tests
+  // =========================================================================
+
+  #[test]
+  fn scale_basic() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):scale(2, 1, 1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("scale([2, 1, 1])"));
+  }
+
+  #[test]
+  fn resize_basic() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):resize(10, 5, 5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("resize([10, 5, 5])"));
+  }
+
+  // =========================================================================
+  // Mirror test
+  // =========================================================================
+
+  #[test]
+  fn mirror_basic() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):mirror(1, 0, 0)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("mirror([1, 0, 0])"));
+  }
+
+  // =========================================================================
+  // Color with alpha test
+  // =========================================================================
+
+  #[test]
+  fn color_with_alpha() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):color(1, 0, 0, 0.5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("color([1, 0, 0, 0.5])"));
+  }
+
+  // =========================================================================
+  // Linear extrude with options
+  // =========================================================================
+
+  #[test]
+  fn linear_extrude_centered() {
+    let nodes = run_lua_scad(
+      "return circle(5):linear_extrude { height = 10, center = true }",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("linear_extrude(height = 10, center = true)"));
+  }
+
+  #[test]
+  fn linear_extrude_with_twist() {
+    let nodes = run_lua_scad(
+      "return circle(5):linear_extrude { height = 10, twist = 45 }",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("linear_extrude(height = 10, twist = 45)"));
+  }
+
+  // =========================================================================
+  // Polygon test
+  // =========================================================================
+
+  #[test]
+  fn polygon_basic() {
+    let nodes = run_lua_scad(
+      "return polygon { {0, 0}, {10, 0}, {5, 10} }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("polygon("));
+    assert!(scad.contains("[0, 0]"));
+    assert!(scad.contains("[10, 0]"));
+    assert!(scad.contains("[5, 10]"));
+  }
+
+  #[test]
+  fn polygon_with_points_key() {
+    let nodes = run_lua_scad(
+      "return polygon { points = { {0, 0}, {10, 0}, {5, 10} } }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("polygon("));
+  }
+
+  // =========================================================================
+  // Polyhedron test
+  // =========================================================================
+
+  #[test]
+  fn polyhedron_basic() {
+    let nodes = run_lua_scad(
+      "return polyhedron {\n\
+         points = {\n\
+           {0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}\n\
+         },\n\
+         faces = {\n\
+           {0, 1, 2}, {0, 3, 1}, {0, 2, 3}, {1, 3, 2}\n\
+         }\n\
+       }",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("polyhedron("));
+    assert!(scad.contains("points = ["));
+    assert!(scad.contains("faces = ["));
+  }
+
+  // =========================================================================
+  // Math globals tests
+  // =========================================================================
+
+  #[test]
+  fn math_globals_trig() {
+    execute_lua(
+      "assert(abs(-5) == 5)\n\
+       assert(math.abs(sin(90) - 1) < 0.001)\n\
+       assert(math.abs(cos(0) - 1) < 0.001)\n\
+       assert(math.abs(cos(90)) < 0.001)\n\
+       assert(floor(3.7) == 3)\n\
+       assert(ceil(3.2) == 4)\n\
+       assert(sqrt(9) == 3)\n\
+       return cube(1)",
+    )
+    .expect("math globals test failed");
+  }
+
+  #[test]
+  fn math_globals_pi() {
+    execute_lua(
+      "assert(math.abs(PI - 3.14159265358979) < 0.0001)\n\
+       return cube(1)",
+    )
+    .expect("PI test failed");
+  }
+
+  #[test]
+  fn round_function() {
+    execute_lua(
+      "assert(round(3.5) == 4)\n\
+       assert(round(3.4) == 3)\n\
+       assert(round(-1.5) == -2)\n\
+       return cube(1)",
+    )
+    .expect("round test failed");
+  }
+
+  // =========================================================================
+  // Type checking functions
+  // =========================================================================
+
+  #[test]
+  fn type_checking_functions() {
+    execute_lua(
+      "assert(is_num(42))\n\
+       assert(not is_num('hello'))\n\
+       assert(is_str('hello'))\n\
+       assert(not is_str(42))\n\
+       assert(is_bool(true))\n\
+       assert(not is_bool(42))\n\
+       assert(is_table({}))\n\
+       assert(not is_table(42))\n\
+       assert(is_func(print))\n\
+       assert(not is_func(42))\n\
+       return cube(1)",
+    )
+    .expect("type checking functions test failed");
+  }
+
+  // =========================================================================
+  // Vector tests (adapted from LuaCAD test_vector_cross.lua)
+  // =========================================================================
+
+  #[test]
+  fn vector_cross_product() {
+    execute_lua(
+      "local a = vec(1, 0, 0)\n\
+       local b = vec(0, 1, 0)\n\
+       local c = a:cross(b)\n\
+       assert(c:getx() == 0)\n\
+       assert(c:gety() == 0)\n\
+       assert(c:getz() == 1)\n\
+       return cube(1)",
+    )
+    .expect("vector cross product test failed");
+  }
+
+  #[test]
+  fn vector_operations() {
+    execute_lua(
+      "local a = vec(1, 2, 3)\n\
+       local b = vec(4, 5, 6)\n\
+       local c = a + b\n\
+       assert(c:getx() == 5)\n\
+       assert(c:gety() == 7)\n\
+       assert(c:getz() == 9)\n\
+       local d = a - b\n\
+       assert(d:getx() == -3)\n\
+       assert(d:gety() == -3)\n\
+       assert(d:getz() == -3)\n\
+       return cube(1)",
+    )
+    .expect("vector operations test failed");
+  }
+
+  #[test]
+  fn vector_scalar_multiply() {
+    execute_lua(
+      "local a = vec(1, 2, 3)\n\
+       local b = a * 2\n\
+       assert(b:getx() == 2)\n\
+       assert(b:gety() == 4)\n\
+       assert(b:getz() == 6)\n\
+       return cube(1)",
+    )
+    .expect("vector scalar multiply test failed");
+  }
+
+  #[test]
+  fn vector_length() {
+    execute_lua(
+      "local a = vec(3, 4, 0)\n\
+       assert(math.abs(a:len() - 5) < 0.001)\n\
+       return cube(1)",
+    )
+    .expect("vector length test failed");
+  }
+
+  #[test]
+  fn vector_unit() {
+    execute_lua(
+      "local a = vec(3, 0, 0)\n\
+       local u = a:unit()\n\
+       assert(math.abs(u:getx() - 1) < 0.001)\n\
+       assert(math.abs(u:gety()) < 0.001)\n\
+       assert(math.abs(u:getz()) < 0.001)\n\
+       return cube(1)",
+    )
+    .expect("vector unit test failed");
+  }
+
+  #[test]
+  fn vector_negate() {
+    execute_lua(
+      "local a = vec(1, 2, 3)\n\
+       local b = -a\n\
+       assert(b:getx() == -1)\n\
+       assert(b:gety() == -2)\n\
+       assert(b:getz() == -3)\n\
+       return cube(1)",
+    )
+    .expect("vector negate test failed");
+  }
+
+  #[test]
+  fn global_cross_function() {
+    execute_lua(
+      "local a = vec(1, 0, 0)\n\
+       local b = vec(0, 1, 0)\n\
+       local c = cross(a, b)\n\
+       assert(c:getx() == 0)\n\
+       assert(c:gety() == 0)\n\
+       assert(c:getz() == 1)\n\
+       return cube(1)",
+    )
+    .expect("global cross function test failed");
+  }
+
+  #[test]
+  fn global_norm_function() {
+    execute_lua(
+      "local a = vec(3, 4, 0)\n\
+       assert(math.abs(norm(a) - 5) < 0.001)\n\
+       return cube(1)",
+    )
+    .expect("global norm function test failed");
+  }
+
+  // =========================================================================
+  // Auto-render from top-level return
+  // =========================================================================
+
+  #[test]
+  fn auto_render_top_level_return() {
+    let geoms =
+      execute_lua("return cube(5, 5, 5)").expect("auto-render failed");
+    assert_eq!(geoms.len(), 1);
+    assert!(geoms[0].scad.is_some());
+  }
+
+  // =========================================================================
+  // Text tests
+  // =========================================================================
+
+  #[test]
+  fn text_basic() {
+    let nodes = run_lua_scad("return text('Hello'):linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("text(\"Hello\""));
+  }
+
+  #[test]
+  fn text3d_basic() {
+    let nodes = run_lua_scad("return text3d('World')");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("linear_extrude("));
+    assert!(scad.contains("text(\"World\""));
+  }
+
+  // =========================================================================
+  // Torus test
+  // =========================================================================
+
+  #[test]
+  fn torus_basic() {
+    let nodes = run_lua_scad("return torus { R = 5, r = 1 }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("rotate_extrude("));
+    assert!(scad.contains("translate([5, 0, 0])"));
+    assert!(scad.contains("circle(r = 1"));
+  }
+
+  // =========================================================================
+  // Pyramid test
+  // =========================================================================
+
+  #[test]
+  fn pyramid_basic() {
+    let nodes = run_lua_scad("return pyramid(0, 0, 0, 10, 5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("polyhedron("));
+  }
+
+  // =========================================================================
+  // Concat utility
+  // =========================================================================
+
+  #[test]
+  fn concat_utility() {
+    execute_lua(
+      "local a = {1, 2, 3}\n\
+       local b = {4, 5, 6}\n\
+       local c = concat(a, b)\n\
+       assert(#c == 6)\n\
+       assert(c[1] == 1)\n\
+       assert(c[6] == 6)\n\
+       return cube(1)",
+    )
+    .expect("concat utility test failed");
+  }
+
+  // =========================================================================
+  // Lookup function
+  // =========================================================================
+
+  #[test]
+  fn lookup_interpolation() {
+    execute_lua(
+      "local t = {{0, 0}, {10, 100}}\n\
+       assert(lookup(5, t) == 50, 'expected 50 at midpoint')\n\
+       assert(lookup(0, t) == 0, 'expected 0 at start')\n\
+       assert(lookup(10, t) == 100, 'expected 100 at end')\n\
+       return cube(1)",
+    )
+    .expect("lookup interpolation test failed");
+  }
+
+  // =========================================================================
+  // Settings object
+  // =========================================================================
+
+  #[test]
+  fn settings_object_exists() {
+    execute_lua(
+      "assert(settings ~= nil)\n\
+       assert(settings.preview == true)\n\
+       return cube(1)",
+    )
+    .expect("settings object test failed");
+  }
+
+  // =========================================================================
+  // Import and surface (ScadNode-only)
+  // =========================================================================
+
+  #[test]
+  fn import_basic() {
+    let nodes = run_lua_scad("return import('model.stl')");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("import(\"model.stl\")"));
+  }
+
+  #[test]
+  fn surface_basic() {
+    let nodes = run_lua_scad("return surface('heightmap.dat')");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("surface(file = \"heightmap.dat\""));
+  }
+
+  // =========================================================================
+  // Rands function
+  // =========================================================================
+
+  #[test]
+  fn rands_function() {
+    execute_lua(
+      "local r = rands(0, 10, 5, 42)\n\
+       assert(#r == 5, 'expected 5 random numbers')\n\
+       for i = 1, 5 do\n\
+         assert(r[i] >= 0 and r[i] <= 10, 'out of range')\n\
+       end\n\
+       return cube(1)",
+    )
+    .expect("rands function test failed");
+  }
+
+  // =========================================================================
+  // Version function
+  // =========================================================================
+
+  #[test]
+  fn version_function() {
+    execute_lua(
+      "local v = version()\n\
+       assert(type(v) == 'table')\n\
+       assert(#v == 3)\n\
+       return cube(1)",
+    )
+    .expect("version function test failed");
+  }
+
+  // =========================================================================
+  // 2D sketch operations
+  // =========================================================================
+
+  #[test]
+  fn sketch_union() {
+    let nodes = run_lua_scad(
+      "local a = circle(5)\n\
+       local b = circle(3):translate(4, 0)\n\
+       return (a + b):linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("union()"));
+    assert!(scad.contains("circle("));
+  }
+
+  #[test]
+  fn sketch_difference() {
+    let nodes = run_lua_scad(
+      "local a = circle(5)\n\
+       local b = circle(3)\n\
+       return (a - b):linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("difference()"));
+  }
+
+  #[test]
+  fn sketch_intersection() {
+    let nodes = run_lua_scad(
+      "local a = circle(5)\n\
+       local b = circle(5):translate(3, 0)\n\
+       return (a * b):linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("intersection()"));
+  }
+
+  // =========================================================================
+  // Offset tests
+  // =========================================================================
+
+  #[test]
+  fn sketch_offset() {
+    let nodes = run_lua_scad("return circle(5):offset(2):linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("offset(delta = 2)"));
+  }
+
+  // =========================================================================
+  // Clone/copy
+  // =========================================================================
+
+  #[test]
+  fn clone_geometry() {
+    execute_lua(
+      "local a = cube(5, 5, 5)\n\
+       local b = a:clone()\n\
+       return b",
+    )
+    .expect("clone test failed");
+  }
+
+  #[test]
+  fn copy_geometry() {
+    execute_lua(
+      "local a = cube(5, 5, 5)\n\
+       local b = a:copy()\n\
+       return b",
+    )
+    .expect("copy test failed");
+  }
+
+  // =========================================================================
+  // Render_node (ScadNode wrapper)
+  // =========================================================================
+
+  #[test]
+  fn render_node_basic() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):render_node()");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("render()"));
+  }
+
+  #[test]
+  fn render_node_with_convexity() {
+    let nodes = run_lua_scad("return cube(5, 5, 5):render_node(10)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("render(convexity = 10)"));
+  }
 }
