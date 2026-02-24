@@ -57,9 +57,7 @@
 
   <div class="navbar">
     <a href="index.html" class="nav-link">Home</a>
-    <!-- TODO
     <a href="cheatsheet.html" class="nav-link">Cheatsheet</a>
-    -->
     <a href="examples.html" class="nav-link">Examples</a>
     <a href="openscad-to-luacad.html" class="nav-link active">OpenSCAD to LuaCAD</a>
   </div>
@@ -79,7 +77,6 @@
         So following statements are equivalent:
       </p>
       <ul>
-        <li><code>require("luacad")</code> and <code>require "luacad"</code></li>
         <li><code>circle({r = 5})</code> and <code>circle{r = 5}</code></li>
       </ul>
       <p>Furthermore code is usually written with a method chaining syntax,
@@ -131,12 +128,12 @@
           <td><code>function name(…) return … end<br>name()</code></td>
         </tr>
         <tr>
-          <td>Include file with exported symbols</td>
+          <td>Include file</td>
           <td><code>include &lt;….scad&gt;</code></td>
-          <td><code>require "…"</code></td>
+          <td><code>dofile("….lua")</code></td>
         </tr>
         <tr>
-          <td>Use file but keep namespace separate</td>
+          <td>Use file as module</td>
           <td><code>use &lt;….scad&gt;</code></td>
           <td><code>local module = require "…"</code></td>
         </tr>
@@ -165,14 +162,9 @@
           </code></td>
         </tr>
         <tr>
-          <td>Create a square with equal sides</td>
-          <td><code>square(size, center)</code></td>
-          <td><code>square(size, center)</code></td>
-        </tr>
-        <tr>
           <td>Create a rectangle</td>
           <td><code>square([width, height], center)</code></td>
-          <td><code>square{width, height, center)</code></td>
+          <td><code>square{{width, height}, center=true}</code></td>
         </tr>
         <tr>
           <td>Create a polygon from points</td>
@@ -228,14 +220,9 @@
           </code></td>
         </tr>
         <tr>
-          <td>Create a cube with equal sides</td>
-          <td><code>cube(size, center)</code></td>
-          <td><code>cube(size, center)</code></td>
-        </tr>
-        <tr>
           <td>Create a rectangular prism</td>
           <td><code>cube([width, depth, height], center)</code></td>
-          <td><code>cube{{width, depth, height}, center}</code></td>
+          <td><code>cube{{width, depth, height}, center=true}</code></td>
         </tr>
         <tr>
           <td>Create a cylinder</td>
@@ -252,7 +239,7 @@
         <tr>
           <td>Create a polyhedron</td>
           <td><code>polyhedron(points, faces, convexity)</code></td>
-          <td><code>polyhedron(points, faces, convexity)</code></td>
+          <td><code>polyhedron{points=pts, faces=fcs}</code></td>
         </tr>
         <tr>
           <td>Import 3D file (STL/etc)</td>
@@ -269,7 +256,7 @@
         <tr>
           <td>Rotate 2D shape around Y axis</td>
           <td><code>rotate_extrude(angle, convexity)</code></td>
-          <td><code>obj:rotateExtrude(angle, convexity)</code></td>
+          <td><code>obj:rotate_extrude(angle, segments)</code></td>
         </tr>
         <tr>
           <td>Create a 3D surface from heightmap</td>
@@ -425,6 +412,15 @@
 
     <section>
       <h2>Math Operators</h2>
+      <p>
+        Arithmetic operators are the same in both languages:
+        <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>,
+        <code>%</code>, <code>^</code>.
+        Comparison operators <code>&lt;</code>, <code>&lt;=</code>,
+        <code>==</code>, <code>&gt;=</code>, <code>&gt;</code>
+        are also identical.
+        The differences are:
+      </p>
       <table>
         <tr>
           <th>Description</th>
@@ -432,64 +428,9 @@
           <th>LuaCAD</th>
         </tr>
         <tr>
-          <td>Addition</td>
-          <td><code>n + m</code></td>
-          <td><code>n + m</code></td>
-        </tr>
-        <tr>
-          <td>Subtraction</td>
-          <td><code>n - m</code></td>
-          <td><code>n - m</code></td>
-        </tr>
-        <tr>
-          <td>Multiplication</td>
-          <td><code>n * m</code></td>
-          <td><code>n * m</code></td>
-        </tr>
-        <tr>
-          <td>Division</td>
-          <td><code>n / m</code></td>
-          <td><code>n / m</code></td>
-        </tr>
-        <tr>
-          <td>Modulo</td>
-          <td><code>n % m</code></td>
-          <td><code>n % m</code></td>
-        </tr>
-        <tr>
-          <td>Exponentiation</td>
-          <td><code>n ^ m</code></td>
-          <td><code>n ^ m</code></td>
-        </tr>
-        <tr>
-          <td>Less Than</td>
-          <td><code>n &lt; m</code></td>
-          <td><code>n &lt; m</code></td>
-        </tr>
-        <tr>
-          <td>Less or Equal</td>
-          <td><code>n &lt;= m</code></td>
-          <td><code>n &lt;= m</code></td>
-        </tr>
-        <tr>
-          <td>Equal</td>
-          <td><code>b == c</code></td>
-          <td><code>b == c</code></td>
-        </tr>
-        <tr>
           <td>Not Equal</td>
           <td><code>b != c</code></td>
           <td class="highlight"><code>b ~= c</code></td>
-        </tr>
-        <tr>
-          <td>Greater or Equal</td>
-          <td><code>n >= m</code></td>
-          <td><code>n >= m</code></td>
-        </tr>
-        <tr>
-          <td>Greater Than</td>
-          <td><code>n > m</code></td>
-          <td><code>n > m</code></td>
         </tr>
         <tr>
           <td>Logical And</td>
@@ -525,22 +466,7 @@
         <tr>
           <td>Mathematical constant &pi; (~3.14159)</td>
           <td><code>PI</code></td>
-          <td><code>math.pi</code></td>
-        </tr>
-        <tr>
-          <td>Smallest Integer</td>
-          <td><code></code></td>
-          <td><code>math.mininteger</code></td>
-        </tr>
-        <tr>
-          <td>Largest Integer</td>
-          <td><code></code></td>
-          <td><code>math.maxinteger</code></td>
-        </tr>
-        <tr>
-          <td>Biggest Number</td>
-          <td><code></code></td>
-          <td><code>math.huge</code></td>
+          <td><code>PI</code></td>
         </tr>
       </table>
     </section>
@@ -623,11 +549,6 @@
           <td>Index a list (Lua is 1-indexed)</td>
           <td><code>x = list[2];</code></td>
           <td class="highlight"><code>x = list[3]</code></td>
-        </tr>
-        <tr>
-          <td>Dot notation indexing (x/y/z)</td>
-          <td><code>x = list.z;</code></td>
-          <td><code>x = list.z</code></td>
         </tr>
       </table>
     </section>
@@ -778,6 +699,10 @@
 
     <section>
       <h2>Type test functions</h2>
+      <p>
+        <code>is_bool()</code>, <code>is_num()</code>, and <code>is_list()</code>
+        use the same name in both languages. The differences:
+      </p>
       <table>
         <tr>
           <th>Description</th>
@@ -786,39 +711,31 @@
         </tr>
         <tr>
           <td>Check if undefined</td>
-          <td><code>is_undef()</code></td>
-          <td><code>x == nil</code></td>
-        </tr>
-        <tr>
-          <td>Check if boolean</td>
-          <td><code>is_bool()</code></td>
-          <td><code>is_bool()</code></td>
-        </tr>
-        <tr>
-          <td>Check if number</td>
-          <td><code>is_num()</code></td>
-          <td><code>is_num()</code></td>
+          <td><code>is_undef(x)</code></td>
+          <td class="highlight"><code>x == nil</code></td>
         </tr>
         <tr>
           <td>Check if string</td>
-          <td><code>is_string</code></td>
-          <td><code>is_str()</code></td>
-        </tr>
-        <tr>
-          <td>Check if list</td>
-          <td><code>is_list()</code></td>
-          <td><code>is_list()</code></td>
+          <td><code>is_string(x)</code></td>
+          <td><code>is_str(x)</code></td>
         </tr>
         <tr>
           <td>Check if function</td>
-          <td><code>is_function()</code></td>
-          <td><code>is_func()</code></td>
+          <td><code>is_function(x)</code></td>
+          <td><code>is_func(x)</code></td>
         </tr>
       </table>
     </section>
 
     <section>
       <h2>Functions</h2>
+      <p>
+        Some functions use the same signature:
+        <code>assert</code>, <code>lookup</code>, <code>version</code>,
+        <code>concat</code>.
+        Note that <code>concat</code> uses <code>{}</code> tables
+        instead of <code>[]</code> arrays.
+      </p>
       <table>
         <tr>
           <th>Description</th>
@@ -833,27 +750,7 @@
         <tr>
           <td>Force rendering</td>
           <td><code>render(convexity)</code></td>
-          <td><code>obj:render(convexity)</code></td>
-        </tr>
-        <tr>
-          <td>Access child objects</td>
-          <td><code>children([idx])</code></td>
-          <td><code>children[idx]</code></td>
-        </tr>
-        <tr>
-          <td>Assert condition is true</td>
-          <td><code>assert(condition, message)</code></td>
-          <td><code>assert(condition, message)</code></td>
-        </tr>
-        <tr>
-          <td>Concatenate vectors / lists</td>
-          <td><code>concat([1,2], [3,4])</code></td>
-          <td><code>concat({1,2}, {3,4})</code></td>
-        </tr>
-        <tr>
-          <td>Look up value in a table</td>
-          <td><code>lookup()</code></td>
-          <td><code>lookup()</code></td>
+          <td><code>obj:render_node(convexity)</code></td>
         </tr>
         <tr>
           <td>Convert to string</td>
@@ -868,22 +765,12 @@
         <tr>
           <td>Get code from character</td>
           <td><code>ord("a")</code></td>
-          <td><code>string.byte("a")</code><br>
-            <small>(does not work for multi-byte characters)</small>
-          </td>
+          <td><code>string.byte("a")</code></td>
         </tr>
         <tr>
           <td>Search for value</td>
           <td><code>search()</code></td>
-          <td><code>
-            string.find()<br>
-            table.indexof()
-          </code></td>
-        </tr>
-        <tr>
-          <td>Get version string</td>
-          <td><code>version()</code></td>
-          <td><code>version()</code></td>
+          <td><code>string.find()</code></td>
         </tr>
         <tr>
           <td>Get parent module name</td>
@@ -895,6 +782,17 @@
 
     <section>
       <h2>Mathematical</h2>
+      <p>
+        Most math functions use the same name and signature in both languages:
+        <code>abs</code>, <code>sign</code>,
+        <code>sin</code>, <code>cos</code>, <code>tan</code>,
+        <code>asin</code>, <code>acos</code>, <code>atan</code>, <code>atan2</code>,
+        <code>floor</code>, <code>ceil</code>, <code>round</code>,
+        <code>sqrt</code>, <code>exp</code>, <code>ln</code>, <code>log</code>,
+        <code>min</code>, <code>max</code>,
+        <code>rands</code>, <code>norm</code>, <code>cross</code>.
+        Trig functions use degrees in both languages.
+      </p>
       <table>
         <tr>
           <th>Description</th>
@@ -902,127 +800,19 @@
           <th>LuaCAD</th>
         </tr>
         <tr>
-          <td>Absolute value</td>
-          <td><code>abs()</code></td>
-          <td><code>math.abs()</code></td>
-        </tr>
-        <tr>
-          <td>Sign of value (-1, 0, 1)</td>
-          <td><code>sign()</code></td>
-          <td><code>sign()</code></td>
-        </tr>
-        <tr>
-          <td>Sine function</td>
-          <td><code>sin()</code></td>
-          <td><code>math.sin()</code></td>
-        </tr>
-        <tr>
-          <td>Cosine function</td>
-          <td><code>cos()</code></td>
-          <td><code>math.cos()</code></td>
-        </tr>
-        <tr>
-          <td>Tangent function</td>
-          <td><code>tan()</code></td>
-          <td><code>math.tan()</code></td>
-        </tr>
-        <tr>
-          <td>Arc cosine function</td>
-          <td><code>acos()</code></td>
-          <td><code>math.acos()</code></td>
-        </tr>
-        <tr>
-          <td>Arc sine function</td>
-          <td><code>asin()</code></td>
-          <td><code>math.asin()</code></td>
-        </tr>
-        <tr>
-          <td>Arc tangent function</td>
-          <td><code>atan()</code></td>
-          <td><code>math.atan()</code></td>
-        </tr>
-        <tr>
-          <td>2-argument arc tangent</td>
-          <td><code>atan2()</code></td>
-          <td><code>math.atan2()</code></td>
-        </tr>
-        <tr>
-          <td>Round down</td>
-          <td><code>floor()</code></td>
-          <td><code>math.floor()</code></td>
-        </tr>
-        <tr>
-          <td>Round to nearest</td>
-          <td><code>round()</code></td>
-          <td><code>round()</code></td>
-        </tr>
-        <tr>
-          <td>Round up</td>
-          <td><code>ceil()</code></td>
-          <td><code>math.ceil()</code></td>
-        </tr>
-        <tr>
-          <td>Natural logarithm</td>
-          <td><code>ln()</code></td>
-          <td><code>math.log()</code></td>
-        </tr>
-        <tr>
           <td>Length of array</td>
-          <td><code>len()</code></td>
-          <td><code>#array()</code></td>
+          <td><code>len(list)</code></td>
+          <td class="highlight"><code>#list</code></td>
         </tr>
         <tr>
           <td>Local variable declaration</td>
           <td><code>let(x = 123)</code></td>
-          <td><code>local x = 123</code></td>
-        </tr>
-        <tr>
-          <td>Base-10 logarithm</td>
-          <td><code>log(x)</code></td>
-          <td><code>math.log(x, 10)</code></td>
+          <td class="highlight"><code>local x = 123</code></td>
         </tr>
         <tr>
           <td>Power function</td>
           <td><code>pow(x, y)</code></td>
-          <td><code>x ^ y</code></td>
-        </tr>
-        <tr>
-          <td>Square root</td>
-          <td><code>sqrt()</code></td>
-          <td><code>math.sqrt()</code></td>
-        </tr>
-        <tr>
-          <td>Exponential function</td>
-          <td><code>exp()</code></td>
-          <td><code>math.exp()</code></td>
-        </tr>
-        <tr>
-          <td>Random numbers</td>
-          <td><code>rands(min, max, count, seed)</code></td>
-          <td><code>
-            math.randomseed(seed)<br>
-            math.random(min, max)
-          </code></td>
-        </tr>
-        <tr>
-          <td>Minimum value</td>
-          <td><code>min()</code></td>
-          <td><code>math.min()</code></td>
-        </tr>
-        <tr>
-          <td>Maximum value</td>
-          <td><code>max()</code></td>
-          <td><code>math.max()</code></td>
-        </tr>
-        <tr>
-          <td>Vector length/magnitude</td>
-          <td><code>norm()</code></td>
-          <td><code>vector.length()</code></td>
-        </tr>
-        <tr>
-          <td>Cross product of vectors</td>
-          <td><code>cross()</code></td>
-          <td><code>vector.cross()</code></td>
+          <td><code>pow(x, y)</code> or <code>x ^ y</code></td>
         </tr>
       </table>
     </section>

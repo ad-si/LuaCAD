@@ -27,243 +27,247 @@
 
   <div class="container">
     <section>
-      <h2>Basic Shapes</h2>
-
-      <h3>2D Shapes</h3>
-      <pre><code class="language-lua">-- Rectangle/Square
-rect {size = {width, height}, center = false}
-square {size = width, center = false}
-
-
--- Circle
-circle {r = radius}
-circle {d = diameter}
-
-
--- Polygon
-polygon {points = {{x1,y1}, {x2,y2}, ...}}</code></pre>
-
-      <h3>3D Shapes</h3>
-      <pre><code class="language-lua">-- Cube/Cuboid
-cube {size = {x,y,z}, center = false}
-
+      <h2>3D Primitives</h2>
+      <pre><code class="language-lua">-- Cube / Cuboid
+cube(size)
+cube { size = {x, y, z}, center = true }
+cube(x, y, z)
 
 -- Sphere
-sphere {r = radius}
-sphere {d = diameter}
+sphere(r)
+sphere { r = radius }
+sphere { d = diameter }
 
-
--- Cylinder/Cone
-cylinder {h = height, r = radius, center = false}
-cylinder {h = height, r1 = bottom_r, r2 = top_r}
-
+-- Cylinder / Cone
+cylinder { h = height, r = radius, center = false }
+cylinder { h = height, r1 = bottom_r, r2 = top_r }
+cylinder { h = height, d = diameter }
 
 -- Polyhedron
-polyhedron(x, y, z, points, faces)</code></pre>
+polyhedron { points = {...}, faces = {...} }
+
+-- Pyramid
+pyramid { size = {x, y}, h = height }
+
+-- Torus
+torus { r1 = major_radius, r2 = minor_radius }
+
+-- Octahedron
+octahedron { r = radius }
+
+-- Icosahedron
+icosahedron { r = radius }
+
+-- Ellipsoid
+ellipsoid { rx = rx, ry = ry, rz = rz }</code></pre>
     </section>
 
     <section>
-      <h2>Special Shapes</h2>
+      <h2>2D Primitives</h2>
+      <pre><code class="language-lua">-- Circle
+circle(r)
+circle { r = radius }
+circle { d = diameter }
 
-      <h3>2D Special Shapes</h3>
-      <pre><code class="language-lua">-- Rounded Rectangle
-rectround {size = {w,h}, radius = r}
+-- Rectangle / Square
+rect { size = {width, height}, center = false }
+square { size = width, center = false }
 
+-- Polygon
+polygon { points = {{x1,y1}, {x2,y2}, ...} }
 
--- Chamfered Rectangle
-rectchamfer {size = {w,h}, chamfer = c}
+-- Text (SCAD export only)
+text("string", { size = 10, font = "Liberation Sans" })
 
-
--- Long Hole (Slot)
-longhole {points = {{x1,y1}, {x2,y2}}, r = radius}
-longholerelative {point = {x,y}, delta = {dx,dy}, r = radius}
-</code></pre>
-
-      <h3>3D Special Shapes</h3>
-      <pre><code class="language-lua">-- Pyramid
-pyramid(x, y, z, length, height)
-
-
--- Text
-text(x, y, z, "text", height, font, style)
-text3d(x, y, z, "text", height, depth, font)</code></pre>
-    </section>
-
-    <section>
-      <h2>Transformations</h2>
-      <pre><code class="language-lua">-- Translate
-object:translate(x, y, z)
-
-
--- Rotate
-object:rotate(cx, cy, cz, x_angle, y_angle, z_angle)
-object:rotate2d(cx, cy, angle)
-
-
--- Scale
-object:scale(x, y, z)
-
-
--- Mirror
-object:mirror(x, y, z)
-
-
--- Resize
-object:resize(x, y, z, auto_x, auto_y, auto_z)</code></pre>
+-- Text 3D
+text3d("string", { size = 10, h = 5 })</code></pre>
     </section>
 
     <section>
       <h2>Boolean Operations</h2>
       <pre><code class="language-lua">-- Union
 a + b
--- Operator syntax
-object:add(obj1, obj2)
--- Method syntax
-object:union()
--- Combined elements
-
 
 -- Difference
 a - b
-object:sub(obj1, obj2)
-
 
 -- Intersection
-object:intersect(obj1, obj2)</code></pre>
+a * b</code></pre>
     </section>
 
     <section>
-      <h2>Extrusions</h2>
-      <pre><code class="language-lua">-- Linear extrude
-object:linear_extrude(depth, twist, slices, scale)
+      <h2>Transformations</h2>
+      <pre><code class="language-lua">-- Translate
+obj:translate(x, y, z)
 
+-- Rotate (Euler angles in degrees)
+obj:rotate(x, y, z)
 
--- Rotate extrude
-object:rotateextrude()
+-- Rotate around center point
+obj:rotate(cx, cy, cz, rx, ry, rz)
 
+-- Scale
+obj:scale(sx, sy, sz)
 
--- Hull
-object:hull()
+-- Resize
+obj:resize(x, y, z)
 
+-- Mirror
+obj:mirror(x, y, z)
+
+-- Transformation matrix (4x4)
+obj:multmatrix(matrix)</code></pre>
+    </section>
+
+    <section>
+      <h2>Extrusions &amp; Hulls</h2>
+      <pre><code class="language-lua">-- Extrude 2D shape into 3D
+shape:linear_extrude(height)
+shape:linear_extrude(height, { twist = 90, slices = 10, scale = 2 })
+
+-- Revolve 2D shape around Z axis
+shape:rotate_extrude()
+shape:rotate_extrude(360, 64)  -- angle, segments
+
+-- Convex hull
+obj:hull()
+
+-- Minkowski sum
+obj:minkowski(other)
 
 -- Offset (2D)
-object:offset(distance, chamfer)
-object:offsetradius(radius, chamfer)</code></pre>
+shape:offset(delta)
+shape:offset { delta = d, chamfer = true }
+shape:offset { r = radius }</code></pre>
     </section>
 
     <section>
-      <h2>Object Operations</h2>
-      <pre><code class="language-lua">-- Create new object
-local obj = cad()
+      <h2>Color</h2>
+      <pre><code class="language-lua">-- By name
+obj:color("red")
 
+-- By RGB (0-1)
+obj:color(r, g, b)
 
--- Copy/Clone
-local copy = obj:copy()
-local clone = obj:clone()
+-- By RGBA
+obj:color(r, g, b, a)
 
+-- Alias
+obj:setcolor(...)</code></pre>
+    </section>
 
--- Reset
-obj:init()
-obj:reset()
+    <section>
+      <h2>Modifier Characters</h2>
+      <pre><code class="language-lua">obj:skip()         -- * disable (hide in preview)
+obj:only()         -- ! show only
+obj:debug()        -- # highlight
+obj:transparent()  -- % transparent / background</code></pre>
+    </section>
 
+    <section>
+      <h2>Other Operations</h2>
+      <pre><code class="language-lua">-- Clone / copy
+obj:clone()
+obj:copy()
 
--- Set color
-obj:setcolor(r, g, b)
-obj:setcolor("red")
-obj:setcolor {r, g, b}
+-- Projection (3D to 2D)
+obj:projection()
+obj:projection(true)  -- cut mode
 
+-- Force render
+obj:render_node(convexity)</code></pre>
+    </section>
 
--- Import/Export
-obj:import("model.stl")
-obj:export("output.stl", color, verbose)
-export("combined.stl", obj1, obj2, obj3)
+    <section>
+      <h2>Utility Functions</h2>
+      <pre><code class="language-lua">-- Add geometry to output
+render(geometry)
 
+-- Import external file (SCAD export only)
+import("model.stl", convexity)
 
--- Insert literal OpenSCAD code
+-- Import surface heightmap (SCAD export only)
+surface("heightmap.dat", center, convexity)
+
+-- Insert verbatim OpenSCAD code
 scad("cylinder(h=10, r=5, center=true);")
-scad([[
-module custom_shape() {
-  cube([10, 20, 30]);
-}
-custom_shape();
-]])</code></pre>
+
+-- OpenSCAD customizer variable (returns value as-is)
+var("name", value)
+
+-- Empty CAD object
+cad()
+
+-- Random numbers
+rands(min, max, count)
+rands(min, max, count, seed)
+
+-- Linear interpolation lookup
+lookup(key, {{k1,v1}, {k2,v2}, ...})
+
+-- Version
+version()  -- returns {major, minor, patch}
+
+-- Print to console
+print(...)</code></pre>
     </section>
 
     <section>
       <h2>Vector Operations</h2>
       <pre><code class="language-lua">-- Create vector
 local v = vector(x, y, z)
-local v = vec(x, y, z)
+local v = vec(x, y)
 
+-- Arithmetic
+v1 + v2          -- addition
+v1 - v2          -- subtraction
+5 * v  or  v * 5 -- scalar multiplication
+-v               -- negation
 
--- Vector operations
-v1 + v2
--- Addition
-v1 - v2
--- Subtraction
-5 * v or v * 5
--- Scalar multiplication
--v
--- Negation
-#v or v:len()
--- Length
+-- Methods
+v:getx()  v:gety()  v:getz()
+v:len()     -- length / magnitude
+v:unit()    -- unit vector
+v:normal()  -- 2D normal
+v:scalar(v2)  -- dot product
+v:cross(v2)   -- cross product
+v:rot(angle)  -- rotate vector
+v:angle(v2)   -- angle between vectors
 
-
--- Vector methods
-v:getx(), v:gety(), v:getz()
--- Get components
-v:unit()
--- Get unit vector
-v:normal(direction)
--- Get normal vector
-v:scalar(v2)
--- Calculate dot product
-v:cross(v2)
--- Calculate cross product
-v:rot(phi, axis)
--- Rotate vector
-v:angle(v2)
--- Angle between vectors
-      </code></pre>
+-- Global functions
+cross(v1, v2)
+norm(v)</code></pre>
     </section>
 
     <section>
-      <h2>DXF Operations</h2>
-      <pre><code class="language-lua">-- Create DXF object
-local drawing = dxf()
+      <h2>Math Functions</h2>
+      <pre><code class="language-lua">-- Available as bare globals (degrees for trig):
+sin(deg)  cos(deg)  tan(deg)
+asin(x)   acos(x)   atan(x)   atan2(y, x)
+abs(x)    floor(x)  ceil(x)   round(x)
+sqrt(x)   pow(x,y)  exp(x)    log(x)  ln(x)
+min(...)  max(...)  sign(x)
+PI  -- 3.14159...
 
+-- Type checking
+is_bool(v)   is_num(v)    is_str(v)
+is_table(v)  is_list(v)   is_func(v)
 
--- DXF methods
-drawing:addlayer(name, colorindex, style)
-drawing:text(text, x, y, height, angle, font, thickness, layer)
-drawing:line(x1, y1, x2, y2, layer)
-drawing:circle(x, y, radius, layer)
-drawing:arc(x, y, radius, start_angle, end_angle, layer)
-drawing:rect(x1, y1, w, h, layer)
-drawing:polygon(args)
-drawing:save("output.dxf")</code></pre>
+-- List operations
+concat(a, b)  -- concatenate two tables</code></pre>
     </section>
 
     <section>
-      <h2>Geometry Utilities</h2>
-      <pre><code class="language-lua">-- Process polygon points with special functions
-geometry.polygon(points)
-
-
--- Special point functions
-
--- Format: {x, y, "funcname", {args}}
-{x, y, "radius", {radius, segments}}
-{x, y, "belly", {distance, segments}}
-{x, y, "arc", {radius, segments}}
-
-
--- Generate arc points
-geometry.arc(x, y, radius, start_angle, end_angle, segments)
-
-
--- Generate circular segment
-geometry.getcirclesegment(x1, y1, x2, y2, dist, segments)</code></pre>
+      <h2>Settings</h2>
+      <pre><code class="language-lua">settings.fa       -- minimum angle (default 12)
+settings.fs       -- minimum size (default 2)
+settings.fn       -- number of fragments (default 0)
+settings.t        -- animation step (default 0)
+settings.vpr      -- viewport rotation
+settings.vpt      -- viewport translation
+settings.vpd      -- viewport distance
+settings.vpf      -- viewport field of view
+settings.preview  -- true in preview mode</code></pre>
     </section>
   </div>
 
@@ -271,7 +275,7 @@ geometry.getcirclesegment(x1, y1, x2, y2, dist, segments)</code></pre>
     <p>For more information, check out the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
   </footer>
 
-  <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+  <button class="top-button" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">&#8593;</button>
 
   <script src="highlight.min.js"></script>
   <script src="openscad.min.js"></script>

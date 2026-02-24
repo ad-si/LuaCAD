@@ -19,22 +19,23 @@
 
   <div class="navbar">
     <a href="index.html" class="nav-link active">Home</a>
-    <!-- TODO
     <a href="cheatsheet.html" class="nav-link">Cheatsheet</a>
-    -->
     <a href="examples.html" class="nav-link">Examples</a>
     <a href="openscad-to-luacad.html" class="nav-link">OpenSCAD to LuaCAD</a>
   </div>
 
   <div class="container">
     <section>
-      <p>LuaCAD is a scripting library which uses
-        <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a>'s
-        engine to create 2D and 3D objects with the power and flexibility of Lua.
+      <p>Scriptable CAD with Lua.
+        Write parametric 2D and 3D models in Lua
+        and export them to STL, 3MF, OBJ, PLY, or SCAD.
       </p>
 
-      <p>The LuaCAD library creates OpenSCAD code,
-        which is then used to create DXF, SVG, or STL files.
+      <p>LuaCAD embeds Lua 5.4 in a Rust engine
+        that evaluates CSG operations directly
+        (via <a href="https://github.com/nickmass/csgrs">csgrs</a>)
+        or generates <a href="https://www.openscad.org/">OpenSCAD</a>
+        code for external rendering.
       </p>
 
       <h2>Why Lua?</h2>
@@ -46,6 +47,9 @@
             <li>Faster</li>
             <li>Easily embeddable</li>
           </ul>
+        </li>
+        <li>Operator overloading for natural CSG syntax
+          (<code>a + b</code>, <code>a - b</code>, <code>a * b</code>)
         </li>
         <li>Already used in other CAD software like
           <a href="https://wiki.librecad.org/index.php/LibreCAD_3_-_Lua_Scripting">
@@ -60,7 +64,18 @@
 
       <h2>Example</h2>
       <div class="example-code">
-        <h4>OpenSCAD:</h4>
+        <h4>LuaCAD:</h4>
+        <pre><code class="language-lua">my_cube = cube { size = { 1, 2, 3 } }
+
+function my_sphere(radius)
+  return sphere({ r = radius }):translate(5, 0, 0)
+end
+
+model = my_cube + my_sphere(2)
+
+render(model)</code></pre>
+
+        <h4>Equivalent OpenSCAD:</h4>
         <pre><code class="language-openscad">module my_cube() {
   cube(size=[1,2,3]);
 }
@@ -73,31 +88,26 @@ union() {
   my_cube();
   my_sphere(2);
 }</code></pre>
-
-        <h4>LuaCAD:</h4>
-        <pre><code class="language-lua">require("luacad")
-
-my_cube = cube { size = { 1, 2, 3 } }
-
-function my_sphere(radius)
-  return sphere({ r = 2 }):translate(5, 0, 0)
-end
-
-model = my_cube + my_sphere(2)
-
-model:export("simple.scad")</code></pre>
       </div>
 
       <h2>Getting Started</h2>
-      <ol class="feature-list">
-        <li>Install <a href="https://www.openscad.org/" target="_blank">OpenSCAD</a> if not already installed</li>
-        <li><a href="https://github.com/ad-si/LuaCAD/archive/refs/heads/main.zip">Download the project</a></li>
-        <li>Unzip the project</li>
-        <li>Create your <code>&lt;name&gt;.lua</code> model file
-          (including a <code>…:export("out.scad")</code> line)</li>
-        <li>Execute code with: <code class="language-bash">bin/luacad &lt;name&gt;.lua</code></li>
-        <li>Open the generated <code>out.scad</code> file with OpenSCAD</li>
-      </ol>
+      <p>Requires <a href="https://www.rust-lang.org/tools/install">Rust</a>.</p>
+      <pre><code class="language-bash">git clone https://github.com/ad-si/LuaCAD.git
+cd LuaCAD
+make install</code></pre>
+      <p>This installs two binaries:</p>
+      <ul class="feature-list">
+        <li><code>luacad</code> &mdash; CLI for running and converting LuaCAD scripts</li>
+        <li><code>luacad-studio</code> &mdash; GUI desktop app with live 3D preview</li>
+      </ul>
+
+      <h3>CLI Usage</h3>
+      <pre><code class="language-bash">luacad convert model.lua output.stl          # Convert to STL
+luacad convert model.lua output.3mf          # Convert to 3MF
+luacad convert model.lua output.scad         # Export as OpenSCAD
+luacad watch model.lua output.stl            # Rebuild on file changes
+luacad convert model.lua out.stl --via-openscad  # Use OpenSCAD backend
+luacad run model.lua                         # Execute (side-effects only)</code></pre>
 
       <h2>Supported Export Formats</h2>
       <ul class="feature-list">
