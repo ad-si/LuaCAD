@@ -56,7 +56,9 @@ local function execute_file(file)
     -- Require fennel once (error if missing)
     local fennel_ok, fennel = pcall(require, "fennel")
     if not fennel_ok or not fennel then
-      print("Fennel not installed or failed to load. Try `luarocks install fennel`.")
+      print(
+        "Fennel not installed or failed to load. Try `luarocks install fennel`."
+      )
       return false, "fennel missing"
     end
 
