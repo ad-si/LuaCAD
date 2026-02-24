@@ -22,8 +22,12 @@ fn print_help() {
   println!("  --version, -v    Show version");
   println!();
   println!("Convert / watch options:");
-  println!("  --format <fmt>   Override output format (default: infer from extension)");
-  println!("  --via-openscad   Use OpenSCAD to generate the output instead of csgrs");
+  println!(
+    "  --format <fmt>   Override output format (default: infer from extension)"
+  );
+  println!(
+    "  --via-openscad   Use OpenSCAD to generate the output instead of csgrs"
+  );
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
 }
@@ -55,10 +59,8 @@ fn export(
     "ply" => luacad::export::export_ply(geometries, output),
     "3mf" => luacad::export::export_3mf(geometries, output),
     "scad" => {
-      let nodes: Vec<_> = geometries
-        .iter()
-        .filter_map(|g| g.scad.clone())
-        .collect();
+      let nodes: Vec<_> =
+        geometries.iter().filter_map(|g| g.scad.clone()).collect();
       luacad::scad_export::export_scad(&nodes, output)
     }
     other => Err(format!(
@@ -72,10 +74,8 @@ fn export_via_openscad(
   geometries: &[luacad::geometry::CsgGeometry],
   output: &Path,
 ) -> Result<(), String> {
-  let nodes: Vec<_> = geometries
-    .iter()
-    .filter_map(|g| g.scad.clone())
-    .collect();
+  let nodes: Vec<_> =
+    geometries.iter().filter_map(|g| g.scad.clone()).collect();
   if nodes.is_empty() {
     return Err("No SCAD geometry to export".to_string());
   }

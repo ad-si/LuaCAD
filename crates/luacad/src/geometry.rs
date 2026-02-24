@@ -1032,4 +1032,3 @@ impl UserData for CsgSketch {
     });
   }
 }
-
