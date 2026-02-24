@@ -2,6 +2,9 @@
 name = "luacad"
 version = "0.1.0"
 edition = "2024"
+description = "A Lua-based CAD scripting engine built on CSG operations"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ad-si/LuaCAD"
 
 [dependencies]
 mlua = { version = "0.10", features = ["lua54", "vendored"] }

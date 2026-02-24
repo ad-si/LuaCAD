@@ -2,9 +2,12 @@
 name = "luacad-studio"
 version = "0.1.0"
 edition = "2024"
+description = "A 3D CAD studio with Lua scripting and live preview"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ad-si/LuaCAD"
 
 [dependencies]
-luacad = { path = "../luacad" }
+luacad = { version = "0.1.0", path = "../luacad" }
 three-d = { version = "0.18", features = ["window", "egui-gui"] }
 egui_extras = { version = "0.29", features = ["default", "syntect"] }
 csgrs = { version = "0.20", default-features = false, features = ["f32"] }
