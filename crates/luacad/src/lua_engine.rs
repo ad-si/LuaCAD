@@ -194,194 +194,242 @@ fn parse_cylinder_args(
 ///
 /// Returns `Ok(geometries)` on success, or `Err(message)` on failure.
 pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
-    let lua = Lua::new();
-    let collector =
-      std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
+  let lua = Lua::new();
+  let collector =
+    std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
 
-    let result: LuaResult<mlua::MultiValue> = (|| {
-      // ---- print() ----
-      let print_fn =
-        lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
-          let output = args
-            .iter()
-            .map(|v| format!("{v:?}"))
-            .collect::<Vec<_>>()
-            .join("\t");
-          println!("Lua output: {output}");
-          Ok(())
-        })?;
-      lua.globals().set("print", print_fn)?;
-
-      // ==================================================================
-      // 3D PRIMITIVES
-      // ==================================================================
-
-      // ---- cube() ----
-      let cube_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let (w, d, h, center) = parse_cube_args(&args)?;
-        let mesh = CsgMesh::<()>::cuboid(w, d, h, None);
-        let mesh = if center {
-          mesh.translate(-w / 2.0, -d / 2.0, -h / 2.0)
-        } else {
-          mesh
-        };
-        let scad = Some(ScadNode::Cube { w, d, h, center });
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
+  let result: LuaResult<mlua::MultiValue> = (|| {
+    // ---- print() ----
+    let print_fn =
+      lua.create_function(|_, args: mlua::Variadic<mlua::Value>| {
+        let output = args
+          .iter()
+          .map(|v| format!("{v:?}"))
+          .collect::<Vec<_>>()
+          .join("\t");
+        println!("Lua output: {output}");
+        Ok(())
       })?;
-      lua.globals().set("cube", cube_fn)?;
+    lua.globals().set("print", print_fn)?;
 
-      // ---- sphere() ----
-      let sphere_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let (radius, segments) = parse_sphere_args(&args)?;
-        let mesh = CsgMesh::<()>::sphere(
-          radius,
-          segments as usize,
-          segments as usize,
-          None,
-        );
-        let scad = Some(ScadNode::Sphere {
-          r: radius,
-          segments,
-        });
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
-      })?;
-      lua.globals().set("sphere", sphere_fn)?;
+    // ==================================================================
+    // 3D PRIMITIVES
+    // ==================================================================
 
-      // ---- cylinder() ----
-      let cylinder_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let (r1, r2, h, segments, center) = parse_cylinder_args(&args)?;
-        let mesh = CsgMesh::<()>::frustum(r1, r2, h, segments as usize, None);
-        let mesh = if center {
-          mesh.translate(0.0, 0.0, -h / 2.0)
-        } else {
-          mesh
-        };
-        let scad = Some(ScadNode::Cylinder {
-          r1,
-          r2,
-          h,
-          segments,
-          center,
-        });
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
-      })?;
-      lua.globals().set("cylinder", cylinder_fn)?;
+    // ---- cube() ----
+    let cube_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let (w, d, h, center) = parse_cube_args(&args)?;
+      let mesh = CsgMesh::<()>::cuboid(w, d, h, None);
+      let mesh = if center {
+        mesh.translate(-w / 2.0, -d / 2.0, -h / 2.0)
+      } else {
+        mesh
+      };
+      let scad = Some(ScadNode::Cube { w, d, h, center });
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("cube", cube_fn)?;
 
-      // ---- polyhedron() ----
-      let polyhedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        // polyhedron { points = {...}, faces = {...} }
-        // or polyhedron(x, y, z, points, faces)  (legacy)
-        let first = args
-          .front()
-          .ok_or_else(|| {
-            mlua::Error::RuntimeError(
-              "polyhedron() requires arguments".to_string(),
-            )
-          })?
-          .clone();
+    // ---- sphere() ----
+    let sphere_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let (radius, segments) = parse_sphere_args(&args)?;
+      let mesh = CsgMesh::<()>::sphere(
+        radius,
+        segments as usize,
+        segments as usize,
+        None,
+      );
+      let scad = Some(ScadNode::Sphere {
+        r: radius,
+        segments,
+      });
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("sphere", sphere_fn)?;
 
-        let (tx, ty, tz, points_table, faces_table) =
-          if let LuaValue::Table(t) = &first {
-            if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points")
-            {
-              let faces: mlua::Table =
-                t.get::<mlua::Table>("faces").map_err(|_| {
-                  mlua::Error::RuntimeError(
-                    "polyhedron() requires 'faces' parameter".to_string(),
-                  )
-                })?;
-              (0.0, 0.0, 0.0, pts, faces)
-            } else {
-              return Err(mlua::Error::RuntimeError(
-                "polyhedron() table must have 'points' key".to_string(),
-              ));
-            }
-          } else if args.len() >= 5 {
-            // Legacy: polyhedron(x, y, z, points, faces)
-            let tx = lua_val_to_f32(&args[0]).unwrap_or(0.0);
-            let ty = lua_val_to_f32(&args[1]).unwrap_or(0.0);
-            let tz = lua_val_to_f32(&args[2]).unwrap_or(0.0);
-            let pts = match &args[3] {
-              LuaValue::Table(t) => t.clone(),
-              _ => {
-                return Err(mlua::Error::RuntimeError(
-                  "polyhedron() 4th arg must be points table".to_string(),
-                ))
-              }
-            };
-            let fcs = match &args[4] {
-              LuaValue::Table(t) => t.clone(),
-              _ => {
-                return Err(mlua::Error::RuntimeError(
-                  "polyhedron() 5th arg must be faces table".to_string(),
-                ))
-              }
-            };
-            (tx, ty, tz, pts, fcs)
+    // ---- cylinder() ----
+    let cylinder_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let (r1, r2, h, segments, center) = parse_cylinder_args(&args)?;
+      let mesh = CsgMesh::<()>::frustum(r1, r2, h, segments as usize, None);
+      let mesh = if center {
+        mesh.translate(0.0, 0.0, -h / 2.0)
+      } else {
+        mesh
+      };
+      let scad = Some(ScadNode::Cylinder {
+        r1,
+        r2,
+        h,
+        segments,
+        center,
+      });
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("cylinder", cylinder_fn)?;
+
+    // ---- polyhedron() ----
+    let polyhedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      // polyhedron { points = {...}, faces = {...} }
+      // or polyhedron(x, y, z, points, faces)  (legacy)
+      let first = args
+        .front()
+        .ok_or_else(|| {
+          mlua::Error::RuntimeError(
+            "polyhedron() requires arguments".to_string(),
+          )
+        })?
+        .clone();
+
+      let (tx, ty, tz, points_table, faces_table) =
+        if let LuaValue::Table(t) = &first {
+          if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points") {
+            let faces: mlua::Table =
+              t.get::<mlua::Table>("faces").map_err(|_| {
+                mlua::Error::RuntimeError(
+                  "polyhedron() requires 'faces' parameter".to_string(),
+                )
+              })?;
+            (0.0, 0.0, 0.0, pts, faces)
           } else {
             return Err(mlua::Error::RuntimeError(
-              "polyhedron() requires {points=.., faces=..} or (x,y,z,points,faces)".to_string(),
+              "polyhedron() table must have 'points' key".to_string(),
             ));
-          };
-
-        // Parse points as [f32; 3] arrays
-        let mut points: Vec<[f32; 3]> = Vec::new();
-        for i in 1..=points_table.len()? {
-          let pt: mlua::Table = points_table.get(i)?;
-          let x: f32 = pt.get::<f32>(1).unwrap_or(0.0);
-          let y: f32 = pt.get::<f32>(2).unwrap_or(0.0);
-          let z: f32 = pt.get::<f32>(3).unwrap_or(0.0);
-          points.push([x, y, z]);
-        }
-
-        // Parse faces (0-indexed in Lua, matching OpenSCAD convention)
-        let mut faces: Vec<Vec<usize>> = Vec::new();
-        for i in 1..=faces_table.len()? {
-          let face: mlua::Table = faces_table.get(i)?;
-          let mut indices: Vec<usize> = Vec::new();
-          for j in 1..=face.len()? {
-            let idx: usize = face.get::<usize>(j)?;
-            indices.push(idx);
           }
-          faces.push(indices);
-        }
+        } else if args.len() >= 5 {
+          // Legacy: polyhedron(x, y, z, points, faces)
+          let tx = lua_val_to_f32(&args[0]).unwrap_or(0.0);
+          let ty = lua_val_to_f32(&args[1]).unwrap_or(0.0);
+          let tz = lua_val_to_f32(&args[2]).unwrap_or(0.0);
+          let pts = match &args[3] {
+            LuaValue::Table(t) => t.clone(),
+            _ => {
+              return Err(mlua::Error::RuntimeError(
+                "polyhedron() 4th arg must be points table".to_string(),
+              ));
+            }
+          };
+          let fcs = match &args[4] {
+            LuaValue::Table(t) => t.clone(),
+            _ => {
+              return Err(mlua::Error::RuntimeError(
+                "polyhedron() 5th arg must be faces table".to_string(),
+              ));
+            }
+          };
+          (tx, ty, tz, pts, fcs)
+        } else {
+          return Err(mlua::Error::RuntimeError(
+          "polyhedron() requires {points=.., faces=..} or (x,y,z,points,faces)"
+            .to_string(),
+        ));
+        };
 
+      // Parse points as [f32; 3] arrays
+      let mut points: Vec<[f32; 3]> = Vec::new();
+      for i in 1..=points_table.len()? {
+        let pt: mlua::Table = points_table.get(i)?;
+        let x: f32 = pt.get::<f32>(1).unwrap_or(0.0);
+        let y: f32 = pt.get::<f32>(2).unwrap_or(0.0);
+        let z: f32 = pt.get::<f32>(3).unwrap_or(0.0);
+        points.push([x, y, z]);
+      }
+
+      // Parse faces (0-indexed in Lua, matching OpenSCAD convention)
+      let mut faces: Vec<Vec<usize>> = Vec::new();
+      for i in 1..=faces_table.len()? {
+        let face: mlua::Table = faces_table.get(i)?;
+        let mut indices: Vec<usize> = Vec::new();
+        for j in 1..=face.len()? {
+          let idx: usize = face.get::<usize>(j)?;
+          indices.push(idx);
+        }
+        faces.push(indices);
+      }
+
+      let face_refs: Vec<&[usize]> =
+        faces.iter().map(|f| f.as_slice()).collect();
+      let mesh =
+        CsgMesh::<()>::polyhedron(&points, &face_refs, None).map_err(|e| {
+          mlua::Error::RuntimeError(format!("polyhedron() error: {e:?}"))
+        })?;
+      let scad_base = ScadNode::Polyhedron {
+        points: points.clone(),
+        faces: faces.clone(),
+      };
+      let scad = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
+        Some(ScadNode::Translate {
+          x: tx,
+          y: ty,
+          z: tz,
+          child: Box::new(scad_base),
+        })
+      } else {
+        Some(scad_base)
+      };
+      let mesh = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
+        mesh.translate(tx, ty, tz)
+      } else {
+        mesh
+      };
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("polyhedron", polyhedron_fn)?;
+
+    // ---- pyramid() ----
+    let pyramid_fn = lua.create_function(
+      |_, (x, y, z, length, height): (f32, f32, f32, f32, f32)| {
+        let points: Vec<[f32; 3]> = vec![
+          [0.0, 0.0, 0.0],
+          [length, 0.0, 0.0],
+          [length, length, 0.0],
+          [0.0, length, 0.0],
+          [length / 2.0, length / 2.0, height],
+        ];
+        let faces: Vec<Vec<usize>> = vec![
+          vec![0, 1, 4],
+          vec![1, 2, 4],
+          vec![2, 3, 4],
+          vec![3, 0, 4],
+          vec![3, 2, 1, 0],
+        ];
         let face_refs: Vec<&[usize]> =
           faces.iter().map(|f| f.as_slice()).collect();
         let mesh = CsgMesh::<()>::polyhedron(&points, &face_refs, None)
           .map_err(|e| {
-            mlua::Error::RuntimeError(format!(
-              "polyhedron() error: {e:?}"
-            ))
+            mlua::Error::RuntimeError(format!("pyramid() error: {e:?}"))
           })?;
         let scad_base = ScadNode::Polyhedron {
           points: points.clone(),
           faces: faces.clone(),
         };
-        let scad = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
+        let scad = if x != 0.0 || y != 0.0 || z != 0.0 {
           Some(ScadNode::Translate {
-            x: tx,
-            y: ty,
-            z: tz,
+            x,
+            y,
+            z,
             child: Box::new(scad_base),
           })
         } else {
           Some(scad_base)
         };
-        let mesh = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
-          mesh.translate(tx, ty, tz)
+        let mesh = if x != 0.0 || y != 0.0 || z != 0.0 {
+          mesh.translate(x, y, z)
         } else {
           mesh
         };
@@ -390,439 +438,384 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           color: None,
           scad,
         })
+      },
+    )?;
+    lua.globals().set("pyramid", pyramid_fn)?;
+
+    // ---- torus() ----
+    let torus_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("torus() requires arguments".to_string())
       })?;
-      lua.globals().set("polyhedron", polyhedron_fn)?;
 
-      // ---- pyramid() ----
-      let pyramid_fn = lua.create_function(
-        |_, (x, y, z, length, height): (f32, f32, f32, f32, f32)| {
-          let points: Vec<[f32; 3]> = vec![
-            [0.0, 0.0, 0.0],
-            [length, 0.0, 0.0],
-            [length, length, 0.0],
-            [0.0, length, 0.0],
-            [length / 2.0, length / 2.0, height],
-          ];
-          let faces: Vec<Vec<usize>> = vec![
-            vec![0, 1, 4],
-            vec![1, 2, 4],
-            vec![2, 3, 4],
-            vec![3, 0, 4],
-            vec![3, 2, 1, 0],
-          ];
-          let face_refs: Vec<&[usize]> =
-            faces.iter().map(|f| f.as_slice()).collect();
-          let mesh = CsgMesh::<()>::polyhedron(&points, &face_refs, None)
-            .map_err(|e| {
-              mlua::Error::RuntimeError(format!("pyramid() error: {e:?}"))
-            })?;
-          let scad_base = ScadNode::Polyhedron {
-            points: points.clone(),
-            faces: faces.clone(),
-          };
-          let scad = if x != 0.0 || y != 0.0 || z != 0.0 {
-            Some(ScadNode::Translate {
-              x,
-              y,
-              z,
-              child: Box::new(scad_base),
-            })
-          } else {
-            Some(scad_base)
-          };
-          let mesh = if x != 0.0 || y != 0.0 || z != 0.0 {
-            mesh.translate(x, y, z)
-          } else {
-            mesh
-          };
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        },
-      )?;
-      lua.globals().set("pyramid", pyramid_fn)?;
-
-      // ---- torus() ----
-      let torus_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("torus() requires arguments".to_string())
-        })?;
-
-        if let LuaValue::Table(t) = first {
-          let major = table_get_f32(t, "R")
-            .or_else(|| table_get_f32(t, "major"))
-            .unwrap_or(2.0);
-          let minor = table_get_f32(t, "r")
-            .or_else(|| table_get_f32(t, "minor"))
-            .unwrap_or(0.5);
-          let seg_major = table_segments(t, 24) as usize;
-          let seg_minor =
-            table_get_u32(t, "segments_minor").unwrap_or(16) as usize;
-          let mesh =
-            CsgMesh::<()>::torus(major, minor, seg_major, seg_minor, None);
-          // Torus via rotate_extrude of a translated circle
-          let scad = Some(ScadNode::RotateExtrude {
-            angle: 360.0,
-            segments: seg_major as u32,
-            child: Box::new(ScadNode::Translate {
-              x: major,
-              y: 0.0,
-              z: 0.0,
-              child: Box::new(ScadNode::Circle {
-                r: minor,
-                segments: seg_minor as u32,
-              }),
+      if let LuaValue::Table(t) = first {
+        let major = table_get_f32(t, "R")
+          .or_else(|| table_get_f32(t, "major"))
+          .unwrap_or(2.0);
+        let minor = table_get_f32(t, "r")
+          .or_else(|| table_get_f32(t, "minor"))
+          .unwrap_or(0.5);
+        let seg_major = table_segments(t, 24) as usize;
+        let seg_minor =
+          table_get_u32(t, "segments_minor").unwrap_or(16) as usize;
+        let mesh =
+          CsgMesh::<()>::torus(major, minor, seg_major, seg_minor, None);
+        // Torus via rotate_extrude of a translated circle
+        let scad = Some(ScadNode::RotateExtrude {
+          angle: 360.0,
+          segments: seg_major as u32,
+          child: Box::new(ScadNode::Translate {
+            x: major,
+            y: 0.0,
+            z: 0.0,
+            child: Box::new(ScadNode::Circle {
+              r: minor,
+              segments: seg_minor as u32,
             }),
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        } else if args.len() >= 2 {
-          let major = lua_val_to_f32(&args[0]).unwrap_or(2.0);
-          let minor = lua_val_to_f32(&args[1]).unwrap_or(0.5);
-          let mesh = CsgMesh::<()>::torus(major, minor, 24, 16, None);
-          let scad = Some(ScadNode::RotateExtrude {
-            angle: 360.0,
-            segments: 24,
-            child: Box::new(ScadNode::Translate {
-              x: major,
-              y: 0.0,
-              z: 0.0,
-              child: Box::new(ScadNode::Circle {
-                r: minor,
-                segments: 16,
-              }),
-            }),
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        } else {
-          Err(mlua::Error::RuntimeError(
-            "torus() requires {R=.., r=..} or (major, minor)".to_string(),
-          ))
-        }
-      })?;
-      lua.globals().set("torus", torus_fn)?;
-
-      // ---- octahedron() ----
-      let octahedron_fn =
-        lua.create_function(|_, args: mlua::MultiValue| {
-          let radius = if let Some(LuaValue::Table(t)) = args.front() {
-            table_get_f32(t, "r")
-              .or_else(|| table_get_f32(t, "radius"))
-              .unwrap_or(1.0)
-          } else {
-            args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
-          };
-          let mesh = CsgMesh::<()>::octahedron(radius, None);
-          let r = radius;
-          let scad = Some(ScadNode::Polyhedron {
-            points: vec![
-              [r, 0.0, 0.0],
-              [-r, 0.0, 0.0],
-              [0.0, r, 0.0],
-              [0.0, -r, 0.0],
-              [0.0, 0.0, r],
-              [0.0, 0.0, -r],
-            ],
-            faces: vec![
-              vec![0, 2, 4],
-              vec![2, 1, 4],
-              vec![1, 3, 4],
-              vec![3, 0, 4],
-              vec![2, 0, 5],
-              vec![1, 2, 5],
-              vec![3, 1, 5],
-              vec![0, 3, 5],
-            ],
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        })?;
-      lua.globals().set("octahedron", octahedron_fn)?;
-
-      // ---- icosahedron() ----
-      let icosahedron_fn =
-        lua.create_function(|_, args: mlua::MultiValue| {
-          let radius = if let Some(LuaValue::Table(t)) = args.front() {
-            table_get_f32(t, "r")
-              .or_else(|| table_get_f32(t, "radius"))
-              .unwrap_or(1.0)
-          } else {
-            args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
-          };
-          let mesh = CsgMesh::<()>::icosahedron(radius, None);
-          // Generate icosahedron vertices and faces for OpenSCAD polyhedron
-          let phi = (1.0 + 5.0_f32.sqrt()) / 2.0;
-          let a = radius / (1.0 + phi * phi).sqrt();
-          let b = a * phi;
-          let scad = Some(ScadNode::Polyhedron {
-            points: vec![
-              [-a, b, 0.0],
-              [a, b, 0.0],
-              [-a, -b, 0.0],
-              [a, -b, 0.0],
-              [0.0, -a, b],
-              [0.0, a, b],
-              [0.0, -a, -b],
-              [0.0, a, -b],
-              [b, 0.0, -a],
-              [b, 0.0, a],
-              [-b, 0.0, -a],
-              [-b, 0.0, a],
-            ],
-            faces: vec![
-              vec![0, 11, 5],
-              vec![0, 5, 1],
-              vec![0, 1, 7],
-              vec![0, 7, 10],
-              vec![0, 10, 11],
-              vec![1, 5, 9],
-              vec![5, 11, 4],
-              vec![11, 10, 2],
-              vec![10, 7, 6],
-              vec![7, 1, 8],
-              vec![3, 9, 4],
-              vec![3, 4, 2],
-              vec![3, 2, 6],
-              vec![3, 6, 8],
-              vec![3, 8, 9],
-              vec![4, 9, 5],
-              vec![2, 4, 11],
-              vec![6, 2, 10],
-              vec![8, 6, 7],
-              vec![9, 8, 1],
-            ],
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        })?;
-      lua.globals().set("icosahedron", icosahedron_fn)?;
-
-      // ---- ellipsoid() ----
-      let ellipsoid_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError(
-            "ellipsoid() requires arguments".to_string(),
-          )
-        })?;
-
-        if let LuaValue::Table(t) = first {
-          let rx = table_get_f32(t, "rx").unwrap_or(1.0);
-          let ry = table_get_f32(t, "ry").unwrap_or(1.0);
-          let rz = table_get_f32(t, "rz").unwrap_or(1.0);
-          let segs = table_segments(t, 16) as usize;
-          let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, segs, segs, None);
-          let scad = Some(ScadNode::Scale {
-            x: rx,
-            y: ry,
-            z: rz,
-            child: Box::new(ScadNode::Sphere {
-              r: 1.0,
-              segments: segs as u32,
-            }),
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        } else if args.len() >= 3 {
-          let rx = lua_val_to_f32(&args[0]).unwrap_or(1.0);
-          let ry = lua_val_to_f32(&args[1]).unwrap_or(1.0);
-          let rz = lua_val_to_f32(&args[2]).unwrap_or(1.0);
-          let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None);
-          let scad = Some(ScadNode::Scale {
-            x: rx,
-            y: ry,
-            z: rz,
-            child: Box::new(ScadNode::Sphere {
-              r: 1.0,
+          }),
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      } else if args.len() >= 2 {
+        let major = lua_val_to_f32(&args[0]).unwrap_or(2.0);
+        let minor = lua_val_to_f32(&args[1]).unwrap_or(0.5);
+        let mesh = CsgMesh::<()>::torus(major, minor, 24, 16, None);
+        let scad = Some(ScadNode::RotateExtrude {
+          angle: 360.0,
+          segments: 24,
+          child: Box::new(ScadNode::Translate {
+            x: major,
+            y: 0.0,
+            z: 0.0,
+            child: Box::new(ScadNode::Circle {
+              r: minor,
               segments: 16,
             }),
-          });
-          Ok(CsgGeometry {
-            mesh,
-            color: None,
-            scad,
-          })
-        } else {
-          Err(mlua::Error::RuntimeError(
-            "ellipsoid() requires {rx=.., ry=.., rz=..} or (rx, ry, rz)"
-              .to_string(),
-          ))
-        }
+          }),
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      } else {
+        Err(mlua::Error::RuntimeError(
+          "torus() requires {R=.., r=..} or (major, minor)".to_string(),
+        ))
+      }
+    })?;
+    lua.globals().set("torus", torus_fn)?;
+
+    // ---- octahedron() ----
+    let octahedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let radius = if let Some(LuaValue::Table(t)) = args.front() {
+        table_get_f32(t, "r")
+          .or_else(|| table_get_f32(t, "radius"))
+          .unwrap_or(1.0)
+      } else {
+        args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
+      };
+      let mesh = CsgMesh::<()>::octahedron(radius, None);
+      let r = radius;
+      let scad = Some(ScadNode::Polyhedron {
+        points: vec![
+          [r, 0.0, 0.0],
+          [-r, 0.0, 0.0],
+          [0.0, r, 0.0],
+          [0.0, -r, 0.0],
+          [0.0, 0.0, r],
+          [0.0, 0.0, -r],
+        ],
+        faces: vec![
+          vec![0, 2, 4],
+          vec![2, 1, 4],
+          vec![1, 3, 4],
+          vec![3, 0, 4],
+          vec![2, 0, 5],
+          vec![1, 2, 5],
+          vec![3, 1, 5],
+          vec![0, 3, 5],
+        ],
+      });
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("octahedron", octahedron_fn)?;
+
+    // ---- icosahedron() ----
+    let icosahedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let radius = if let Some(LuaValue::Table(t)) = args.front() {
+        table_get_f32(t, "r")
+          .or_else(|| table_get_f32(t, "radius"))
+          .unwrap_or(1.0)
+      } else {
+        args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
+      };
+      let mesh = CsgMesh::<()>::icosahedron(radius, None);
+      // Generate icosahedron vertices and faces for OpenSCAD polyhedron
+      let phi = (1.0 + 5.0_f32.sqrt()) / 2.0;
+      let a = radius / (1.0 + phi * phi).sqrt();
+      let b = a * phi;
+      let scad = Some(ScadNode::Polyhedron {
+        points: vec![
+          [-a, b, 0.0],
+          [a, b, 0.0],
+          [-a, -b, 0.0],
+          [a, -b, 0.0],
+          [0.0, -a, b],
+          [0.0, a, b],
+          [0.0, -a, -b],
+          [0.0, a, -b],
+          [b, 0.0, -a],
+          [b, 0.0, a],
+          [-b, 0.0, -a],
+          [-b, 0.0, a],
+        ],
+        faces: vec![
+          vec![0, 11, 5],
+          vec![0, 5, 1],
+          vec![0, 1, 7],
+          vec![0, 7, 10],
+          vec![0, 10, 11],
+          vec![1, 5, 9],
+          vec![5, 11, 4],
+          vec![11, 10, 2],
+          vec![10, 7, 6],
+          vec![7, 1, 8],
+          vec![3, 9, 4],
+          vec![3, 4, 2],
+          vec![3, 2, 6],
+          vec![3, 6, 8],
+          vec![3, 8, 9],
+          vec![4, 9, 5],
+          vec![2, 4, 11],
+          vec![6, 2, 10],
+          vec![8, 6, 7],
+          vec![9, 8, 1],
+        ],
+      });
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("icosahedron", icosahedron_fn)?;
+
+    // ---- ellipsoid() ----
+    let ellipsoid_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("ellipsoid() requires arguments".to_string())
       })?;
-      lua.globals().set("ellipsoid", ellipsoid_fn)?;
 
-      // ==================================================================
-      // 2D PRIMITIVES (return CsgSketch)
-      // ==================================================================
+      if let LuaValue::Table(t) = first {
+        let rx = table_get_f32(t, "rx").unwrap_or(1.0);
+        let ry = table_get_f32(t, "ry").unwrap_or(1.0);
+        let rz = table_get_f32(t, "rz").unwrap_or(1.0);
+        let segs = table_segments(t, 16) as usize;
+        let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, segs, segs, None);
+        let scad = Some(ScadNode::Scale {
+          x: rx,
+          y: ry,
+          z: rz,
+          child: Box::new(ScadNode::Sphere {
+            r: 1.0,
+            segments: segs as u32,
+          }),
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      } else if args.len() >= 3 {
+        let rx = lua_val_to_f32(&args[0]).unwrap_or(1.0);
+        let ry = lua_val_to_f32(&args[1]).unwrap_or(1.0);
+        let rz = lua_val_to_f32(&args[2]).unwrap_or(1.0);
+        let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None);
+        let scad = Some(ScadNode::Scale {
+          x: rx,
+          y: ry,
+          z: rz,
+          child: Box::new(ScadNode::Sphere {
+            r: 1.0,
+            segments: 16,
+          }),
+        });
+        Ok(CsgGeometry {
+          mesh,
+          color: None,
+          scad,
+        })
+      } else {
+        Err(mlua::Error::RuntimeError(
+          "ellipsoid() requires {rx=.., ry=.., rz=..} or (rx, ry, rz)"
+            .to_string(),
+        ))
+      }
+    })?;
+    lua.globals().set("ellipsoid", ellipsoid_fn)?;
 
-      // ---- circle() ----
-      let circle_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("circle() requires arguments".to_string())
-        })?;
+    // ==================================================================
+    // 2D PRIMITIVES (return CsgSketch)
+    // ==================================================================
 
-        if let LuaValue::Table(t) = first {
-          let radius = if let Some(r) = table_get_f32(t, "r") {
-            r
-          } else if let Some(d) = table_get_f32(t, "d") {
-            d / 2.0
-          } else {
-            t.get::<f32>(1).unwrap_or(1.0)
-          };
-          let segments = table_segments(t, 32) as usize;
-          let sketch =
-            csgrs::sketch::Sketch::<()>::circle(radius, segments, None);
-          let scad = Some(ScadNode::Circle {
-            r: radius,
-            segments: segments as u32,
-          });
-          Ok(CsgSketch {
-            sketch,
-            color: None,
-            scad,
-          })
-        } else {
-          let radius = lua_val_to_f32(first).unwrap_or(1.0);
-          let sketch = csgrs::sketch::Sketch::<()>::circle(radius, 32, None);
-          let scad = Some(ScadNode::Circle {
-            r: radius,
-            segments: 32,
-          });
-          Ok(CsgSketch {
-            sketch,
-            color: None,
-            scad,
-          })
-        }
+    // ---- circle() ----
+    let circle_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("circle() requires arguments".to_string())
       })?;
-      lua.globals().set("circle", circle_fn)?;
 
-      // ---- rect() / square() ----
-      let rect_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("rect() requires arguments".to_string())
-        })?;
-
-        if let LuaValue::Table(t) = first {
-          let (w, h) =
-            if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
-              let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
-              let h: f32 = size_t.get::<f32>(2).unwrap_or(w);
-              (w, h)
-            } else {
-              let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
-              let h: f32 = t.get::<f32>(2).unwrap_or(w);
-              (w, h)
-            };
-          let center = table_get_bool(t, "center");
-          let mut sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
-          if center {
-            use csgrs::traits::CSG;
-            sketch = sketch.translate(-w / 2.0, -h / 2.0, 0.0);
-          }
-          let scad = Some(ScadNode::Square { w, h, center });
-          Ok(CsgSketch {
-            sketch,
-            color: None,
-            scad,
-          })
+      if let LuaValue::Table(t) = first {
+        let radius = if let Some(r) = table_get_f32(t, "r") {
+          r
+        } else if let Some(d) = table_get_f32(t, "d") {
+          d / 2.0
         } else {
-          let w = lua_val_to_f32(first).unwrap_or(1.0);
-          let h = args.get(1).and_then(lua_val_to_f32).unwrap_or(w);
-          let sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
-          let scad = Some(ScadNode::Square {
-            w,
-            h,
-            center: false,
-          });
-          Ok(CsgSketch {
-            sketch,
-            color: None,
-            scad,
-          })
-        }
-      })?;
-      lua.globals().set("rect", rect_fn.clone())?;
-      lua.globals().set("square", rect_fn)?;
-
-      // ---- polygon() ----
-      let polygon_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("polygon() requires arguments".to_string())
-        })?;
-
-        let points_table = if let LuaValue::Table(t) = first {
-          if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points") {
-            pts
-          } else {
-            // Assume the table itself is the points array
-            t.clone()
-          }
-        } else {
-          return Err(mlua::Error::RuntimeError(
-            "polygon() requires a table of points".to_string(),
-          ));
+          t.get::<f32>(1).unwrap_or(1.0)
         };
-
-        let mut points: Vec<[f32; 2]> = Vec::new();
-        for i in 1..=points_table.len()? {
-          let pt: mlua::Table = points_table.get(i)?;
-          let x: f32 = pt.get::<f32>(1).unwrap_or(0.0);
-          let y: f32 = pt.get::<f32>(2).unwrap_or(0.0);
-          points.push([x, y]);
-        }
-
-        let sketch = csgrs::sketch::Sketch::<()>::polygon(&points, None);
-        let scad = Some(ScadNode::Polygon {
-          points: points.clone(),
+        let segments = table_segments(t, 32) as usize;
+        let sketch =
+          csgrs::sketch::Sketch::<()>::circle(radius, segments, None);
+        let scad = Some(ScadNode::Circle {
+          r: radius,
+          segments: segments as u32,
         });
         Ok(CsgSketch {
           sketch,
           color: None,
           scad,
         })
+      } else {
+        let radius = lua_val_to_f32(first).unwrap_or(1.0);
+        let sketch = csgrs::sketch::Sketch::<()>::circle(radius, 32, None);
+        let scad = Some(ScadNode::Circle {
+          r: radius,
+          segments: 32,
+        });
+        Ok(CsgSketch {
+          sketch,
+          color: None,
+          scad,
+        })
+      }
+    })?;
+    lua.globals().set("circle", circle_fn)?;
+
+    // ---- rect() / square() ----
+    let rect_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("rect() requires arguments".to_string())
       })?;
-      lua.globals().set("polygon", polygon_fn)?;
 
-      // ==================================================================
-      // RENDERING
-      // ==================================================================
+      if let LuaValue::Table(t) = first {
+        let (w, h) =
+          if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
+            let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
+            let h: f32 = size_t.get::<f32>(2).unwrap_or(w);
+            (w, h)
+          } else {
+            let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
+            let h: f32 = t.get::<f32>(2).unwrap_or(w);
+            (w, h)
+          };
+        let center = table_get_bool(t, "center");
+        let mut sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
+        if center {
+          use csgrs::traits::CSG;
+          sketch = sketch.translate(-w / 2.0, -h / 2.0, 0.0);
+        }
+        let scad = Some(ScadNode::Square { w, h, center });
+        Ok(CsgSketch {
+          sketch,
+          color: None,
+          scad,
+        })
+      } else {
+        let w = lua_val_to_f32(first).unwrap_or(1.0);
+        let h = args.get(1).and_then(lua_val_to_f32).unwrap_or(w);
+        let sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
+        let scad = Some(ScadNode::Square {
+          w,
+          h,
+          center: false,
+        });
+        Ok(CsgSketch {
+          sketch,
+          color: None,
+          scad,
+        })
+      }
+    })?;
+    lua.globals().set("rect", rect_fn.clone())?;
+    lua.globals().set("square", rect_fn)?;
 
-      // ---- render() ----
-      let collector_clone = collector.clone();
-      let render_fn =
-        lua.create_function(move |_, ud: mlua::AnyUserData| {
-          let geom = ud.borrow::<CsgGeometry>()?.clone();
-          collector_clone.borrow_mut().push(geom);
-          Ok(())
-        })?;
-      lua.globals().set("render", render_fn)?;
+    // ---- polygon() ----
+    let polygon_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("polygon() requires arguments".to_string())
+      })?;
 
-      // ==================================================================
-      // MATH GLOBALS
-      // ==================================================================
+      let points_table = if let LuaValue::Table(t) = first {
+        if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points") {
+          pts
+        } else {
+          // Assume the table itself is the points array
+          t.clone()
+        }
+      } else {
+        return Err(mlua::Error::RuntimeError(
+          "polygon() requires a table of points".to_string(),
+        ));
+      };
 
-      // Expose math functions as bare globals
-      lua
-        .load(
-          r#"
+      let mut points: Vec<[f32; 2]> = Vec::new();
+      for i in 1..=points_table.len()? {
+        let pt: mlua::Table = points_table.get(i)?;
+        let x: f32 = pt.get::<f32>(1).unwrap_or(0.0);
+        let y: f32 = pt.get::<f32>(2).unwrap_or(0.0);
+        points.push([x, y]);
+      }
+
+      let sketch = csgrs::sketch::Sketch::<()>::polygon(&points, None);
+      let scad = Some(ScadNode::Polygon {
+        points: points.clone(),
+      });
+      Ok(CsgSketch {
+        sketch,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("polygon", polygon_fn)?;
+
+    // ==================================================================
+    // RENDERING
+    // ==================================================================
+
+    // ---- render() ----
+    let collector_clone = collector.clone();
+    let render_fn = lua.create_function(move |_, ud: mlua::AnyUserData| {
+      let geom = ud.borrow::<CsgGeometry>()?.clone();
+      collector_clone.borrow_mut().push(geom);
+      Ok(())
+    })?;
+    lua.globals().set("render", render_fn)?;
+
+    // ==================================================================
+    // MATH GLOBALS
+    // ==================================================================
+
+    // Expose math functions as bare globals
+    lua
+      .load(
+        r#"
         abs = math.abs
         sin = function(x) return math.sin(math.rad(x)) end
         cos = function(x) return math.cos(math.rad(x)) end
@@ -842,52 +835,52 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         max = math.max
         PI = math.pi
         "#,
-        )
-        .exec()?;
+      )
+      .exec()?;
 
-      // ---- sign() ----
-      let sign_fn = lua.create_function(|_, x: f64| {
-        Ok(if x > 0.0 {
-          1.0
-        } else if x < 0.0 {
-          -1.0
-        } else {
-          0.0
-        })
-      })?;
-      lua.globals().set("sign", sign_fn)?;
+    // ---- sign() ----
+    let sign_fn = lua.create_function(|_, x: f64| {
+      Ok(if x > 0.0 {
+        1.0
+      } else if x < 0.0 {
+        -1.0
+      } else {
+        0.0
+      })
+    })?;
+    lua.globals().set("sign", sign_fn)?;
 
-      // ---- round() ----
-      let round_fn = lua.create_function(|_, x: f64| Ok(x.round() as i64))?;
-      lua.globals().set("round", round_fn)?;
+    // ---- round() ----
+    let round_fn = lua.create_function(|_, x: f64| Ok(x.round() as i64))?;
+    lua.globals().set("round", round_fn)?;
 
-      // ---- rands() ----
-      let rands_fn = lua.create_function(
-        |lua, (min_val, max_val, count, seed): (f64, f64, u32, Option<u64>)| {
-          use std::collections::hash_map::DefaultHasher;
-          use std::hash::{Hash, Hasher};
-          let mut hasher = DefaultHasher::new();
-          seed.unwrap_or(42).hash(&mut hasher);
-          let mut state = hasher.finish();
-          let range = max_val - min_val;
-          let t = lua.create_table()?;
-          for i in 1..=count {
-            // Simple xorshift64
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            let frac = (state as f64) / (u64::MAX as f64);
-            t.set(i, min_val + frac * range)?;
-          }
-          Ok(t)
-        },
-      )?;
-      lua.globals().set("rands", rands_fn)?;
+    // ---- rands() ----
+    let rands_fn = lua.create_function(
+      |lua, (min_val, max_val, count, seed): (f64, f64, u32, Option<u64>)| {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        seed.unwrap_or(42).hash(&mut hasher);
+        let mut state = hasher.finish();
+        let range = max_val - min_val;
+        let t = lua.create_table()?;
+        for i in 1..=count {
+          // Simple xorshift64
+          state ^= state << 13;
+          state ^= state >> 7;
+          state ^= state << 17;
+          let frac = (state as f64) / (u64::MAX as f64);
+          t.set(i, min_val + frac * range)?;
+        }
+        Ok(t)
+      },
+    )?;
+    lua.globals().set("rands", rands_fn)?;
 
-      // ---- type-checking functions ----
-      lua
-        .load(
-          r#"
+    // ---- type-checking functions ----
+    lua
+      .load(
+        r#"
         function is_bool(v) return type(v) == "boolean" end
         function is_num(v) return type(v) == "number" end
         function is_str(v) return type(v) == "string" end
@@ -901,220 +894,220 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           return result
         end
         "#,
-        )
-        .exec()?;
+      )
+      .exec()?;
 
-      // ==================================================================
-      // VECTOR MODULE
-      // ==================================================================
+    // ==================================================================
+    // VECTOR MODULE
+    // ==================================================================
 
-      register_vector_type(&lua)?;
+    register_vector_type(&lua)?;
 
-      // ==================================================================
-      // TEXT (ScadNode-only, no viewport rendering)
-      // ==================================================================
+    // ==================================================================
+    // TEXT (ScadNode-only, no viewport rendering)
+    // ==================================================================
 
-      let text_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("text() requires arguments".to_string())
-        })?;
-
-        let (text_str, size, font, halign, valign) =
-          if let LuaValue::String(s) = first {
-            let text = s.to_str().map(|s| s.to_string()).unwrap_or_default();
-            // Optional second arg: table with options
-            let (size, font, halign, valign) =
-              if let Some(LuaValue::Table(t)) = args.get(1) {
-                (
-                  table_get_f32(t, "size").unwrap_or(10.0),
-                  t.get::<String>("font")
-                    .unwrap_or_else(|_| "Arial".to_string()),
-                  t.get::<String>("halign")
-                    .unwrap_or_else(|_| "left".to_string()),
-                  t.get::<String>("valign")
-                    .unwrap_or_else(|_| "baseline".to_string()),
-                )
-              } else {
-                (
-                  10.0,
-                  "Arial".to_string(),
-                  "left".to_string(),
-                  "baseline".to_string(),
-                )
-              };
-            (text, size, font, halign, valign)
-          } else {
-            return Err(mlua::Error::RuntimeError(
-              "text() first argument must be a string".to_string(),
-            ));
-          };
-
-        let scad = Some(ScadNode::Text {
-          text: text_str,
-          size,
-          font,
-          halign,
-          valign,
-        });
-        // Return a minimal 2D sketch (point) — text can't be rendered in viewport
-        let sketch = csgrs::sketch::Sketch::<()>::rectangle(0.001, 0.001, None);
-        Ok(CsgSketch {
-          sketch,
-          color: None,
-          scad,
-        })
+    let text_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("text() requires arguments".to_string())
       })?;
-      lua.globals().set("text", text_fn)?;
 
-      // text3d() — text with linear_extrude in ScadNode
-      let text3d_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let first = args.front().ok_or_else(|| {
-          mlua::Error::RuntimeError("text3d() requires arguments".to_string())
-        })?;
-
-        let text_str = if let LuaValue::String(s) = first {
-          s.to_str().map(|s| s.to_string()).unwrap_or_default()
-        } else {
-          return Err(mlua::Error::RuntimeError(
-            "text3d() first argument must be a string".to_string(),
-          ));
-        };
-
-        let (size, depth, font, halign, valign) =
-          if let Some(LuaValue::Table(t)) = args.get(1) {
-            (
-              table_get_f32(t, "size").unwrap_or(10.0),
-              table_get_f32(t, "depth").unwrap_or(1.0),
-              t.get::<String>("font")
-                .unwrap_or_else(|_| "Arial".to_string()),
-              t.get::<String>("halign")
-                .unwrap_or_else(|_| "left".to_string()),
-              t.get::<String>("valign")
-                .unwrap_or_else(|_| "baseline".to_string()),
-            )
-          } else {
-            (
-              10.0,
-              1.0,
-              "Arial".to_string(),
-              "left".to_string(),
-              "baseline".to_string(),
-            )
-          };
-
-        let text_node = ScadNode::Text {
-          text: text_str,
-          size,
-          font,
-          halign,
-          valign,
-        };
-        let scad = Some(ScadNode::LinearExtrude {
-          height: depth,
-          center: false,
-          twist: 0.0,
-          slices: 0,
-          scale: 1.0,
-          child: Box::new(text_node),
-        });
-        // Minimal mesh placeholder
-        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
-      })?;
-      lua.globals().set("text3d", text3d_fn)?;
-
-      // ==================================================================
-      // FILE OPERATIONS (ScadNode-only)
-      // ==================================================================
-
-      // ---- import() ----
-      let import_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let file = if let Some(LuaValue::String(s)) = args.front() {
-          s.to_str().map(|s| s.to_string()).unwrap_or_default()
-        } else {
-          return Err(mlua::Error::RuntimeError(
-            "import() requires a filename string".to_string(),
-          ));
-        };
-        let convexity = args
-          .get(1)
-          .and_then(lua_val_to_f32)
-          .map(|v| v as u32)
-          .unwrap_or(0);
-        let scad = Some(ScadNode::Import { file, convexity });
-        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
-      })?;
-      lua.globals().set("import", import_fn)?;
-
-      // ---- surface() ----
-      let surface_fn = lua.create_function(|_, args: mlua::MultiValue| {
-        let file = if let Some(LuaValue::String(s)) = args.front() {
-          s.to_str().map(|s| s.to_string()).unwrap_or_default()
-        } else {
-          return Err(mlua::Error::RuntimeError(
-            "surface() requires a filename string".to_string(),
-          ));
-        };
-        let center = args
-          .get(1)
-          .and_then(|v| {
-            if let LuaValue::Boolean(b) = v {
-              Some(*b)
+      let (text_str, size, font, halign, valign) =
+        if let LuaValue::String(s) = first {
+          let text = s.to_str().map(|s| s.to_string()).unwrap_or_default();
+          // Optional second arg: table with options
+          let (size, font, halign, valign) =
+            if let Some(LuaValue::Table(t)) = args.get(1) {
+              (
+                table_get_f32(t, "size").unwrap_or(10.0),
+                t.get::<String>("font")
+                  .unwrap_or_else(|_| "Arial".to_string()),
+                t.get::<String>("halign")
+                  .unwrap_or_else(|_| "left".to_string()),
+                t.get::<String>("valign")
+                  .unwrap_or_else(|_| "baseline".to_string()),
+              )
             } else {
-              None
-            }
-          })
-          .unwrap_or(false);
-        let convexity = args
-          .get(2)
-          .and_then(lua_val_to_f32)
-          .map(|v| v as u32)
-          .unwrap_or(0);
-        let scad = Some(ScadNode::Surface {
-          file,
-          center,
-          convexity,
-        });
-        let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
-        Ok(CsgGeometry {
-          mesh,
-          color: None,
-          scad,
-        })
+              (
+                10.0,
+                "Arial".to_string(),
+                "left".to_string(),
+                "baseline".to_string(),
+              )
+            };
+          (text, size, font, halign, valign)
+        } else {
+          return Err(mlua::Error::RuntimeError(
+            "text() first argument must be a string".to_string(),
+          ));
+        };
+
+      let scad = Some(ScadNode::Text {
+        text: text_str,
+        size,
+        font,
+        halign,
+        valign,
+      });
+      // Return a minimal 2D sketch (point) — text can't be rendered in viewport
+      let sketch = csgrs::sketch::Sketch::<()>::rectangle(0.001, 0.001, None);
+      Ok(CsgSketch {
+        sketch,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("text", text_fn)?;
+
+    // text3d() — text with linear_extrude in ScadNode
+    let text3d_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let first = args.front().ok_or_else(|| {
+        mlua::Error::RuntimeError("text3d() requires arguments".to_string())
       })?;
-      lua.globals().set("surface", surface_fn)?;
 
-      // ==================================================================
-      // MODIFIER FUNCTIONS (global wrappers)
-      // ==================================================================
+      let text_str = if let LuaValue::String(s) = first {
+        s.to_str().map(|s| s.to_string()).unwrap_or_default()
+      } else {
+        return Err(mlua::Error::RuntimeError(
+          "text3d() first argument must be a string".to_string(),
+        ));
+      };
 
-      lua
-        .load(
-          r#"
+      let (size, depth, font, halign, valign) =
+        if let Some(LuaValue::Table(t)) = args.get(1) {
+          (
+            table_get_f32(t, "size").unwrap_or(10.0),
+            table_get_f32(t, "depth").unwrap_or(1.0),
+            t.get::<String>("font")
+              .unwrap_or_else(|_| "Arial".to_string()),
+            t.get::<String>("halign")
+              .unwrap_or_else(|_| "left".to_string()),
+            t.get::<String>("valign")
+              .unwrap_or_else(|_| "baseline".to_string()),
+          )
+        } else {
+          (
+            10.0,
+            1.0,
+            "Arial".to_string(),
+            "left".to_string(),
+            "baseline".to_string(),
+          )
+        };
+
+      let text_node = ScadNode::Text {
+        text: text_str,
+        size,
+        font,
+        halign,
+        valign,
+      };
+      let scad = Some(ScadNode::LinearExtrude {
+        height: depth,
+        center: false,
+        twist: 0.0,
+        slices: 0,
+        scale: 1.0,
+        child: Box::new(text_node),
+      });
+      // Minimal mesh placeholder
+      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("text3d", text3d_fn)?;
+
+    // ==================================================================
+    // FILE OPERATIONS (ScadNode-only)
+    // ==================================================================
+
+    // ---- import() ----
+    let import_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let file = if let Some(LuaValue::String(s)) = args.front() {
+        s.to_str().map(|s| s.to_string()).unwrap_or_default()
+      } else {
+        return Err(mlua::Error::RuntimeError(
+          "import() requires a filename string".to_string(),
+        ));
+      };
+      let convexity = args
+        .get(1)
+        .and_then(lua_val_to_f32)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+      let scad = Some(ScadNode::Import { file, convexity });
+      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("import", import_fn)?;
+
+    // ---- surface() ----
+    let surface_fn = lua.create_function(|_, args: mlua::MultiValue| {
+      let file = if let Some(LuaValue::String(s)) = args.front() {
+        s.to_str().map(|s| s.to_string()).unwrap_or_default()
+      } else {
+        return Err(mlua::Error::RuntimeError(
+          "surface() requires a filename string".to_string(),
+        ));
+      };
+      let center = args
+        .get(1)
+        .and_then(|v| {
+          if let LuaValue::Boolean(b) = v {
+            Some(*b)
+          } else {
+            None
+          }
+        })
+        .unwrap_or(false);
+      let convexity = args
+        .get(2)
+        .and_then(lua_val_to_f32)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+      let scad = Some(ScadNode::Surface {
+        file,
+        center,
+        convexity,
+      });
+      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
+      Ok(CsgGeometry {
+        mesh,
+        color: None,
+        scad,
+      })
+    })?;
+    lua.globals().set("surface", surface_fn)?;
+
+    // ==================================================================
+    // MODIFIER FUNCTIONS (global wrappers)
+    // ==================================================================
+
+    lua
+      .load(
+        r#"
         function s(obj) return obj:skip() end
         function o(obj) return obj:only() end
         function d(obj) return obj:debug() end
         function t(obj) return obj:transparent() end
         "#,
-        )
-        .exec()?;
+      )
+      .exec()?;
 
-      // ==================================================================
-      // SETTINGS OBJECT
-      // ==================================================================
+    // ==================================================================
+    // SETTINGS OBJECT
+    // ==================================================================
 
-      lua
-        .load(
-          r#"
+    lua
+      .load(
+        r#"
         settings = {
           fa = 12,
           fs = 2,
@@ -1128,85 +1121,85 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           preview = true,
         }
         "#,
-        )
-        .exec()?;
+      )
+      .exec()?;
 
-      // ==================================================================
-      // UTILITY FUNCTIONS
-      // ==================================================================
+    // ==================================================================
+    // UTILITY FUNCTIONS
+    // ==================================================================
 
-      // ---- lookup() ----
-      let lookup_fn =
-        lua.create_function(|_, (key, table): (f64, mlua::Table)| {
-          // lookup(key, [[k1,v1], [k2,v2], ...]) — linear interpolation
-          let mut pairs: Vec<(f64, f64)> = Vec::new();
-          for i in 1..=table.len().unwrap_or(0) {
-            if let Ok(entry) = table.get::<mlua::Table>(i) {
-              let k: f64 = entry.get::<f64>(1).unwrap_or(0.0);
-              let v: f64 = entry.get::<f64>(2).unwrap_or(0.0);
-              pairs.push((k, v));
-            }
-          }
-          if pairs.is_empty() {
-            return Ok(0.0);
-          }
-          pairs.sort_by(|a, b| {
-            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-          });
-          // Clamp to range
-          if key <= pairs[0].0 {
-            return Ok(pairs[0].1);
-          }
-          if key >= pairs[pairs.len() - 1].0 {
-            return Ok(pairs[pairs.len() - 1].1);
-          }
-          // Linear interpolation
-          for i in 0..pairs.len() - 1 {
-            if key >= pairs[i].0 && key <= pairs[i + 1].0 {
-              let t = (key - pairs[i].0) / (pairs[i + 1].0 - pairs[i].0);
-              return Ok(pairs[i].1 + t * (pairs[i + 1].1 - pairs[i].1));
-            }
-          }
-          Ok(pairs[pairs.len() - 1].1)
-        })?;
-      lua.globals().set("lookup", lookup_fn)?;
-
-      // ---- version() ----
-      let version_fn = lua.create_function(|lua, ()| {
-        let t = lua.create_table()?;
-        t.set(
-          1,
-          env!("CARGO_PKG_VERSION_MAJOR").parse::<i32>().unwrap_or(0),
-        )?;
-        t.set(
-          2,
-          env!("CARGO_PKG_VERSION_MINOR").parse::<i32>().unwrap_or(0),
-        )?;
-        t.set(
-          3,
-          env!("CARGO_PKG_VERSION_PATCH").parse::<i32>().unwrap_or(0),
-        )?;
-        Ok(t)
-      })?;
-      lua.globals().set("version", version_fn)?;
-
-      lua.load(code).eval::<mlua::MultiValue>()
-    })();
-
-    match result {
-      Ok(returns) => {
-        // Auto-render any CsgGeometry returned from top-level
-        for val in returns.iter() {
-          if let LuaValue::UserData(ud) = val
-            && let Ok(geom) = ud.borrow::<CsgGeometry>()
-          {
-            collector.borrow_mut().push(geom.clone());
+    // ---- lookup() ----
+    let lookup_fn =
+      lua.create_function(|_, (key, table): (f64, mlua::Table)| {
+        // lookup(key, [[k1,v1], [k2,v2], ...]) — linear interpolation
+        let mut pairs: Vec<(f64, f64)> = Vec::new();
+        for i in 1..=table.len().unwrap_or(0) {
+          if let Ok(entry) = table.get::<mlua::Table>(i) {
+            let k: f64 = entry.get::<f64>(1).unwrap_or(0.0);
+            let v: f64 = entry.get::<f64>(2).unwrap_or(0.0);
+            pairs.push((k, v));
           }
         }
-        Ok(collector.borrow().clone())
+        if pairs.is_empty() {
+          return Ok(0.0);
+        }
+        pairs.sort_by(|a, b| {
+          a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        // Clamp to range
+        if key <= pairs[0].0 {
+          return Ok(pairs[0].1);
+        }
+        if key >= pairs[pairs.len() - 1].0 {
+          return Ok(pairs[pairs.len() - 1].1);
+        }
+        // Linear interpolation
+        for i in 0..pairs.len() - 1 {
+          if key >= pairs[i].0 && key <= pairs[i + 1].0 {
+            let t = (key - pairs[i].0) / (pairs[i + 1].0 - pairs[i].0);
+            return Ok(pairs[i].1 + t * (pairs[i + 1].1 - pairs[i].1));
+          }
+        }
+        Ok(pairs[pairs.len() - 1].1)
+      })?;
+    lua.globals().set("lookup", lookup_fn)?;
+
+    // ---- version() ----
+    let version_fn = lua.create_function(|lua, ()| {
+      let t = lua.create_table()?;
+      t.set(
+        1,
+        env!("CARGO_PKG_VERSION_MAJOR").parse::<i32>().unwrap_or(0),
+      )?;
+      t.set(
+        2,
+        env!("CARGO_PKG_VERSION_MINOR").parse::<i32>().unwrap_or(0),
+      )?;
+      t.set(
+        3,
+        env!("CARGO_PKG_VERSION_PATCH").parse::<i32>().unwrap_or(0),
+      )?;
+      Ok(t)
+    })?;
+    lua.globals().set("version", version_fn)?;
+
+    lua.load(code).eval::<mlua::MultiValue>()
+  })();
+
+  match result {
+    Ok(returns) => {
+      // Auto-render any CsgGeometry returned from top-level
+      for val in returns.iter() {
+        if let LuaValue::UserData(ud) = val
+          && let Ok(geom) = ud.borrow::<CsgGeometry>()
+        {
+          collector.borrow_mut().push(geom.clone());
+        }
       }
-      Err(e) => Err(format!("Lua error: {e}")),
+      Ok(collector.borrow().clone())
     }
+    Err(e) => Err(format!("Lua error: {e}")),
+  }
 }
 
 // ---------------------------------------------------------------------------
