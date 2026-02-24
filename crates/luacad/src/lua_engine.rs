@@ -809,6 +809,42 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     lua.globals().set("render", render_fn)?;
 
     // ==================================================================
+    // SCAD INTEROP
+    // ==================================================================
+
+    // ---- scad() ----
+    // Insert raw OpenSCAD code. Returns a CsgGeometry with an empty mesh
+    // but a Literal ScadNode so it participates in SCAD export.
+    let scad_fn = lua.create_function(|_, code: String| {
+      Ok(CsgGeometry {
+        mesh: CsgMesh::<()>::new(),
+        color: None,
+        scad: Some(ScadNode::Literal { code }),
+      })
+    })?;
+    lua.globals().set("scad", scad_fn)?;
+
+    // ---- var() ----
+    // OpenSCAD customizer variable. Returns the numeric default value so
+    // Lua computation works. The variable name is unused in the Rust engine
+    // but kept for API compatibility with LuaCAD.
+    let var_fn =
+      lua.create_function(|_, (_name, value): (String, f64)| Ok(value))?;
+    lua.globals().set("var", var_fn)?;
+
+    // ---- cad() ----
+    // Returns an empty CsgGeometry. In LuaCAD this is the base CAD object
+    // constructor; here it's mainly for API compatibility.
+    let cad_fn = lua.create_function(|_, ()| {
+      Ok(CsgGeometry {
+        mesh: CsgMesh::<()>::new(),
+        color: None,
+        scad: None,
+      })
+    })?;
+    lua.globals().set("cad", cad_fn)?;
+
+    // ==================================================================
     // MATH GLOBALS
     // ==================================================================
 

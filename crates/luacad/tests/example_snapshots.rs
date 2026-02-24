@@ -253,3 +253,99 @@ fn rounded_rectangle_3mf() {
   let geoms = run_lua("rounded_rectangle.lua");
   insta::assert_snapshot!(threemf_output(&geoms));
 }
+
+// ── customizer.lua ───────────────────────────────────────────────────
+
+#[test]
+fn customizer_scad() {
+  let geoms = run_lua("customizer.lua");
+  insta::assert_snapshot!(scad_output(&geoms));
+}
+
+#[test]
+fn customizer_obj() {
+  let geoms = run_lua("customizer.lua");
+  insta::assert_snapshot!(obj_output(&geoms));
+}
+
+#[test]
+fn customizer_ply() {
+  let geoms = run_lua("customizer.lua");
+  insta::assert_snapshot!(ply_output(&geoms));
+}
+
+#[test]
+fn customizer_stl() {
+  let geoms = run_lua("customizer.lua");
+  insta::assert_snapshot!(stl_output(&geoms));
+}
+
+#[test]
+fn customizer_3mf() {
+  let geoms = run_lua("customizer.lua");
+  insta::assert_snapshot!(threemf_output(&geoms));
+}
+
+// ── literal_openscad.lua ─────────────────────────────────────────────
+
+#[test]
+fn literal_openscad_scad() {
+  let geoms = run_lua("literal_openscad.lua");
+  insta::assert_snapshot!(scad_output(&geoms));
+}
+
+#[test]
+fn literal_openscad_obj() {
+  let geoms = run_lua("literal_openscad.lua");
+  insta::assert_snapshot!(obj_output(&geoms));
+}
+
+#[test]
+fn literal_openscad_ply() {
+  let geoms = run_lua("literal_openscad.lua");
+  insta::assert_snapshot!(ply_output(&geoms));
+}
+
+#[test]
+fn literal_openscad_stl() {
+  let geoms = run_lua("literal_openscad.lua");
+  insta::assert_snapshot!(stl_output(&geoms));
+}
+
+#[test]
+fn literal_openscad_3mf() {
+  let geoms = run_lua("literal_openscad.lua");
+  insta::assert_snapshot!(threemf_output(&geoms));
+}
+
+// ── tostring_demo.lua ────────────────────────────────────────────────
+
+#[test]
+fn tostring_demo_scad() {
+  let geoms = run_lua("tostring_demo.lua");
+  insta::assert_snapshot!(scad_output(&geoms));
+}
+
+#[test]
+fn tostring_demo_obj() {
+  let geoms = run_lua("tostring_demo.lua");
+  insta::assert_snapshot!(obj_output(&geoms));
+}
+
+#[test]
+fn tostring_demo_ply() {
+  let geoms = run_lua("tostring_demo.lua");
+  insta::assert_snapshot!(ply_output(&geoms));
+}
+
+#[test]
+fn tostring_demo_stl() {
+  let geoms = run_lua("tostring_demo.lua");
+  insta::assert_snapshot!(stl_output(&geoms));
+}
+
+#[test]
+fn tostring_demo_3mf() {
+  let geoms = run_lua("tostring_demo.lua");
+  insta::assert_snapshot!(threemf_output(&geoms));
+}

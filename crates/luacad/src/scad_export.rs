@@ -146,6 +146,11 @@ pub enum ScadNode {
     kind: ModifierKind,
     child: Box<ScadNode>,
   },
+
+  /// Raw OpenSCAD code inserted verbatim via `scad()`.
+  Literal {
+    code: String,
+  },
 }
 
 /// OpenSCAD modifier characters: *, !, #, %
@@ -627,6 +632,15 @@ impl ScadNode {
         let trimmed = child_out.trim_start();
         out.push_str(prefix);
         out.push_str(trimmed);
+      }
+
+      ScadNode::Literal { code } => {
+        // Write each line of the literal code with proper indentation
+        for line in code.lines() {
+          write_indent(out, depth);
+          out.push_str(line);
+          out.push('\n');
+        }
       }
     }
   }
