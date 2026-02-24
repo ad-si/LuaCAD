@@ -234,6 +234,120 @@ pub fn export_3mf(
   Ok(())
 }
 
+/// Export all geometries to 3MF bytes in memory.
+pub fn export_3mf_bytes(geometries: &[CsgGeometry]) -> Result<Vec<u8>, String> {
+  use std::collections::HashMap;
+  use std::io::Cursor;
+
+  let merged = merge_geometries(geometries)?;
+
+  if merged.polygons.is_empty() {
+    return Err("No geometry to export".to_string());
+  }
+
+  let mut verts: Vec<[f64; 3]> = Vec::new();
+  let mut tris: Vec<[usize; 3]> = Vec::new();
+  let mut vertex_map: HashMap<VKey, usize> = HashMap::new();
+
+  let get_idx = |verts: &mut Vec<[f64; 3]>,
+                 vertex_map: &mut HashMap<VKey, usize>,
+                 x: f32,
+                 y: f32,
+                 z: f32|
+   -> usize {
+    let key = vkey(x, y, z);
+    *vertex_map.entry(key).or_insert_with(|| {
+      let idx = verts.len();
+      verts.push([x as f64, y as f64, z as f64]);
+      idx
+    })
+  };
+
+  for polygon in &merged.polygons {
+    let plane_normal = polygon.plane.normal();
+    let triangulated = polygon.triangulate();
+
+    for tri_verts in &triangulated {
+      let i0 = get_idx(
+        &mut verts,
+        &mut vertex_map,
+        tri_verts[0].pos.x,
+        tri_verts[0].pos.y,
+        tri_verts[0].pos.z,
+      );
+      let i1 = get_idx(
+        &mut verts,
+        &mut vertex_map,
+        tri_verts[1].pos.x,
+        tri_verts[1].pos.y,
+        tri_verts[1].pos.z,
+      );
+      let i2 = get_idx(
+        &mut verts,
+        &mut vertex_map,
+        tri_verts[2].pos.x,
+        tri_verts[2].pos.y,
+        tri_verts[2].pos.z,
+      );
+
+      if i0 == i1 || i1 == i2 || i0 == i2 {
+        continue;
+      }
+
+      let v0 = verts[i0];
+      let v1 = verts[i1];
+      let v2 = verts[i2];
+      let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+      let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+      let cross = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+      ];
+
+      let dot = cross[0] * plane_normal.x as f64
+        + cross[1] * plane_normal.y as f64
+        + cross[2] * plane_normal.z as f64;
+
+      if dot >= 0.0 {
+        tris.push([i0, i1, i2]);
+      } else {
+        tris.push([i0, i2, i1]);
+      }
+    }
+  }
+
+  let vertices: Vec<threemf::model::mesh::Vertex> = verts
+    .iter()
+    .map(|v| threemf::model::mesh::Vertex {
+      x: v[0],
+      y: v[1],
+      z: v[2],
+    })
+    .collect();
+
+  let triangles: Vec<threemf::model::mesh::Triangle> = tris
+    .iter()
+    .map(|t| threemf::model::mesh::Triangle {
+      v1: t[0],
+      v2: t[1],
+      v3: t[2],
+    })
+    .collect();
+
+  let mesh = ThreemfMesh {
+    vertices: threemf::model::mesh::Vertices { vertex: vertices },
+    triangles: threemf::model::mesh::Triangles {
+      triangle: triangles,
+    },
+  };
+
+  let mut buf = Cursor::new(Vec::new());
+  threemf::write(&mut buf, mesh)
+    .map_err(|e| format!("Failed to write 3MF: {e}"))?;
+  Ok(buf.into_inner())
+}
+
 /// Merge all geometries into one csgrs mesh via union.
 fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
   if geometries.is_empty() {
@@ -271,6 +385,15 @@ pub fn export_stl(
   std::fs::write(path, stl_bytes)
     .map_err(|e| format!("Failed to write STL: {e}"))?;
   Ok(())
+}
+
+/// Export all geometries to an ASCII STL string using csgrs's built-in STL export.
+pub fn export_stl_ascii(
+  geometries: &[CsgGeometry],
+  name: &str,
+) -> Result<String, String> {
+  let merged = merge_geometries(geometries)?;
+  Ok(merged.to_stl_ascii(name))
 }
 
 /// Export all geometries to an OBJ file using csgrs's built-in OBJ export.

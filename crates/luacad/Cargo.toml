@@ -11,3 +11,7 @@ mlua = { version = "0.10", features = ["lua54", "vendored"] }
 csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"] }
 nalgebra = "0.33"
 threemf = "0.5"
+
+[dev-dependencies]
+insta = "1"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }

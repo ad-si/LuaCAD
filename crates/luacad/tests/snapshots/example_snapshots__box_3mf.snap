@@ -1,0 +1,68 @@
+---
+source: crates/luacad/tests/example_snapshots.rs
+expression: threemf_output(&geoms)
+---
+<?xml version="1.0" encoding="utf-8"?>
+<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" unit="millimeter">
+  <resources>
+    <object id="1">
+      <mesh>
+        <vertices>
+          <vertex x="30" y="0" z="15"/>
+          <vertex x="0" y="2" z="15"/>
+          <vertex x="0" y="0" z="15"/>
+          <vertex x="30" y="2" z="15"/>
+          <vertex x="30" y="20" z="15"/>
+          <vertex x="0" y="18" z="15"/>
+          <vertex x="30" y="18" z="15"/>
+          <vertex x="0" y="20" z="15"/>
+          <vertex x="2" y="18" z="15"/>
+          <vertex x="2" y="2" z="15"/>
+          <vertex x="28" y="18" z="15"/>
+          <vertex x="28" y="2" z="15"/>
+          <vertex x="2" y="18" z="2"/>
+          <vertex x="28" y="2" z="2"/>
+          <vertex x="28" y="18" z="2"/>
+          <vertex x="2" y="2" z="2"/>
+          <vertex x="30" y="20" z="0"/>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="0" y="20" z="0"/>
+          <vertex x="30" y="0" z="0"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+          <triangle v1="3" v2="1" v3="0"/>
+          <triangle v1="4" v2="5" v3="6"/>
+          <triangle v1="7" v2="5" v3="4"/>
+          <triangle v1="1" v2="8" v3="5"/>
+          <triangle v1="9" v2="8" v3="1"/>
+          <triangle v1="3" v2="10" v3="11"/>
+          <triangle v1="6" v2="10" v3="3"/>
+          <triangle v1="12" v2="13" v3="14"/>
+          <triangle v1="15" v2="13" v3="12"/>
+          <triangle v1="13" v2="9" v3="11"/>
+          <triangle v1="15" v2="9" v3="13"/>
+          <triangle v1="8" v2="14" v3="10"/>
+          <triangle v1="12" v2="14" v3="8"/>
+          <triangle v1="9" v2="12" v3="8"/>
+          <triangle v1="15" v2="12" v3="9"/>
+          <triangle v1="14" v2="11" v3="10"/>
+          <triangle v1="13" v2="11" v3="14"/>
+          <triangle v1="16" v2="17" v3="18"/>
+          <triangle v1="19" v2="17" v3="16"/>
+          <triangle v1="0" v2="17" v3="19"/>
+          <triangle v1="2" v2="17" v3="0"/>
+          <triangle v1="4" v2="18" v3="7"/>
+          <triangle v1="16" v2="18" v3="4"/>
+          <triangle v1="7" v2="17" v3="2"/>
+          <triangle v1="18" v2="17" v3="7"/>
+          <triangle v1="4" v2="19" v3="16"/>
+          <triangle v1="0" v2="19" v3="4"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="1"/>
+  </build>
+</model>
