@@ -38,8 +38,37 @@ pub fn lua_val_to_f32(v: &mlua::Value) -> Option<f32> {
   }
 }
 
-/// Resolve a CSS3/SVG named color (the same 147 colors supported by OpenSCAD).
+/// Parse a hex color string (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`).
+/// Returns the RGB components; alpha is ignored for now since the color
+/// representation is `[f32; 3]`.
+fn parse_hex_color(s: &str) -> Option<[f32; 3]> {
+  let hex = s.strip_prefix('#')?;
+  let (r, g, b) = match hex.len() {
+    // #RGB or #RGBA
+    3 | 4 => {
+      let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
+      let g = u8::from_str_radix(&hex[1..2], 16).ok()?;
+      let b = u8::from_str_radix(&hex[2..3], 16).ok()?;
+      (r * 17, g * 17, b * 17)
+    }
+    // #RRGGBB or #RRGGBBAA
+    6 | 8 => {
+      let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+      let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+      let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+      (r, g, b)
+    }
+    _ => return None,
+  };
+  Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
+}
+
+/// Resolve a CSS3/SVG named color (the same 147 colors supported by OpenSCAD)
+/// or a hex color string (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`).
 fn named_color(name: &str) -> Option<[f32; 3]> {
+  if name.starts_with('#') {
+    return parse_hex_color(name);
+  }
   let c = |r: u8, g: u8, b: u8| {
     Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
   };
