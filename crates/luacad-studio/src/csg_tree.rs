@@ -190,9 +190,11 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
     // --- CSG booleans ---
     ScadNode::Union(children) => {
       // Each child of a union becomes its own group (separate OpenCSG render call).
+      // Propagate `op` so that when a union appears inside a Difference (as a
+      // subtracted operand), its leaves inherit the SUBTRACTION operation.
       let mut groups = Vec::new();
       for child in children {
-        groups.extend(flatten_inner(child, ctx, INTERSECTION));
+        groups.extend(flatten_inner(child, ctx, op));
       }
       groups
     }
