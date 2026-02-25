@@ -1,0 +1,13 @@
+OpenCSG is available under the GNU General Public License, either
+version 2, or since OpenCSG version 1.5.0 - at your option - any
+later version.
+
+Please read these files for the full licenses.
+doc/license/gpl-2.0.txt
+doc/license/gpl-3.0.txt
+
+Note that OpenCSG comes with code that is not copyrighted by me,
+in particular GLEW (http://glew.sourceforge.net)
+These libraries are licensed under the terms of their respective authors. 
+
+2025, Florian Kirsch
