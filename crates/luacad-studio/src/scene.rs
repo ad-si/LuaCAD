@@ -27,11 +27,14 @@ unsafe extern "C" fn render_leaf_callback(user_data: *mut c_void) {
     gl_PushMatrix();
     gl_MultMatrixf(data.transform.as_ptr());
 
-    // Draw triangles via vertex arrays
-    gl_EnableClientState(GL_VERTEX_ARRAY);
-    gl_VertexPointer(3, GL_FLOAT, 0, verts.as_ptr() as *const c_void);
-    gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
-    gl_DisableClientState(GL_VERTEX_ARRAY);
+    // Draw triangles via immediate mode.
+    // Client-side vertex arrays (glVertexPointer) don't work on some
+    // GL 4.5 Compatibility contexts (e.g. llvmpipe on aarch64 Linux).
+    gl_Begin(GL_TRIANGLES);
+    for v in verts {
+      gl_Vertex3f(v[0], v[1], v[2]);
+    }
+    gl_End();
 
     gl_PopMatrix();
   }
@@ -186,24 +189,21 @@ fn render_csg_group(
     return;
   }
 
-  // Check for debug bypass: skip OpenCSG and render directly
-  let skip_csg = std::env::var("LUACAD_DEBUG_NO_CSG").is_ok();
-
-  if !skip_csg {
-    // --- OpenCSG depth pass ---
-    unsafe {
-      opencsg_sys::render(&mut ocsg_prims);
-    }
+  // --- OpenCSG depth pass ---
+  unsafe {
+    opencsg_sys::render(&mut ocsg_prims);
   }
 
-  // --- Shading pass ---
+  // --- Shading pass with GL_EQUAL ---
+  // OpenCSG's glPopAttrib restores pre-render GL state. Re-render the same
+  // geometry with GL_EQUAL to shade only CSG-visible surfaces.
   unsafe {
     gl_UseProgram(0);
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
     gl_MatrixMode(GL_MODELVIEW);
     gl_LoadMatrixf(view.as_ptr());
-    gl_DepthFunc(if skip_csg { GL_LEQUAL } else { GL_EQUAL });
+    gl_DepthFunc(GL_EQUAL);
     gl_Enable(GL_LIGHTING);
     gl_Enable(GL_LIGHT0);
     gl_Enable(GL_LIGHT1);
@@ -217,19 +217,20 @@ fn render_csg_group(
       gl_Color3f(leaf.color[0], leaf.color[1], leaf.color[2]);
 
       let data = &render_datas[i];
+      let verts = std::slice::from_raw_parts(data.vertices, data.vertex_count);
 
       gl_PushMatrix();
       gl_MultMatrixf(data.transform.as_ptr());
 
-      // Use vertex arrays for both positions and normals so the depth
-      // values match the OpenCSG depth pass exactly.
-      gl_EnableClientState(GL_VERTEX_ARRAY);
-      gl_EnableClientState(GL_NORMAL_ARRAY);
-      gl_VertexPointer(3, GL_FLOAT, 0, data.vertices as *const c_void);
-      gl_NormalPointer(GL_FLOAT, 0, data.normals.as_ptr() as *const c_void);
-      gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
-      gl_DisableClientState(GL_NORMAL_ARRAY);
-      gl_DisableClientState(GL_VERTEX_ARRAY);
+      // Use immediate mode so depth values match the OpenCSG depth pass
+      // (which also uses immediate mode via render_leaf_callback).
+      gl_Begin(GL_TRIANGLES);
+      for (vi, v) in verts.iter().enumerate() {
+        let n = &data.normals[vi];
+        gl_Normal3f(n[0], n[1], n[2]);
+        gl_Vertex3f(v[0], v[1], v[2]);
+      }
+      gl_End();
 
       gl_PopMatrix();
     }
@@ -295,29 +296,6 @@ pub fn render_axes() {
 
     gl_End();
     gl_LineWidth(1.0);
-
-    // Debug: render a test triangle via immediate mode (yellow)
-    if std::env::var("LUACAD_DEBUG_TRIANGLE").is_ok() {
-      gl_Color3f(1.0, 1.0, 0.0);
-      gl_Begin(GL_TRIANGLES);
-      gl_Vertex3f(0.0, 0.0, 0.0);
-      gl_Vertex3f(2.0, 0.0, 0.0);
-      gl_Vertex3f(1.0, 2.0, 0.0);
-      gl_End();
-
-      // Debug: render a test triangle via vertex arrays (cyan)
-      let verts: [[f32; 3]; 3] = [
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 2.0],
-        [0.0, 2.0, 1.0],
-      ];
-      gl_BindVertexArray(0);
-      gl_Color3f(0.0, 1.0, 1.0);
-      gl_EnableClientState(GL_VERTEX_ARRAY);
-      gl_VertexPointer(3, GL_FLOAT, 0, verts.as_ptr() as *const c_void);
-      gl_DrawArrays(GL_TRIANGLES, 0, 3);
-      gl_DisableClientState(GL_VERTEX_ARRAY);
-    }
   }
 }
 
@@ -500,25 +478,12 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glNormal3f"]
+  fn gl_Normal3f(x: f32, y: f32, z: f32);
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
   fn gl_LineWidth(width: f32);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
   #[link_name = "glClear"]
   fn gl_Clear(mask: u32);
   #[link_name = "glClearColor"]
@@ -579,25 +544,12 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glNormal3f"]
+  fn gl_Normal3f(x: f32, y: f32, z: f32);
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
   fn gl_LineWidth(width: f32);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
   #[link_name = "glClear"]
   fn gl_Clear(mask: u32);
   #[link_name = "glClearColor"]
@@ -655,25 +607,12 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glNormal3f"]
+  fn gl_Normal3f(x: f32, y: f32, z: f32);
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
   fn gl_LineWidth(width: f32);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
   #[link_name = "glClear"]
   fn gl_Clear(mask: u32);
   #[link_name = "glClearColor"]
@@ -749,9 +688,6 @@ const GL_LEQUAL: u32 = 0x0203;
 const GL_LESS: u32 = 0x0201;
 const GL_TRIANGLES: u32 = 0x0004;
 const GL_LINES: u32 = 0x0001;
-const GL_FLOAT: u32 = 0x1406;
-const GL_VERTEX_ARRAY: u32 = 0x8074;
-const GL_NORMAL_ARRAY: u32 = 0x8075;
 const GL_DEPTH_BUFFER_BIT: u32 = 0x00000100;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x00000400;

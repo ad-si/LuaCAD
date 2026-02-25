@@ -33,15 +33,6 @@ typedef struct opencsg_primitive_t opencsg_primitive_t;
 // Must be called once after the GL context is made current.
 void opencsg_init_gl(void);
 
-// Return the GL version detected by OpenCSG's internal GLAD loader (0 on failure).
-int opencsg_glad_version(void);
-
-// Query whether OpenCSG's GLAD detected the named framebuffer extensions.
-// out_arb_fbo: set to 1 if GL_ARB_framebuffer_object is available
-// out_ext_fbo: set to 1 if GL_EXT_framebuffer_object is available
-// out_ext_pds: set to 1 if GL_EXT_packed_depth_stencil is available
-void opencsg_glad_fbo_support(int *out_arb_fbo, int *out_ext_fbo, int *out_ext_pds);
-
 // Create a new primitive with a render callback.
 // operation: OPENCSG_INTERSECTION or OPENCSG_SUBTRACTION
 // convexity: max number of front faces at any point (1 for convex shapes)
