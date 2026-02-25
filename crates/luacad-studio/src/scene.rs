@@ -550,7 +550,12 @@ unsafe extern "C" {
   #[link_name = "glBufferData"]
   fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
   #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  fn gl_VertexPointer(
+    size: i32,
+    type_: u32,
+    stride: i32,
+    pointer: *const c_void,
+  );
   #[link_name = "glNormalPointer"]
   fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
   #[link_name = "glEnableClientState"]
@@ -635,7 +640,12 @@ unsafe extern "C" {
   #[link_name = "glBufferData"]
   fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
   #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  fn gl_VertexPointer(
+    size: i32,
+    type_: u32,
+    stride: i32,
+    pointer: *const c_void,
+  );
   #[link_name = "glNormalPointer"]
   fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
   #[link_name = "glEnableClientState"]
@@ -703,7 +713,12 @@ unsafe extern "C" {
   #[link_name = "glMaterialf"]
   fn gl_Materialf(face: u32, pname: u32, param: f32);
   #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  fn gl_VertexPointer(
+    size: i32,
+    type_: u32,
+    stride: i32,
+    pointer: *const c_void,
+  );
   #[link_name = "glNormalPointer"]
   fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
   #[link_name = "glEnableClientState"]
@@ -766,17 +781,32 @@ mod win_gl_buffers {
         static FUNC: OnceLock<$sig> = OnceLock::new();
         *FUNC.get_or_init(|| {
           let ptr = unsafe { wglGetProcAddress($c_name.as_ptr()) };
-          assert!(!ptr.is_null(), concat!("failed to load ", stringify!($name)));
+          assert!(
+            !ptr.is_null(),
+            concat!("failed to load ", stringify!($name))
+          );
           unsafe { std::mem::transmute(ptr) }
         })
       }
     };
   }
 
-  load_gl_fn!(gen_buffers, c"glGenBuffers", unsafe extern "C" fn(i32, *mut u32));
-  load_gl_fn!(delete_buffers, c"glDeleteBuffers", unsafe extern "C" fn(i32, *const u32));
+  load_gl_fn!(
+    gen_buffers,
+    c"glGenBuffers",
+    unsafe extern "C" fn(i32, *mut u32)
+  );
+  load_gl_fn!(
+    delete_buffers,
+    c"glDeleteBuffers",
+    unsafe extern "C" fn(i32, *const u32)
+  );
   load_gl_fn!(bind_buffer, c"glBindBuffer", unsafe extern "C" fn(u32, u32));
-  load_gl_fn!(buffer_data, c"glBufferData", unsafe extern "C" fn(u32, isize, *const c_void, u32));
+  load_gl_fn!(
+    buffer_data,
+    c"glBufferData",
+    unsafe extern "C" fn(u32, isize, *const c_void, u32)
+  );
 }
 
 #[cfg(target_os = "windows")]
@@ -792,7 +822,12 @@ unsafe fn gl_BindBuffer(target: u32, buffer: u32) {
   unsafe { (win_gl_buffers::bind_buffer())(target, buffer) }
 }
 #[cfg(target_os = "windows")]
-unsafe fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32) {
+unsafe fn gl_BufferData(
+  target: u32,
+  size: isize,
+  data: *const c_void,
+  usage: u32,
+) {
   unsafe { (win_gl_buffers::buffer_data())(target, size, data, usage) }
 }
 
