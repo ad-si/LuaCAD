@@ -55,8 +55,6 @@ pub fn render_opencsg_scene(
     // Set up legacy GL matrices from camera
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
-    gl_MatrixMode(GL_MODELVIEW);
-    gl_LoadMatrixf(view.as_ptr());
 
     // Set up fixed-function lighting
     gl_Enable(GL_LIGHTING);
@@ -77,6 +75,11 @@ pub fn render_opencsg_scene(
 
     let no_amb: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
+    // Set light positions with identity modelview so they remain fixed in
+    // world space and don't move when the camera orbits.
+    gl_MatrixMode(GL_MODELVIEW);
+    gl_LoadIdentity();
+
     // Key light (90%, top-right-front) with specular
     let light0_dir: [f32; 4] = [1.0, 1.0, 0.5, 0.0]; // directional
     let light0_diff: [f32; 4] = [0.9, 0.9, 0.9, 1.0];
@@ -86,8 +89,8 @@ pub fn render_opencsg_scene(
     gl_Lightfv(GL_LIGHT0, GL_SPECULAR, light0_spec.as_ptr());
     gl_Lightfv(GL_LIGHT0, GL_AMBIENT, no_amb.as_ptr());
 
-    // Fill light (55%, left-low-back)
-    let light1_dir: [f32; 4] = [-1.0, 0.3, -0.5, 0.0];
+    // Fill light (55%, front-left, slightly above)
+    let light1_dir: [f32; 4] = [-1.0, 0.3, 0.5, 0.0];
     let light1_diff: [f32; 4] = [0.55, 0.55, 0.55, 1.0];
     gl_Lightfv(GL_LIGHT1, GL_POSITION, light1_dir.as_ptr());
     gl_Lightfv(GL_LIGHT1, GL_DIFFUSE, light1_diff.as_ptr());
@@ -99,6 +102,9 @@ pub fn render_opencsg_scene(
     gl_Lightfv(GL_LIGHT2, GL_POSITION, light2_dir.as_ptr());
     gl_Lightfv(GL_LIGHT2, GL_DIFFUSE, light2_diff.as_ptr());
     gl_Lightfv(GL_LIGHT2, GL_AMBIENT, no_amb.as_ptr());
+
+    // Now load the actual view matrix for geometry rendering
+    gl_LoadMatrixf(view.as_ptr());
 
     // Material specular properties (subtle highlight, medium shininess)
     let mat_spec: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
@@ -432,6 +438,8 @@ unsafe extern "C" {
   fn gl_MatrixMode(mode: u32);
   #[link_name = "glLoadMatrixf"]
   fn gl_LoadMatrixf(m: *const f32);
+  #[link_name = "glLoadIdentity"]
+  fn gl_LoadIdentity();
   #[link_name = "glPushMatrix"]
   fn gl_PushMatrix();
   #[link_name = "glPopMatrix"]
@@ -504,6 +512,8 @@ unsafe extern "C" {
   fn gl_MatrixMode(mode: u32);
   #[link_name = "glLoadMatrixf"]
   fn gl_LoadMatrixf(m: *const f32);
+  #[link_name = "glLoadIdentity"]
+  fn gl_LoadIdentity();
   #[link_name = "glPushMatrix"]
   fn gl_PushMatrix();
   #[link_name = "glPopMatrix"]
