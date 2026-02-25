@@ -5,9 +5,13 @@ local debug = true -- Show helper geometry
 local fn = 72 -- High segment count for smooth surfaces
 
 -- Core geometric primitives
-local body = sphere { r = 10, fn = fn }:color("blue")
-local intersector = cube { 15, 15, 15, center = true }:color("red")
-local hole_object = cylinder { h = 20, r = 5, center = true, fn = fn }:color("lime")
+local body = sphere{r = 10, fn = fn}:color("#26A69A")
+local intersector = 
+  cube{15, 15, 15, center = true}
+  :color("#ffa726")
+local hole_object = 
+  cylinder{h = 20, r = 5, center = true, fn = fn}
+  :color("#3177be")
 
 -- Various modules for visualizing intermediate components
 local intersected = body * intersector
@@ -17,11 +21,13 @@ local hole_c = hole_object
 local holes = hole_a + hole_b + hole_c
 
 -- Main geometry
-render((body * intersector) - holes)
+render(((body * intersector) - holes):translate(0, 0, 25))
 
 -- Helpers
 if debug then
-  local  line = cylinder { r = 1, h = 10, center = true, fn = fn }:color("black")
+  local line =
+    cylinder{r = 1, h = 10, center = true, fn = fn}
+    :color("black")
   
   -- Intersection breakdown
   local left_group = (intersected
@@ -45,7 +51,9 @@ if debug then
     line:rotate(0, 45, 0):translate(-20, 0, -22.5)
     + line:rotate(0, -45, 0):translate(20, 0, -22.5)
 
-  local helpers = (left_group + right_group + connecting_lines):scale(0.5, 0.5, 0.5)
+  local helpers = 
+    (left_group + right_group + connecting_lines)
+    :scale(0.5, 0.5, 0.5)
 
-  render(helpers)
+  render(helpers:translate(0, 0, 25))
 end
