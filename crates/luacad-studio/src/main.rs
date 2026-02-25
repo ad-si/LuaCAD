@@ -129,6 +129,34 @@ fn main() {
             Key::Enter => {
               app.execute_lua_code();
             }
+            Key::Num4 => {
+              app.camera_azimuth = -90.0;
+              app.camera_elevation = 89.0;
+            }
+            Key::Num5 => {
+              app.camera_azimuth = -90.0;
+              app.camera_elevation = -89.0;
+            }
+            Key::Num6 => {
+              app.camera_azimuth = 180.0;
+              app.camera_elevation = 0.0;
+            }
+            Key::Num7 => {
+              app.camera_azimuth = 0.0;
+              app.camera_elevation = 0.0;
+            }
+            Key::Num8 => {
+              app.camera_azimuth = -90.0;
+              app.camera_elevation = 0.0;
+            }
+            Key::Num9 => {
+              app.camera_azimuth = 90.0;
+              app.camera_elevation = 0.0;
+            }
+            Key::Num0 => {
+              app.camera_azimuth = -30.0;
+              app.camera_elevation = 30.0;
+            }
             _ => {}
           }
         } else if *kind == Key::Tab {

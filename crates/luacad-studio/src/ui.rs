@@ -361,7 +361,17 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           ),
           (
             "Viewport",
-            &[("Drag", "Rotate camera"), ("Scroll", "Zoom in / out")],
+            &[
+              ("Drag", "Rotate camera"),
+              ("Scroll", "Zoom in / out"),
+              ("⌘ 4", "Top"),
+              ("⌘ 5", "Bottom"),
+              ("⌘ 6", "Left"),
+              ("⌘ 7", "Right"),
+              ("⌘ 8", "Front"),
+              ("⌘ 9", "Back"),
+              ("⌘ 0", "Diagonal"),
+            ],
           ),
         ];
         for (i, &(section, shortcuts)) in sections.iter().enumerate() {
@@ -421,48 +431,36 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       let is = |a: f32, e: f32| (az - a).abs() < 1.0 && (el - e).abs() < 1.0;
 
       if ui
-        .selectable_label(is(-30.0, 30.0), "Default")
+        .selectable_label(is(-30.0, 30.0), "Diagonal")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 0")
         .clicked()
       {
         app.camera_azimuth = -30.0;
         app.camera_elevation = 30.0;
       }
       if ui
-        .selectable_label(is(-90.0, 90.0), "Top")
+        .selectable_label(is(-90.0, 89.0), "Top")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 4")
         .clicked()
       {
         app.camera_azimuth = -90.0;
         app.camera_elevation = 89.0;
       }
       if ui
-        .selectable_label(is(-90.0, -90.0), "Bottom")
+        .selectable_label(is(-90.0, -89.0), "Bottom")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 5")
         .clicked()
       {
         app.camera_azimuth = -90.0;
         app.camera_elevation = -89.0;
       }
       if ui
-        .selectable_label(is(-90.0, 0.0), "Front")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-      {
-        app.camera_azimuth = -90.0;
-        app.camera_elevation = 0.0;
-      }
-      if ui
-        .selectable_label(is(90.0, 0.0), "Back")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-      {
-        app.camera_azimuth = 90.0;
-        app.camera_elevation = 0.0;
-      }
-      if ui
         .selectable_label(is(180.0, 0.0), "Left")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 6")
         .clicked()
       {
         app.camera_azimuth = 180.0;
@@ -471,9 +469,28 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(0.0, 0.0), "Right")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 7")
         .clicked()
       {
         app.camera_azimuth = 0.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui
+        .selectable_label(is(-90.0, 0.0), "Front")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 8")
+        .clicked()
+      {
+        app.camera_azimuth = -90.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui
+        .selectable_label(is(90.0, 0.0), "Back")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("⌘ 9")
+        .clicked()
+      {
+        app.camera_azimuth = 90.0;
         app.camera_elevation = 0.0;
       }
       ui.separator();
