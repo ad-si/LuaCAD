@@ -353,7 +353,7 @@ mod linux {
     let raw_display_handle = window.raw_display_handle();
     let raw_window_handle = window.raw_window_handle();
 
-    let preference = glutin::display::DisplayApiPreference::EglThenGlx(
+    let preference = glutin::display::DisplayApiPreference::GlxThenEgl(
       Box::new(winit::platform::x11::register_xlib_error_hook),
     );
 
