@@ -42,9 +42,11 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> Vec<CsgGroup> {
     let color = geom.color.unwrap_or(DEFAULT_COLOR);
     if let Some(ref scad) = geom.scad {
       groups.extend(flatten_node(scad, &IDENTITY, color));
-    } else if !geom.mesh.polygons.is_empty() {
+    } else if let Some(ref mesh) = geom.mesh
+      && !mesh.polygons.is_empty()
+    {
       // Fallback: use the already-computed csgrs mesh as a single leaf.
-      let vertices = cad_to_gl_vertices(mesh_to_triangles(&geom.mesh));
+      let vertices = cad_to_gl_vertices(mesh_to_triangles(mesh));
       if !vertices.is_empty() {
         groups.push(CsgGroup {
           primitives: vec![CsgLeaf {

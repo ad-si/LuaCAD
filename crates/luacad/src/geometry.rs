@@ -3,8 +3,18 @@ use csgrs::mesh::plane::Plane;
 use csgrs::traits::CSG;
 use mlua::{UserData, UserDataMethods, Value as LuaValue};
 use nalgebra::{Matrix4, Vector3};
+use std::sync::OnceLock;
 
 use crate::scad_export::ScadNode;
+
+/// Create an empty csgrs mesh with no polygons.
+fn empty_mesh() -> CsgMesh<()> {
+  CsgMesh {
+    polygons: vec![],
+    bounding_box: OnceLock::new(),
+    metadata: None,
+  }
+}
 
 fn table_get_f32(t: &mlua::Table, key: &str) -> Option<f32> {
   t.get::<mlua::Value>(key)
@@ -180,9 +190,165 @@ fn named_color(name: &str) -> Option<[f32; 3]> {
 
 #[derive(Clone, Debug)]
 pub struct CsgGeometry {
-  pub mesh: CsgMesh<()>,
+  /// The materialized mesh. `None` when the geometry was produced by a CSG
+  /// boolean and we're deferring the expensive mesh computation until export.
+  /// Call [`CsgGeometry::materialize`] to force evaluation.
+  pub mesh: Option<CsgMesh<()>>,
   pub color: Option<[f32; 3]>,
   pub scad: Option<ScadNode>,
+}
+
+impl CsgGeometry {
+  /// Ensure `self.mesh` is populated by evaluating the ScadNode tree if needed.
+  /// After this call, `self.mesh` is guaranteed to be `Some`.
+  pub fn materialize(&mut self) {
+    if self.mesh.is_some() {
+      return;
+    }
+    if let Some(ref scad) = self.scad {
+      self.mesh = Some(materialize_scad(scad));
+    }
+  }
+
+  /// Return a reference to the mesh, materializing it first if necessary.
+  pub fn mesh(&mut self) -> &CsgMesh<()> {
+    self.materialize();
+    self.mesh.as_ref().unwrap()
+  }
+
+  /// Return a reference to the mesh if already materialized, without forcing evaluation.
+  pub fn mesh_if_materialized(&self) -> Option<&CsgMesh<()>> {
+    self.mesh.as_ref()
+  }
+}
+
+/// Recursively evaluate a ScadNode tree into a csgrs mesh.
+pub fn materialize_scad(node: &ScadNode) -> CsgMesh<()> {
+  match node {
+    // --- Leaf 3D primitives ---
+    ScadNode::Cube { w, d, h, center } => {
+      let m = CsgMesh::<()>::cuboid(*w, *d, *h, None);
+      if *center {
+        m.translate(-w / 2.0, -d / 2.0, -h / 2.0)
+      } else {
+        m
+      }
+    }
+    ScadNode::Sphere { r, segments } => {
+      CsgMesh::<()>::sphere(*r, *segments as usize, *segments as usize, None)
+    }
+    ScadNode::Cylinder {
+      r1,
+      r2,
+      h,
+      segments,
+      center,
+    } => {
+      let m = CsgMesh::<()>::frustum(*r1, *r2, *h, *segments as usize, None);
+      if *center {
+        m.translate(0.0, 0.0, -h / 2.0)
+      } else {
+        m
+      }
+    }
+    ScadNode::Polyhedron { points, faces } => {
+      let face_refs: Vec<&[usize]> =
+        faces.iter().map(|f| f.as_slice()).collect();
+      CsgMesh::<()>::polyhedron(points, &face_refs, None)
+        .unwrap_or_else(|_| empty_mesh())
+    }
+
+    // --- CSG booleans ---
+    ScadNode::Union(children) => {
+      let mut iter = children.iter();
+      let first = iter.next().map(materialize_scad).unwrap_or_else(empty_mesh);
+      iter.fold(first, |acc, child| acc.union(&materialize_scad(child)))
+    }
+    ScadNode::Difference(children) => {
+      let mut iter = children.iter();
+      let first = iter.next().map(materialize_scad).unwrap_or_else(empty_mesh);
+      iter.fold(first, |acc, child| acc.difference(&materialize_scad(child)))
+    }
+    ScadNode::Intersection(children) => {
+      let mut iter = children.iter();
+      let first = iter.next().map(materialize_scad).unwrap_or_else(empty_mesh);
+      iter.fold(first, |acc, child| {
+        acc.intersection(&materialize_scad(child))
+      })
+    }
+    ScadNode::Hull(child) => materialize_scad(child).convex_hull(),
+    ScadNode::Minkowski(children) => {
+      let mut iter = children.iter();
+      let first = iter.next().map(materialize_scad).unwrap_or_else(empty_mesh);
+      iter.fold(first, |acc, child| {
+        acc.minkowski_sum(&materialize_scad(child))
+      })
+    }
+
+    // --- Transforms ---
+    ScadNode::Translate { x, y, z, child } => {
+      materialize_scad(child).translate(*x, *y, *z)
+    }
+    ScadNode::Rotate { x, y, z, child } => {
+      materialize_scad(child).rotate(*x, *y, *z)
+    }
+    ScadNode::Scale { x, y, z, child } => {
+      materialize_scad(child).scale(*x, *y, *z)
+    }
+    ScadNode::Mirror { x, y, z, child } => {
+      let plane = Plane::from_normal(Vector3::new(*x, *y, *z), 0.0);
+      materialize_scad(child).mirror(plane)
+    }
+    ScadNode::Multmatrix { matrix, child } => {
+      #[rustfmt::skip]
+      let mat = Matrix4::new(
+        matrix[0],  matrix[1],  matrix[2],  matrix[3],
+        matrix[4],  matrix[5],  matrix[6],  matrix[7],
+        matrix[8],  matrix[9],  matrix[10], matrix[11],
+        matrix[12], matrix[13], matrix[14], matrix[15],
+      );
+      materialize_scad(child).transform(&mat)
+    }
+    ScadNode::Resize { x, y, z, child } => {
+      let mesh = materialize_scad(child);
+      let bb = mesh.bounding_box();
+      let cur_w = bb.maxs.x - bb.mins.x;
+      let cur_d = bb.maxs.y - bb.mins.y;
+      let cur_h = bb.maxs.z - bb.mins.z;
+      let sx = if *x > 0.0 && cur_w > 1e-9 {
+        x / cur_w
+      } else {
+        1.0
+      };
+      let sy = if *y > 0.0 && cur_d > 1e-9 {
+        y / cur_d
+      } else {
+        1.0
+      };
+      let sz = if *z > 0.0 && cur_h > 1e-9 {
+        z / cur_h
+      } else {
+        1.0
+      };
+      mesh.scale(sx, sy, sz)
+    }
+
+    // --- Color / modifiers / render: pass through ---
+    ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Modifier { child, .. } => materialize_scad(child),
+
+    // --- Extrusions: these produce geometry but need sketch data ---
+    // Cannot be reconstructed from ScadNode alone (we don't store the sketch mesh).
+    // These should never appear with mesh: None because extrusions produce a
+    // concrete mesh at creation time. Return empty as a safe fallback.
+    ScadNode::LinearExtrude { .. }
+    | ScadNode::RotateExtrude { .. }
+    | ScadNode::Projection { .. } => empty_mesh(),
+
+    // --- 2D / text / file ops: no 3D mesh ---
+    _ => empty_mesh(),
+  }
 }
 
 impl UserData for CsgGeometry {
@@ -200,7 +366,7 @@ impl UserData for CsgGeometry {
           child: Box::new(s.clone()),
         });
         Ok(CsgGeometry {
-          mesh: this.mesh.translate(x, y, z),
+          mesh: this.mesh.as_ref().map(|m| m.translate(x, y, z)),
           color: this.color,
           scad,
         })
@@ -216,11 +382,11 @@ impl UserData for CsgGeometry {
         let rx = lua_val_to_f32(&args[3]).unwrap_or(0.0);
         let ry = lua_val_to_f32(&args[4]).unwrap_or(0.0);
         let rz = lua_val_to_f32(&args[5]).unwrap_or(0.0);
-        let mesh = this
-          .mesh
-          .translate(-cx, -cy, -cz)
-          .rotate(rx, ry, rz)
-          .translate(cx, cy, cz);
+        let mesh = this.mesh.as_ref().map(|m| {
+          m.translate(-cx, -cy, -cz)
+            .rotate(rx, ry, rz)
+            .translate(cx, cy, cz)
+        });
         let scad = this.scad.as_ref().map(|s| ScadNode::Translate {
           x: cx,
           y: cy,
@@ -257,7 +423,7 @@ impl UserData for CsgGeometry {
           child: Box::new(s.clone()),
         });
         Ok(CsgGeometry {
-          mesh: this.mesh.rotate(rx, ry, rz),
+          mesh: this.mesh.as_ref().map(|m| m.rotate(rx, ry, rz)),
           color: this.color,
           scad,
         })
@@ -267,11 +433,11 @@ impl UserData for CsgGeometry {
     methods.add_method(
       "rotate2d",
       |_, this, (x, y, angle): (f32, f32, f32)| {
-        let mesh = this
-          .mesh
-          .translate(-x, -y, 0.0)
-          .rotate(0.0, 0.0, angle)
-          .translate(x, y, 0.0);
+        let mesh = this.mesh.as_ref().map(|m| {
+          m.translate(-x, -y, 0.0)
+            .rotate(0.0, 0.0, angle)
+            .translate(x, y, 0.0)
+        });
         let scad = this.scad.as_ref().map(|s| ScadNode::Translate {
           x,
           y,
@@ -304,14 +470,16 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.scale(sx, sy, sz),
+        mesh: this.mesh.as_ref().map(|m| m.scale(sx, sy, sz)),
         color: this.color,
         scad,
       })
     });
 
-    methods.add_method("resize", |_, this, (x, y, z): (f32, f32, f32)| {
-      let bb = this.mesh.bounding_box();
+    methods.add_method_mut("resize", |_, this, (x, y, z): (f32, f32, f32)| {
+      // resize() needs the bounding box, so materialize if needed
+      let mesh = this.mesh();
+      let bb = mesh.bounding_box();
       let cur_w = bb.maxs.x - bb.mins.x;
       let cur_d = bb.maxs.y - bb.mins.y;
       let cur_h = bb.maxs.z - bb.mins.z;
@@ -339,7 +507,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.scale(sx, sy, sz),
+        mesh: this.mesh.as_ref().map(|m| m.scale(sx, sy, sz)),
         color: this.color,
         scad,
       })
@@ -358,7 +526,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.mirror(plane),
+        mesh: this.mesh.as_ref().map(|m| m.mirror(plane)),
         color: this.color,
         scad,
       })
@@ -390,7 +558,7 @@ impl UserData for CsgGeometry {
         }
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.transform(&mat),
+        mesh: this.mesh.as_ref().map(|m| m.transform(&mat)),
         color: this.color,
         scad,
       })
@@ -559,19 +727,17 @@ impl UserData for CsgGeometry {
       })
     });
 
-    // --- Multi-object booleans ---
+    // --- Multi-object booleans (lazy: only build ScadNode tree) ---
 
     methods.add_method(
       "add",
       |_, this, args: mlua::Variadic<mlua::AnyUserData>| {
-        let mut result = this.mesh.clone();
         let mut scad_children: Vec<ScadNode> = Vec::new();
         if let Some(s) = &this.scad {
           scad_children.push(s.clone());
         }
         for ud in args.iter() {
           let other = ud.borrow::<CsgGeometry>()?;
-          result = result.union(&other.mesh);
           if let Some(s) = &other.scad {
             scad_children.push(s.clone());
           }
@@ -582,7 +748,7 @@ impl UserData for CsgGeometry {
           Some(ScadNode::Union(scad_children))
         };
         Ok(CsgGeometry {
-          mesh: result,
+          mesh: None,
           color: this.color,
           scad,
         })
@@ -592,14 +758,12 @@ impl UserData for CsgGeometry {
     methods.add_method(
       "sub",
       |_, this, args: mlua::Variadic<mlua::AnyUserData>| {
-        let mut result = this.mesh.clone();
         let mut scad_children: Vec<ScadNode> = Vec::new();
         if let Some(s) = &this.scad {
           scad_children.push(s.clone());
         }
         for ud in args.iter() {
           let other = ud.borrow::<CsgGeometry>()?;
-          result = result.difference(&other.mesh);
           if let Some(s) = &other.scad {
             scad_children.push(s.clone());
           }
@@ -610,7 +774,7 @@ impl UserData for CsgGeometry {
           Some(ScadNode::Difference(scad_children))
         };
         Ok(CsgGeometry {
-          mesh: result,
+          mesh: None,
           color: this.color,
           scad,
         })
@@ -620,14 +784,12 @@ impl UserData for CsgGeometry {
     methods.add_method(
       "intersect",
       |_, this, args: mlua::Variadic<mlua::AnyUserData>| {
-        let mut result = this.mesh.clone();
         let mut scad_children: Vec<ScadNode> = Vec::new();
         if let Some(s) = &this.scad {
           scad_children.push(s.clone());
         }
         for ud in args.iter() {
           let other = ud.borrow::<CsgGeometry>()?;
-          result = result.intersection(&other.mesh);
           if let Some(s) = &other.scad {
             scad_children.push(s.clone());
           }
@@ -638,29 +800,30 @@ impl UserData for CsgGeometry {
           Some(ScadNode::Intersection(scad_children))
         };
         Ok(CsgGeometry {
-          mesh: result,
+          mesh: None,
           color: this.color,
           scad,
         })
       },
     );
 
-    // --- Hull + Minkowski ---
+    // --- Hull + Minkowski (must materialize: inherently need mesh) ---
 
-    methods.add_method("hull", |_, this, ()| {
+    methods.add_method_mut("hull", |_, this, ()| {
       let scad = this
         .scad
         .as_ref()
         .map(|s| ScadNode::Hull(Box::new(s.clone())));
+      let mesh = this.mesh();
       Ok(CsgGeometry {
-        mesh: this.mesh.convex_hull(),
+        mesh: Some(mesh.convex_hull()),
         color: this.color,
         scad,
       })
     });
 
-    methods.add_method("minkowski", |_, this, other: mlua::AnyUserData| {
-      let other_ref = other.borrow::<CsgGeometry>()?;
+    methods.add_method_mut("minkowski", |_, this, other: mlua::AnyUserData| {
+      let mut other_ref = other.borrow_mut::<CsgGeometry>()?;
       let mut children = Vec::new();
       if let Some(s) = &this.scad {
         children.push(s.clone());
@@ -673,14 +836,16 @@ impl UserData for CsgGeometry {
       } else {
         Some(ScadNode::Minkowski(children))
       };
+      let this_mesh = this.mesh();
+      let other_mesh = other_ref.mesh();
       Ok(CsgGeometry {
-        mesh: this.mesh.minkowski_sum(&other_ref.mesh),
+        mesh: Some(this_mesh.minkowski_sum(other_mesh)),
         color: this.color,
         scad,
       })
     });
 
-    // --- CSG operators ---
+    // --- CSG operators (lazy: only build ScadNode tree) ---
 
     // CSG union: a + b
     methods.add_meta_method(
@@ -694,7 +859,7 @@ impl UserData for CsgGeometry {
           _ => None,
         };
         Ok(CsgGeometry {
-          mesh: this.mesh.union(&other_ref.mesh),
+          mesh: None,
           color: this.color,
           scad,
         })
@@ -713,7 +878,7 @@ impl UserData for CsgGeometry {
           _ => None,
         };
         Ok(CsgGeometry {
-          mesh: this.mesh.difference(&other_ref.mesh),
+          mesh: None,
           color: this.color,
           scad,
         })
@@ -732,7 +897,7 @@ impl UserData for CsgGeometry {
           _ => None,
         };
         Ok(CsgGeometry {
-          mesh: this.mesh.intersection(&other_ref.mesh),
+          mesh: None,
           color: this.color,
           scad,
         })
@@ -744,10 +909,13 @@ impl UserData for CsgGeometry {
         .color
         .map(|c| format!(", color: [{:.2},{:.2},{:.2}]", c[0], c[1], c[2]))
         .unwrap_or_default();
+      let poly_count =
+        this.mesh.as_ref().map(|m| m.polygons.len()).unwrap_or(0);
       Ok(format!(
-        "CsgGeometry(polygons: {}{})",
-        this.mesh.polygons.len(),
-        color_str
+        "CsgGeometry(polygons: {}{}, lazy: {})",
+        poly_count,
+        color_str,
+        this.mesh.is_none()
       ))
     });
   }
@@ -938,7 +1106,7 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: this.color,
         scad,
       })
@@ -961,7 +1129,7 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: this.color,
         scad,
       })
@@ -985,7 +1153,7 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: this.color,
         scad,
       })

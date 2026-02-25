@@ -527,8 +527,11 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         app.camera_azimuth, app.camera_elevation, app.camera_distance
       ));
       if !app.geometries.is_empty() {
-        let total_polys: usize =
-          app.geometries.iter().map(|g| g.mesh.polygons.len()).sum();
+        let total_polys: usize = app
+          .geometries
+          .iter()
+          .map(|g| g.mesh.as_ref().map_or(0, |m| m.polygons.len()))
+          .sum();
         ui.separator();
         let num_objects = app.geometries.len();
         ui.label(format!(

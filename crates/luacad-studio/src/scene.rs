@@ -345,10 +345,11 @@ pub fn compute_fit_distance(
 
   let mut max_extent: f32 = 0.0;
   for geom in geometries {
-    if geom.mesh.polygons.is_empty() {
-      continue;
-    }
-    let bb = geom.mesh.bounding_box();
+    let mesh = match geom.mesh.as_ref() {
+      Some(m) if !m.polygons.is_empty() => m,
+      _ => continue,
+    };
+    let bb = mesh.bounding_box();
     // Check all 8 corners, converting CAD (x,y,z) → GL (y,z,x)
     for &cx in &[bb.mins.x, bb.maxs.x] {
       for &cy in &[bb.mins.y, bb.maxs.y] {

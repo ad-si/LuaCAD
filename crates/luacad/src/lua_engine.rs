@@ -227,7 +227,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       };
       let scad = Some(ScadNode::Cube { w, d, h, center });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -248,7 +248,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         segments,
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -272,7 +272,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         center,
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -384,7 +384,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         mesh
       };
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -434,7 +434,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           mesh
         };
         Ok(CsgGeometry {
-          mesh,
+          mesh: Some(mesh),
           color: None,
           scad,
         })
@@ -475,7 +475,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh,
+          mesh: Some(mesh),
           color: None,
           scad,
         })
@@ -497,7 +497,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh,
+          mesh: Some(mesh),
           color: None,
           scad,
         })
@@ -541,7 +541,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -601,7 +601,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -630,7 +630,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh,
+          mesh: Some(mesh),
           color: None,
           scad,
         })
@@ -649,7 +649,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh,
+          mesh: Some(mesh),
           color: None,
           scad,
         })
@@ -817,7 +817,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // but a Literal ScadNode so it participates in SCAD export.
     let scad_fn = lua.create_function(|_, code: String| {
       Ok(CsgGeometry {
-        mesh: CsgMesh::<()>::new(),
+        mesh: Some(CsgMesh::<()>::new()),
         color: None,
         scad: Some(ScadNode::Literal { code }),
       })
@@ -837,7 +837,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // constructor; here it's mainly for API compatibility.
     let cad_fn = lua.create_function(|_, ()| {
       Ok(CsgGeometry {
-        mesh: CsgMesh::<()>::new(),
+        mesh: Some(CsgMesh::<()>::new()),
         color: None,
         scad: None,
       })
@@ -1049,7 +1049,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       // Minimal mesh placeholder
       let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -1077,7 +1077,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       let scad = Some(ScadNode::Import { file, convexity });
       let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })
@@ -1115,7 +1115,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       });
       let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh,
+        mesh: Some(mesh),
         color: None,
         scad,
       })

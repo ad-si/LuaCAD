@@ -349,14 +349,32 @@ pub fn export_3mf_bytes(geometries: &[CsgGeometry]) -> Result<Vec<u8>, String> {
 }
 
 /// Merge all geometries into one csgrs mesh via union.
+/// Materializes lazy meshes from their ScadNode trees as needed.
 fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
   if geometries.is_empty() {
     return Err("No geometry to export".to_string());
   }
-  let mut merged = geometries[0].mesh.clone();
-  for geom in &geometries[1..] {
-    if !geom.mesh.polygons.is_empty() {
-      merged = merged.union(&geom.mesh);
+  // Materialize each geometry's mesh from its ScadNode if not already done.
+  let meshes: Vec<CsgMesh<()>> = geometries
+    .iter()
+    .map(|geom| {
+      if let Some(ref mesh) = geom.mesh {
+        mesh.clone()
+      } else if let Some(ref scad) = geom.scad {
+        crate::geometry::materialize_scad(scad)
+      } else {
+        CsgMesh {
+          polygons: vec![],
+          bounding_box: std::sync::OnceLock::new(),
+          metadata: None,
+        }
+      }
+    })
+    .collect();
+  let mut merged = meshes[0].clone();
+  for mesh in &meshes[1..] {
+    if !mesh.polygons.is_empty() {
+      merged = merged.union(mesh);
     }
   }
   Ok(merged)
@@ -538,7 +556,7 @@ mod tests {
   fn simple_cube_manifold_and_correct_winding() {
     let cube = CsgMesh::<()>::cuboid(10.0, 10.0, 10.0, None);
     let geom = CsgGeometry {
-      mesh: cube,
+      mesh: Some(cube),
       color: None,
       scad: None,
     };
@@ -561,7 +579,7 @@ mod tests {
     let result = cube.difference(&cyl);
 
     let geom = CsgGeometry {
-      mesh: result,
+      mesh: Some(result),
       color: None,
       scad: None,
     };
@@ -589,7 +607,7 @@ mod tests {
     let result = outer.difference(&inner);
 
     let geom = CsgGeometry {
-      mesh: result,
+      mesh: Some(result),
       color: None,
       scad: None,
     };
@@ -609,7 +627,7 @@ mod tests {
     let result = a.union(&b);
 
     let geom = CsgGeometry {
-      mesh: result,
+      mesh: Some(result),
       color: None,
       scad: None,
     };
@@ -628,7 +646,7 @@ mod tests {
     // make it into the output.
     let cube = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
     let geom = CsgGeometry {
-      mesh: cube,
+      mesh: Some(cube),
       color: None,
       scad: None,
     };
@@ -645,7 +663,7 @@ mod tests {
   fn export_3mf_writes_valid_file() {
     let cube = CsgMesh::<()>::cuboid(5.0, 5.0, 5.0, None);
     let geom = CsgGeometry {
-      mesh: cube,
+      mesh: Some(cube),
       color: None,
       scad: None,
     };
@@ -674,7 +692,7 @@ mod tests {
     let result = cube.difference(&cyl);
 
     let geom = CsgGeometry {
-      mesh: result,
+      mesh: Some(result),
       color: None,
       scad: None,
     };
