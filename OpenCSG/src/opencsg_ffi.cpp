@@ -28,6 +28,22 @@ extern "C" {
 
 void opencsg_init_gl(void) { OpenCSG::initExtensionLibrary(); }
 
+int opencsg_glad_version(void) {
+  return OpenCSG::GLAD_GL_VERSION_2_0 ? 20 :
+         OpenCSG::GLAD_GL_VERSION_1_5 ? 15 :
+         OpenCSG::GLAD_GL_VERSION_1_4 ? 14 :
+         OpenCSG::GLAD_GL_VERSION_1_3 ? 13 :
+         OpenCSG::GLAD_GL_VERSION_1_2 ? 12 :
+         OpenCSG::GLAD_GL_VERSION_1_1 ? 11 :
+         OpenCSG::GLAD_GL_VERSION_1_0 ? 10 : 0;
+}
+
+void opencsg_glad_fbo_support(int *out_arb_fbo, int *out_ext_fbo, int *out_ext_pds) {
+  *out_arb_fbo = OpenCSG::GLAD_GL_ARB_framebuffer_object;
+  *out_ext_fbo = OpenCSG::GLAD_GL_EXT_framebuffer_object;
+  *out_ext_pds = OpenCSG::GLAD_GL_EXT_packed_depth_stencil;
+}
+
 opencsg_primitive_t *opencsg_primitive_new(int operation,
                                            unsigned int convexity,
                                            opencsg_render_fn callback,

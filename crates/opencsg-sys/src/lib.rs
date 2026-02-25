@@ -38,6 +38,12 @@ pub struct OcsgPrimitive {
 
 unsafe extern "C" {
   pub safe fn opencsg_init_gl();
+  pub safe fn opencsg_glad_version() -> std::os::raw::c_int;
+  pub fn opencsg_glad_fbo_support(
+    out_arb_fbo: *mut std::os::raw::c_int,
+    out_ext_fbo: *mut std::os::raw::c_int,
+    out_ext_pds: *mut std::os::raw::c_int,
+  );
 
   pub fn opencsg_primitive_new(
     operation: c_int,

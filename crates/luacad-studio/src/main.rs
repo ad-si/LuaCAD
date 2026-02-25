@@ -65,6 +65,21 @@ fn main() {
   // Initialize OpenCSG's GLAD loader
   opencsg_sys::init_gl();
 
+  // Print OpenCSG GLAD diagnostics
+  {
+    let glad_ver = opencsg_sys::opencsg_glad_version();
+    let mut arb_fbo: std::os::raw::c_int = 0;
+    let mut ext_fbo: std::os::raw::c_int = 0;
+    let mut ext_pds: std::os::raw::c_int = 0;
+    unsafe {
+      opencsg_sys::opencsg_glad_fbo_support(&mut arb_fbo, &mut ext_fbo, &mut ext_pds);
+    }
+    eprintln!("[OpenCSG GLAD] version loaded: {glad_ver}");
+    eprintln!("[OpenCSG GLAD] ARB_framebuffer_object: {}", arb_fbo != 0);
+    eprintln!("[OpenCSG GLAD] EXT_framebuffer_object: {}", ext_fbo != 0);
+    eprintln!("[OpenCSG GLAD] EXT_packed_depth_stencil: {}", ext_pds != 0);
+  }
+
   // Print GL diagnostics (useful for debugging rendering issues)
   unsafe {
     #[cfg(target_os = "linux")]
