@@ -1,0 +1,10 @@
+[package]
+name = "opencsg-sys"
+version = "0.1.0"
+edition = "2024"
+description = "FFI bindings to OpenCSG (image-based CSG rendering for OpenGL)"
+license = "GPL-2.0-or-later"
+links = "opencsg"
+
+[build-dependencies]
+cc = "1"
