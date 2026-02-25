@@ -52,6 +52,11 @@ pub fn render_opencsg_scene(
     // intercept our legacy GL calls.
     gl_UseProgram(0);
 
+    // Unbind any VAO left by glow/egui so that legacy client-side vertex
+    // arrays (glVertexPointer, glNormalPointer) work correctly.
+    // On GL 3.0+ contexts, a non-default VAO ignores client pointers.
+    gl_BindVertexArray(0);
+
     // Set up legacy GL matrices from camera
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
@@ -509,6 +514,11 @@ unsafe extern "C" {
   fn gl_UseProgram(program: u32);
 }
 
+// macOS uses GL 2.1 Legacy which has no VAOs; provide a no-op.
+#[cfg(target_os = "macos")]
+#[allow(non_snake_case)]
+unsafe fn gl_BindVertexArray(_array: u32) {}
+
 #[cfg(target_os = "linux")]
 #[link(name = "GL")]
 unsafe extern "C" {
@@ -581,6 +591,8 @@ unsafe extern "C" {
   fn gl_Materialf(face: u32, pname: u32, param: f32);
   #[link_name = "glUseProgram"]
   fn gl_UseProgram(program: u32);
+  #[link_name = "glBindVertexArray"]
+  fn gl_BindVertexArray(array: u32);
 }
 
 #[cfg(target_os = "windows")]
@@ -671,6 +683,23 @@ unsafe fn gl_UseProgram(program: u32) {
     unsafe { std::mem::transmute(ptr) }
   });
   unsafe { f(program) }
+}
+
+// glBindVertexArray is GL 3.0+ and not exported by opengl32.lib on Windows.
+#[cfg(target_os = "windows")]
+unsafe fn gl_BindVertexArray(array: u32) {
+  use std::sync::OnceLock;
+  #[link(name = "opengl32")]
+  unsafe extern "C" {
+    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
+  }
+  static FUNC: OnceLock<unsafe extern "C" fn(u32)> = OnceLock::new();
+  let f = FUNC.get_or_init(|| {
+    let ptr = unsafe { wglGetProcAddress(c"glBindVertexArray".as_ptr()) };
+    assert!(!ptr.is_null(), "failed to load glBindVertexArray");
+    unsafe { std::mem::transmute(ptr) }
+  });
+  unsafe { f(array) }
 }
 
 // GL constants
