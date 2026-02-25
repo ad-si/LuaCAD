@@ -17,6 +17,8 @@ pub struct GlWindowContext {
   inner: macos::MacGlContext,
   #[cfg(target_os = "linux")]
   inner: linux::LinuxGlContext,
+  #[cfg(target_os = "windows")]
+  inner: windows::WindowsGlContext,
 }
 
 impl GlWindowContext {
@@ -25,6 +27,8 @@ impl GlWindowContext {
     let (context, inner) = macos::create_context(window, stencil_bits);
     #[cfg(target_os = "linux")]
     let (context, inner) = linux::create_context(window, stencil_bits);
+    #[cfg(target_os = "windows")]
+    let (context, inner) = windows::create_context(window, stencil_bits);
 
     Self { context, inner }
   }
@@ -419,6 +423,128 @@ mod linux {
         .expect("failed to create three-d Context");
 
     let inner = LinuxGlContext {
+      glutin_context: gl_context,
+      surface: gl_surface,
+    };
+
+    (three_d_context, inner)
+  }
+}
+
+// ---- Windows: glutin with Compatibility profile ----
+
+#[cfg(target_os = "windows")]
+mod windows {
+  use glutin::config::ConfigTemplateBuilder;
+  use glutin::context::{
+    ContextApi, ContextAttributesBuilder, GlProfile, Version,
+  };
+  use glutin::display::Display;
+  use glutin::prelude::*;
+  use glutin::surface::{
+    SurfaceAttributesBuilder, SwapInterval, WindowSurface,
+  };
+  use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+  use std::num::NonZeroU32;
+  use std::sync::Arc;
+
+  pub struct WindowsGlContext {
+    glutin_context: glutin::context::PossiblyCurrentContext,
+    surface: glutin::surface::Surface<WindowSurface>,
+  }
+
+  impl WindowsGlContext {
+    pub fn swap_buffers(&self) {
+      self
+        .surface
+        .swap_buffers(&self.glutin_context)
+        .expect("failed to swap buffers");
+    }
+
+    pub fn resize(&self, physical_size: winit::dpi::PhysicalSize<u32>) {
+      let width = NonZeroU32::new(physical_size.width.max(1)).unwrap();
+      let height = NonZeroU32::new(physical_size.height.max(1)).unwrap();
+      self.surface.resize(&self.glutin_context, width, height);
+    }
+  }
+
+  pub fn create_context(
+    window: &winit::window::Window,
+    stencil_bits: u8,
+  ) -> (three_d::Context, WindowsGlContext) {
+    let raw_display_handle = window.raw_display_handle();
+    let raw_window_handle = window.raw_window_handle();
+
+    let preference = glutin::display::DisplayApiPreference::EglThenWgl(Some(
+      raw_window_handle,
+    ));
+
+    let gl_display = unsafe {
+      Display::new(raw_display_handle, preference)
+        .expect("failed to create GL display")
+    };
+
+    let config_template = ConfigTemplateBuilder::new()
+      .with_depth_size(24)
+      .with_stencil_size(stencil_bits)
+      .compatible_with_native_window(raw_window_handle)
+      .build();
+
+    let config = unsafe {
+      gl_display
+        .find_configs(config_template)
+        .expect("failed to find GL configs")
+        .next()
+        .expect("no GL config found")
+    };
+
+    // Request GL 2.1 Compatibility profile
+    let context_attributes = ContextAttributesBuilder::new()
+      .with_profile(GlProfile::Compatibility)
+      .with_context_api(ContextApi::OpenGl(Some(Version::new(2, 1))))
+      .build(Some(raw_window_handle));
+
+    let (width, height): (u32, u32) = window.inner_size().into();
+    let width = NonZeroU32::new(width.max(1)).unwrap();
+    let height = NonZeroU32::new(height.max(1)).unwrap();
+
+    let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new()
+      .build(raw_window_handle, width, height);
+
+    let gl_context = unsafe {
+      gl_display
+        .create_context(&config, &context_attributes)
+        .expect("failed to create GL context")
+    };
+
+    let gl_surface = unsafe {
+      gl_display
+        .create_window_surface(&config, &surface_attributes)
+        .expect("failed to create GL surface")
+    };
+
+    let gl_context = gl_context
+      .make_current(&gl_surface)
+      .expect("failed to make GL context current");
+
+    let _ = gl_surface.set_swap_interval(
+      &gl_context,
+      SwapInterval::Wait(NonZeroU32::new(1).unwrap()),
+    );
+
+    let glow_context = unsafe {
+      glow::Context::from_loader_function(|s| {
+        let cstr = std::ffi::CString::new(s)
+          .expect("failed to create CString for GL proc");
+        gl_display.get_proc_address(&cstr)
+      })
+    };
+
+    let three_d_context =
+      three_d::Context::from_gl_context(Arc::new(glow_context))
+        .expect("failed to create three-d Context");
+
+    let inner = WindowsGlContext {
       glutin_context: gl_context,
       surface: gl_surface,
     };

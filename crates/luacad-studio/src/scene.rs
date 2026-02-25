@@ -580,6 +580,96 @@ unsafe extern "C" {
   fn gl_UseProgram(program: u32);
 }
 
+#[cfg(target_os = "windows")]
+#[link(name = "opengl32")]
+unsafe extern "C" {
+  #[link_name = "glMatrixMode"]
+  fn gl_MatrixMode(mode: u32);
+  #[link_name = "glLoadMatrixf"]
+  fn gl_LoadMatrixf(m: *const f32);
+  #[link_name = "glLoadIdentity"]
+  fn gl_LoadIdentity();
+  #[link_name = "glPushMatrix"]
+  fn gl_PushMatrix();
+  #[link_name = "glPopMatrix"]
+  fn gl_PopMatrix();
+  #[link_name = "glMultMatrixf"]
+  fn gl_MultMatrixf(m: *const f32);
+  #[link_name = "glEnable"]
+  fn gl_Enable(cap: u32);
+  #[link_name = "glDisable"]
+  fn gl_Disable(cap: u32);
+  #[link_name = "glLightfv"]
+  fn gl_Lightfv(light: u32, pname: u32, params: *const f32);
+  #[link_name = "glLightModelfv"]
+  fn gl_LightModelfv(pname: u32, params: *const f32);
+  #[link_name = "glLightModeli"]
+  fn gl_LightModeli(pname: u32, param: i32);
+  #[link_name = "glColorMaterial"]
+  fn gl_ColorMaterial(face: u32, mode: u32);
+  #[link_name = "glShadeModel"]
+  fn gl_ShadeModel(mode: u32);
+  #[link_name = "glDepthFunc"]
+  fn gl_DepthFunc(func: u32);
+  #[link_name = "glBegin"]
+  fn gl_Begin(mode: u32);
+  #[link_name = "glEnd"]
+  fn gl_End();
+  #[link_name = "glVertex3f"]
+  fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glColor3f"]
+  fn gl_Color3f(r: f32, g: f32, b: f32);
+  #[link_name = "glLineWidth"]
+  fn gl_LineWidth(width: f32);
+  #[link_name = "glEnableClientState"]
+  fn gl_EnableClientState(array: u32);
+  #[link_name = "glDisableClientState"]
+  fn gl_DisableClientState(array: u32);
+  #[link_name = "glVertexPointer"]
+  fn gl_VertexPointer(
+    size: i32,
+    type_: u32,
+    stride: i32,
+    pointer: *const c_void,
+  );
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glDrawArrays"]
+  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
+  #[link_name = "glClear"]
+  fn gl_Clear(mask: u32);
+  #[link_name = "glClearColor"]
+  fn gl_ClearColor(r: f32, g: f32, b: f32, a: f32);
+  #[link_name = "glClearDepth"]
+  fn gl_ClearDepth(depth: f64);
+  #[link_name = "glClearStencil"]
+  fn gl_ClearStencil(s: i32);
+  #[link_name = "glViewport"]
+  fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
+  #[link_name = "glMaterialfv"]
+  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
+  #[link_name = "glMaterialf"]
+  fn gl_Materialf(face: u32, pname: u32, param: f32);
+}
+
+// glUseProgram is GL 2.0+ and not exported by opengl32.lib on Windows.
+// It must be loaded at runtime via wglGetProcAddress.
+#[cfg(target_os = "windows")]
+unsafe fn gl_UseProgram(program: u32) {
+  use std::sync::OnceLock;
+  #[link(name = "opengl32")]
+  unsafe extern "C" {
+    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
+  }
+  static FUNC: OnceLock<unsafe extern "C" fn(u32)> = OnceLock::new();
+  let f = FUNC.get_or_init(|| {
+    let ptr = unsafe { wglGetProcAddress(c"glUseProgram".as_ptr()) };
+    assert!(!ptr.is_null(), "failed to load glUseProgram");
+    unsafe { std::mem::transmute(ptr) }
+  });
+  unsafe { f(program) }
+}
+
 // GL constants
 const GL_PROJECTION: u32 = 0x1701;
 const GL_MODELVIEW: u32 = 0x1700;
