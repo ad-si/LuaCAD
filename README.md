@@ -31,7 +31,7 @@ This installs two binaries:
 - `luacad` -- CLI for running and converting LuaCAD scripts
 - `luacad-studio` -- GUI desktop app with live 3D preview
 
-![Screenshot of LuaCAD Studio app](images/2026-02-24t1543_screenshot.png)
+![Screenshot of LuaCAD Studio app](images/2026-02-25t1353_screenshot.png)
 
 
 ## Usage
