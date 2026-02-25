@@ -181,21 +181,24 @@ fn render_csg_group(
     return;
   }
 
-  // --- OpenCSG depth pass ---
-  unsafe {
-    opencsg_sys::render(&mut ocsg_prims);
+  // Check for debug bypass: skip OpenCSG and render directly
+  let skip_csg = std::env::var("LUACAD_DEBUG_NO_CSG").is_ok();
+
+  if !skip_csg {
+    // --- OpenCSG depth pass ---
+    unsafe {
+      opencsg_sys::render(&mut ocsg_prims);
+    }
   }
 
-  // --- Shading pass with GL_EQUAL ---
-  // OpenCSG's glPopAttrib restores pre-render GL state. Re-render the same
-  // geometry with GL_EQUAL to shade only CSG-visible surfaces.
+  // --- Shading pass ---
   unsafe {
     gl_UseProgram(0);
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
     gl_MatrixMode(GL_MODELVIEW);
     gl_LoadMatrixf(view.as_ptr());
-    gl_DepthFunc(GL_EQUAL);
+    gl_DepthFunc(if skip_csg { GL_LEQUAL } else { GL_EQUAL });
     gl_Enable(GL_LIGHTING);
     gl_Enable(GL_LIGHT0);
     gl_Enable(GL_LIGHT1);
