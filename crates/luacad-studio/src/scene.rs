@@ -295,6 +295,29 @@ pub fn render_axes() {
 
     gl_End();
     gl_LineWidth(1.0);
+
+    // Debug: render a test triangle via immediate mode (yellow)
+    if std::env::var("LUACAD_DEBUG_TRIANGLE").is_ok() {
+      gl_Color3f(1.0, 1.0, 0.0);
+      gl_Begin(GL_TRIANGLES);
+      gl_Vertex3f(0.0, 0.0, 0.0);
+      gl_Vertex3f(2.0, 0.0, 0.0);
+      gl_Vertex3f(1.0, 2.0, 0.0);
+      gl_End();
+
+      // Debug: render a test triangle via vertex arrays (cyan)
+      let verts: [[f32; 3]; 3] = [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 2.0],
+        [0.0, 2.0, 1.0],
+      ];
+      gl_BindVertexArray(0);
+      gl_Color3f(0.0, 1.0, 1.0);
+      gl_EnableClientState(GL_VERTEX_ARRAY);
+      gl_VertexPointer(3, GL_FLOAT, 0, verts.as_ptr() as *const c_void);
+      gl_DrawArrays(GL_TRIANGLES, 0, 3);
+      gl_DisableClientState(GL_VERTEX_ARRAY);
+    }
   }
 }
 
