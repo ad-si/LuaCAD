@@ -9,32 +9,32 @@ use std::ffi::c_void;
 
 /// Data passed to the OpenCSG render callback for each leaf primitive.
 struct LeafRenderData {
-  vertices: *const [f32; 3],
   vertex_count: usize,
   transform: [f32; 16],
-  /// Pre-computed per-vertex normals (one per face, repeated 3x per triangle).
-  normals: Vec<[f32; 3]>,
+  /// VBO holding vertex positions (3 floats per vertex).
+  vbo_vertices: u32,
+  /// VBO holding per-vertex normals (3 floats per vertex, one face normal per vertex).
+  vbo_normals: u32,
 }
 
-/// OpenCSG render callback: draws the leaf's triangulated geometry.
+/// OpenCSG render callback: draws the leaf's triangulated geometry using VBOs.
 unsafe extern "C" fn render_leaf_callback(user_data: *mut c_void) {
   let data = unsafe { &*(user_data as *const LeafRenderData) };
-  let verts =
-    unsafe { std::slice::from_raw_parts(data.vertices, data.vertex_count) };
 
   unsafe {
-    // Apply the leaf's transform (CAD → world, column-major)
     gl_PushMatrix();
     gl_MultMatrixf(data.transform.as_ptr());
 
-    // Draw triangles via immediate mode.
-    // Client-side vertex arrays (glVertexPointer) don't work on some
-    // GL 4.5 Compatibility contexts (e.g. llvmpipe on aarch64 Linux).
-    gl_Begin(GL_TRIANGLES);
-    for v in verts {
-      gl_Vertex3f(v[0], v[1], v[2]);
-    }
-    gl_End();
+    // Use VBOs (server-side buffer objects) instead of immediate mode or
+    // client-side vertex arrays. Client-side arrays don't work on some
+    // GL 4.5 Compatibility contexts (e.g. llvmpipe on aarch64 Linux), and
+    // immediate mode inside OpenCSG's FBO causes CSG artifacts on llvmpipe.
+    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
+    gl_EnableClientState(GL_VERTEX_ARRAY);
+    gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
+    gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
+    gl_DisableClientState(GL_VERTEX_ARRAY);
+    gl_BindBuffer(GL_ARRAY_BUFFER, 0);
 
     gl_PopMatrix();
   }
@@ -162,13 +162,41 @@ fn render_csg_group(
     Vec::with_capacity(active_leaves.len());
 
   for leaf in &active_leaves {
-    // Pre-compute per-face normals (one normal repeated for each vertex of a triangle).
     let normals = compute_face_normals(&leaf.vertices);
+
+    // Create VBOs for vertex positions and normals (server-side buffer objects).
+    // VBOs work correctly on all GL contexts including llvmpipe, unlike
+    // client-side vertex arrays which fail on some GL 4.5 Compatibility contexts.
+    let mut vbos = [0u32; 2];
+    unsafe {
+      gl_GenBuffers(2, vbos.as_mut_ptr());
+
+      // Upload vertex positions
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (leaf.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        leaf.vertices.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+
+      // Upload normals
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        normals.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+
+      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
     render_datas.push(LeafRenderData {
-      vertices: leaf.vertices.as_ptr(),
       vertex_count: leaf.vertices.len(),
       transform: cad_to_gl_transform(&leaf.transform),
-      normals,
+      vbo_vertices: vbos[0],
+      vbo_normals: vbos[1],
     });
   }
 
@@ -217,20 +245,26 @@ fn render_csg_group(
       gl_Color3f(leaf.color[0], leaf.color[1], leaf.color[2]);
 
       let data = &render_datas[i];
-      let verts = std::slice::from_raw_parts(data.vertices, data.vertex_count);
 
       gl_PushMatrix();
       gl_MultMatrixf(data.transform.as_ptr());
 
-      // Use immediate mode so depth values match the OpenCSG depth pass
-      // (which also uses immediate mode via render_leaf_callback).
-      gl_Begin(GL_TRIANGLES);
-      for (vi, v) in verts.iter().enumerate() {
-        let n = &data.normals[vi];
-        gl_Normal3f(n[0], n[1], n[2]);
-        gl_Vertex3f(v[0], v[1], v[2]);
-      }
-      gl_End();
+      // Use VBOs for the shading pass (must match the OpenCSG depth pass
+      // to produce identical depth values for GL_EQUAL to work).
+      gl_EnableClientState(GL_VERTEX_ARRAY);
+      gl_EnableClientState(GL_NORMAL_ARRAY);
+
+      gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
+      gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
+
+      gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_normals);
+      gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
+
+      gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
+
+      gl_DisableClientState(GL_NORMAL_ARRAY);
+      gl_DisableClientState(GL_VERTEX_ARRAY);
+      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
 
       gl_PopMatrix();
     }
@@ -243,6 +277,14 @@ fn render_csg_group(
   for prim in ocsg_prims {
     unsafe {
       opencsg_sys::primitive_free(prim);
+    }
+  }
+
+  // Delete VBOs
+  for data in &render_datas {
+    unsafe {
+      let vbos = [data.vbo_vertices, data.vbo_normals];
+      gl_DeleteBuffers(2, vbos.as_ptr());
     }
   }
 }
@@ -478,8 +520,7 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glNormal3f"]
-  fn gl_Normal3f(x: f32, y: f32, z: f32);
+
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
@@ -500,6 +541,24 @@ unsafe extern "C" {
   fn gl_Materialf(face: u32, pname: u32, param: f32);
   #[link_name = "glUseProgram"]
   fn gl_UseProgram(program: u32);
+  #[link_name = "glGenBuffers"]
+  fn gl_GenBuffers(n: i32, buffers: *mut u32);
+  #[link_name = "glDeleteBuffers"]
+  fn gl_DeleteBuffers(n: i32, buffers: *const u32);
+  #[link_name = "glBindBuffer"]
+  fn gl_BindBuffer(target: u32, buffer: u32);
+  #[link_name = "glBufferData"]
+  fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
+  #[link_name = "glVertexPointer"]
+  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glEnableClientState"]
+  fn gl_EnableClientState(array: u32);
+  #[link_name = "glDisableClientState"]
+  fn gl_DisableClientState(array: u32);
+  #[link_name = "glDrawArrays"]
+  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
 }
 
 // macOS uses GL 2.1 Legacy which has no VAOs; provide a no-op.
@@ -544,8 +603,7 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glNormal3f"]
-  fn gl_Normal3f(x: f32, y: f32, z: f32);
+
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
@@ -568,6 +626,24 @@ unsafe extern "C" {
   fn gl_UseProgram(program: u32);
   #[link_name = "glBindVertexArray"]
   fn gl_BindVertexArray(array: u32);
+  #[link_name = "glGenBuffers"]
+  fn gl_GenBuffers(n: i32, buffers: *mut u32);
+  #[link_name = "glDeleteBuffers"]
+  fn gl_DeleteBuffers(n: i32, buffers: *const u32);
+  #[link_name = "glBindBuffer"]
+  fn gl_BindBuffer(target: u32, buffer: u32);
+  #[link_name = "glBufferData"]
+  fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
+  #[link_name = "glVertexPointer"]
+  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glEnableClientState"]
+  fn gl_EnableClientState(array: u32);
+  #[link_name = "glDisableClientState"]
+  fn gl_DisableClientState(array: u32);
+  #[link_name = "glDrawArrays"]
+  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
 }
 
 #[cfg(target_os = "windows")]
@@ -607,8 +683,7 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glNormal3f"]
-  fn gl_Normal3f(x: f32, y: f32, z: f32);
+
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
@@ -627,6 +702,16 @@ unsafe extern "C" {
   fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
   #[link_name = "glMaterialf"]
   fn gl_Materialf(face: u32, pname: u32, param: f32);
+  #[link_name = "glVertexPointer"]
+  fn gl_VertexPointer(size: i32, type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
+  #[link_name = "glEnableClientState"]
+  fn gl_EnableClientState(array: u32);
+  #[link_name = "glDisableClientState"]
+  fn gl_DisableClientState(array: u32);
+  #[link_name = "glDrawArrays"]
+  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
 }
 
 // glUseProgram is GL 2.0+ and not exported by opengl32.lib on Windows.
@@ -664,6 +749,53 @@ unsafe fn gl_BindVertexArray(array: u32) {
   unsafe { f(array) }
 }
 
+// GL 1.5+ buffer functions are not exported by opengl32.lib on Windows.
+#[cfg(target_os = "windows")]
+mod win_gl_buffers {
+  use std::ffi::c_void;
+  use std::sync::OnceLock;
+
+  #[link(name = "opengl32")]
+  unsafe extern "C" {
+    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
+  }
+
+  macro_rules! load_gl_fn {
+    ($name:ident, $c_name:expr, $sig:ty) => {
+      pub unsafe fn $name() -> $sig {
+        static FUNC: OnceLock<$sig> = OnceLock::new();
+        *FUNC.get_or_init(|| {
+          let ptr = unsafe { wglGetProcAddress($c_name.as_ptr()) };
+          assert!(!ptr.is_null(), concat!("failed to load ", stringify!($name)));
+          unsafe { std::mem::transmute(ptr) }
+        })
+      }
+    };
+  }
+
+  load_gl_fn!(gen_buffers, c"glGenBuffers", unsafe extern "C" fn(i32, *mut u32));
+  load_gl_fn!(delete_buffers, c"glDeleteBuffers", unsafe extern "C" fn(i32, *const u32));
+  load_gl_fn!(bind_buffer, c"glBindBuffer", unsafe extern "C" fn(u32, u32));
+  load_gl_fn!(buffer_data, c"glBufferData", unsafe extern "C" fn(u32, isize, *const c_void, u32));
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn gl_GenBuffers(n: i32, buffers: *mut u32) {
+  unsafe { (win_gl_buffers::gen_buffers())(n, buffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_DeleteBuffers(n: i32, buffers: *const u32) {
+  unsafe { (win_gl_buffers::delete_buffers())(n, buffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_BindBuffer(target: u32, buffer: u32) {
+  unsafe { (win_gl_buffers::bind_buffer())(target, buffer) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32) {
+  unsafe { (win_gl_buffers::buffer_data())(target, size, data, usage) }
+}
+
 // GL constants
 const GL_PROJECTION: u32 = 0x1701;
 const GL_MODELVIEW: u32 = 0x1700;
@@ -692,6 +824,11 @@ const GL_DEPTH_BUFFER_BIT: u32 = 0x00000100;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x00000400;
 const GL_DEPTH_TEST: u32 = 0x0B71;
+const GL_ARRAY_BUFFER: u32 = 0x8892;
+const GL_STATIC_DRAW: u32 = 0x88E4;
+const GL_FLOAT: u32 = 0x1406;
+const GL_VERTEX_ARRAY: u32 = 0x8074;
+const GL_NORMAL_ARRAY: u32 = 0x8075;
 
 /// Clear the framebuffer with a background color and reset depth + stencil.
 pub fn gl_clear_screen(r: f32, g: f32, b: f32) {
