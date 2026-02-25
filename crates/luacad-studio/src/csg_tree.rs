@@ -12,7 +12,7 @@ use std::os::raw::c_int;
 
 /// A single leaf primitive ready for OpenCSG rendering.
 pub struct CsgLeaf {
-  /// Triangle vertices (groups of 3 positions). CAD coordinates (not GL-swapped).
+  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up).
   pub vertices: Vec<[f32; 3]>,
   /// Accumulated model-to-world transform (column-major 4x4).
   pub transform: [f32; 16],
@@ -30,7 +30,7 @@ pub struct CsgGroup {
 }
 
 /// Default color when none is specified.
-const DEFAULT_COLOR: [f32; 3] = [0.59, 0.59, 1.0]; // same as scene.rs: (150,150,255)
+const DEFAULT_COLOR: [f32; 3] = [0.192, 0.467, 0.745]; // #3177be
 
 // --- Public API ---
 
@@ -44,7 +44,7 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> Vec<CsgGroup> {
       groups.extend(flatten_node(scad, &IDENTITY, color));
     } else if !geom.mesh.polygons.is_empty() {
       // Fallback: use the already-computed csgrs mesh as a single leaf.
-      let vertices = mesh_to_triangles(&geom.mesh);
+      let vertices = cad_to_gl_vertices(mesh_to_triangles(&geom.mesh));
       if !vertices.is_empty() {
         groups.push(CsgGroup {
           primitives: vec![CsgLeaf {
@@ -334,6 +334,12 @@ fn row_to_col_major(row: &[f32; 16]) -> [f32; 16] {
   ]
 }
 
+/// Convert vertices from CAD space (Z-up) to GL space (Y-up).
+/// Mapping: CAD (x,y,z) → GL (y,z,x).
+fn cad_to_gl_vertices(verts: Vec<[f32; 3]>) -> Vec<[f32; 3]> {
+  verts.into_iter().map(|[x, y, z]| [y, z, x]).collect()
+}
+
 fn make_leaf_group(
   vertices: Vec<[f32; 3]>,
   ctx: &Ctx,
@@ -345,7 +351,7 @@ fn make_leaf_group(
   }
   vec![CsgGroup {
     primitives: vec![CsgLeaf {
-      vertices,
+      vertices: cad_to_gl_vertices(vertices),
       transform: ctx.transform,
       operation: op,
       convexity,
