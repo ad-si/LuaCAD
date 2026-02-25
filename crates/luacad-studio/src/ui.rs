@@ -429,39 +429,23 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         app.camera_elevation = 30.0;
       }
       if ui
-        .selectable_label(is(0.0, 90.0), "Top")
+        .selectable_label(is(-90.0, 90.0), "Top")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
-        app.camera_azimuth = 0.0;
+        app.camera_azimuth = -90.0;
         app.camera_elevation = 89.0;
       }
       if ui
-        .selectable_label(is(0.0, -90.0), "Bottom")
+        .selectable_label(is(-90.0, -90.0), "Bottom")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
-        app.camera_azimuth = 0.0;
+        app.camera_azimuth = -90.0;
         app.camera_elevation = -89.0;
       }
       if ui
-        .selectable_label(is(0.0, 0.0), "Front")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-      {
-        app.camera_azimuth = 0.0;
-        app.camera_elevation = 0.0;
-      }
-      if ui
-        .selectable_label(is(180.0, 0.0), "Back")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-      {
-        app.camera_azimuth = 180.0;
-        app.camera_elevation = 0.0;
-      }
-      if ui
-        .selectable_label(is(-90.0, 0.0), "Left")
+        .selectable_label(is(-90.0, 0.0), "Front")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
@@ -469,11 +453,27 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         app.camera_elevation = 0.0;
       }
       if ui
-        .selectable_label(is(90.0, 0.0), "Right")
+        .selectable_label(is(90.0, 0.0), "Back")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
         app.camera_azimuth = 90.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui
+        .selectable_label(is(180.0, 0.0), "Left")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
+        app.camera_azimuth = 180.0;
+        app.camera_elevation = 0.0;
+      }
+      if ui
+        .selectable_label(is(0.0, 0.0), "Right")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
+        app.camera_azimuth = 0.0;
         app.camera_elevation = 0.0;
       }
       ui.separator();
