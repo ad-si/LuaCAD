@@ -77,6 +77,11 @@ main {
   justify-content: center;
 }
 
+.container-narrow {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
 section {
   background-color: var(--card-background);
   border-radius: 5px;
