@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::csg_tree::{CsgGroup, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 use luacad::export::{ExportFormat, OpenScadFormat};
@@ -45,6 +46,8 @@ pub struct AppState {
   pub editor_selection_len: usize,
   /// True when clipboard contains a whole-line copy (Cmd+C with no selection)
   pub clipboard_is_line: bool,
+  /// Flattened CSG groups for OpenCSG preview rendering
+  pub csg_groups: Vec<CsgGroup>,
 }
 
 impl AppState {
@@ -72,6 +75,7 @@ impl AppState {
       editor_cursor_pos: 0,
       editor_selection_len: 0,
       clipboard_is_line: false,
+      csg_groups: vec![],
     };
     app.execute_lua_code();
     app
@@ -110,6 +114,7 @@ impl AppState {
       }
     }
 
+    self.csg_groups = flatten_geometries(&self.geometries);
     self.scene_dirty = true;
   }
 }

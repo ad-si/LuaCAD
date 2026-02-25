@@ -1726,7 +1726,11 @@ dependencies = [
  "arboard",
  "csgrs",
  "egui_extras",
+ "glow",
+ "glutin",
  "luacad",
+ "opencsg-sys",
+ "raw-window-handle 0.5.2",
  "rfd",
  "three-d",
  "winit",
@@ -2206,6 +2210,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "opencsg-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
