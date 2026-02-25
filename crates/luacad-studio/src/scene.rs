@@ -12,6 +12,8 @@ struct LeafRenderData {
   vertices: *const [f32; 3],
   vertex_count: usize,
   transform: [f32; 16],
+  /// Pre-computed per-vertex normals (one per face, repeated 3x per triangle).
+  normals: Vec<[f32; 3]>,
 }
 
 /// OpenCSG render callback: draws the leaf's triangulated geometry.
@@ -65,35 +67,44 @@ pub fn render_opencsg_scene(
     gl_Enable(GL_COLOR_MATERIAL);
     gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 
-    // Ambient light (15%)
-    let ambient: [f32; 4] = [0.15, 0.15, 0.15, 1.0];
+    // Ambient light (35%)
+    let ambient: [f32; 4] = [0.35, 0.35, 0.35, 1.0];
     gl_LightModelfv(GL_LIGHT_MODEL_AMBIENT, ambient.as_ptr());
 
     // Two-sided lighting: subtracted primitives expose inner surfaces whose
     // normals face away from the viewer. This ensures they're still lit.
     gl_LightModeli(GL_LIGHT_MODEL_TWO_SIDE, 1);
 
-    // Key light (70%, top-right-front)
+    let no_amb: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+    // Key light (90%, top-right-front) with specular
     let light0_dir: [f32; 4] = [1.0, 1.0, 0.5, 0.0]; // directional
-    let light0_diff: [f32; 4] = [0.7, 0.7, 0.7, 1.0];
-    let light0_amb: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+    let light0_diff: [f32; 4] = [0.9, 0.9, 0.9, 1.0];
+    let light0_spec: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
     gl_Lightfv(GL_LIGHT0, GL_POSITION, light0_dir.as_ptr());
     gl_Lightfv(GL_LIGHT0, GL_DIFFUSE, light0_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT0, GL_AMBIENT, light0_amb.as_ptr());
+    gl_Lightfv(GL_LIGHT0, GL_SPECULAR, light0_spec.as_ptr());
+    gl_Lightfv(GL_LIGHT0, GL_AMBIENT, no_amb.as_ptr());
 
-    // Fill light (25%, left-low-back)
+    // Fill light (55%, left-low-back)
     let light1_dir: [f32; 4] = [-1.0, 0.3, -0.5, 0.0];
-    let light1_diff: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
+    let light1_diff: [f32; 4] = [0.55, 0.55, 0.55, 1.0];
     gl_Lightfv(GL_LIGHT1, GL_POSITION, light1_dir.as_ptr());
     gl_Lightfv(GL_LIGHT1, GL_DIFFUSE, light1_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT1, GL_AMBIENT, light0_amb.as_ptr());
+    gl_Lightfv(GL_LIGHT1, GL_AMBIENT, no_amb.as_ptr());
 
-    // Bottom light (15%, from below)
+    // Bottom light (40%, from below)
     let light2_dir: [f32; 4] = [0.0, -1.0, 0.0, 0.0];
-    let light2_diff: [f32; 4] = [0.15, 0.15, 0.15, 1.0];
+    let light2_diff: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
     gl_Lightfv(GL_LIGHT2, GL_POSITION, light2_dir.as_ptr());
     gl_Lightfv(GL_LIGHT2, GL_DIFFUSE, light2_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT2, GL_AMBIENT, light0_amb.as_ptr());
+    gl_Lightfv(GL_LIGHT2, GL_AMBIENT, no_amb.as_ptr());
+
+    // Material specular properties (subtle highlight, medium shininess)
+    let mat_spec: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
+    let mat_shin: f32 = 25.0;
+    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec.as_ptr());
+    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, mat_shin);
 
     // Disable lighting for the OpenCSG depth pass (it only cares about geometry)
     gl_Disable(GL_LIGHTING);
@@ -137,10 +148,13 @@ fn render_csg_group(
     Vec::with_capacity(active_leaves.len());
 
   for leaf in &active_leaves {
+    // Pre-compute per-face normals (one normal repeated for each vertex of a triangle).
+    let normals = compute_face_normals(&leaf.vertices);
     render_datas.push(LeafRenderData {
       vertices: leaf.vertices.as_ptr(),
       vertex_count: leaf.vertices.len(),
       transform: cad_to_gl_transform(&leaf.transform),
+      normals,
     });
   }
 
@@ -167,32 +181,46 @@ fn render_csg_group(
   }
 
   // --- Shading pass with GL_EQUAL ---
-  // Restore GL state after OpenCSG (it may bind shaders, modify matrices, etc.)
+  // OpenCSG's glPopAttrib restores pre-render GL state. Re-render the same
+  // geometry with GL_EQUAL to shade only CSG-visible surfaces.
   unsafe {
     gl_UseProgram(0);
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
     gl_MatrixMode(GL_MODELVIEW);
     gl_LoadMatrixf(view.as_ptr());
-
     gl_DepthFunc(GL_EQUAL);
     gl_Enable(GL_LIGHTING);
+    gl_Enable(GL_LIGHT0);
+    gl_Enable(GL_LIGHT1);
+    gl_Enable(GL_LIGHT2);
+    gl_Enable(GL_NORMALIZE);
+    gl_Enable(GL_COLOR_MATERIAL);
+    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
     gl_ShadeModel(GL_SMOOTH);
 
     for (i, leaf) in active_leaves.iter().enumerate() {
-      let color: [f32; 4] = [leaf.color[0], leaf.color[1], leaf.color[2], 1.0];
-      gl_Materialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, color.as_ptr());
+      gl_Color3f(leaf.color[0], leaf.color[1], leaf.color[2]);
 
       let data = &render_datas[i];
-      let verts = std::slice::from_raw_parts(data.vertices, data.vertex_count);
 
       gl_PushMatrix();
       gl_MultMatrixf(data.transform.as_ptr());
-      render_triangles_with_normals(verts);
+
+      // Use vertex arrays for both positions and normals so the depth
+      // values match the OpenCSG depth pass exactly.
+      gl_EnableClientState(GL_VERTEX_ARRAY);
+      gl_EnableClientState(GL_NORMAL_ARRAY);
+      gl_VertexPointer(3, GL_FLOAT, 0, data.vertices as *const c_void);
+      gl_NormalPointer(GL_FLOAT, 0, data.normals.as_ptr() as *const c_void);
+      gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
+      gl_DisableClientState(GL_NORMAL_ARRAY);
+      gl_DisableClientState(GL_VERTEX_ARRAY);
+
       gl_PopMatrix();
     }
 
-    gl_DepthFunc(GL_LESS);
+    gl_DepthFunc(GL_LEQUAL);
     gl_Disable(GL_LIGHTING);
   }
 
@@ -204,29 +232,26 @@ fn render_csg_group(
   }
 }
 
-/// Render triangles with per-face normals for proper lighting.
-unsafe fn render_triangles_with_normals(verts: &[[f32; 3]]) {
-  unsafe {
-    gl_Begin(GL_TRIANGLES);
-    for tri in verts.chunks_exact(3) {
-      let a = tri[0];
-      let b = tri[1];
-      let c = tri[2];
-      // Compute face normal: (b-a) x (c-a)
-      let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-      let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      let n = [
-        ab[1] * ac[2] - ab[2] * ac[1],
-        ab[2] * ac[0] - ab[0] * ac[2],
-        ab[0] * ac[1] - ab[1] * ac[0],
-      ];
-      gl_Normal3f(n[0], n[1], n[2]);
-      gl_Vertex3f(a[0], a[1], a[2]);
-      gl_Vertex3f(b[0], b[1], b[2]);
-      gl_Vertex3f(c[0], c[1], c[2]);
-    }
-    gl_End();
+/// Compute per-face normals for triangle vertices. Returns one normal per vertex
+/// (each triangle's 3 vertices share the same face normal).
+fn compute_face_normals(verts: &[[f32; 3]]) -> Vec<[f32; 3]> {
+  let mut normals = Vec::with_capacity(verts.len());
+  for tri in verts.chunks_exact(3) {
+    let a = tri[0];
+    let b = tri[1];
+    let c = tri[2];
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let n = [
+      ab[1] * ac[2] - ab[2] * ac[1],
+      ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0],
+    ];
+    normals.push(n);
+    normals.push(n);
+    normals.push(n);
   }
+  normals
 }
 
 /// Draw 3D axes at the origin using raw GL.
@@ -423,8 +448,6 @@ unsafe extern "C" {
   fn gl_LightModelfv(pname: u32, params: *const f32);
   #[link_name = "glLightModeli"]
   fn gl_LightModeli(pname: u32, param: i32);
-  #[link_name = "glMaterialfv"]
-  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
   #[link_name = "glColorMaterial"]
   fn gl_ColorMaterial(face: u32, mode: u32);
   #[link_name = "glShadeModel"]
@@ -437,8 +460,6 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glNormal3f"]
-  fn gl_Normal3f(nx: f32, ny: f32, nz: f32);
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
@@ -454,6 +475,8 @@ unsafe extern "C" {
     stride: i32,
     pointer: *const c_void,
   );
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
   #[link_name = "glDrawArrays"]
   fn gl_DrawArrays(mode: u32, first: i32, count: i32);
   #[link_name = "glClear"]
@@ -466,6 +489,10 @@ unsafe extern "C" {
   fn gl_ClearStencil(s: i32);
   #[link_name = "glViewport"]
   fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
+  #[link_name = "glMaterialfv"]
+  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
+  #[link_name = "glMaterialf"]
+  fn gl_Materialf(face: u32, pname: u32, param: f32);
   #[link_name = "glUseProgram"]
   fn gl_UseProgram(program: u32);
 }
@@ -493,8 +520,6 @@ unsafe extern "C" {
   fn gl_LightModelfv(pname: u32, params: *const f32);
   #[link_name = "glLightModeli"]
   fn gl_LightModeli(pname: u32, param: i32);
-  #[link_name = "glMaterialfv"]
-  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
   #[link_name = "glColorMaterial"]
   fn gl_ColorMaterial(face: u32, mode: u32);
   #[link_name = "glShadeModel"]
@@ -507,8 +532,6 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glNormal3f"]
-  fn gl_Normal3f(nx: f32, ny: f32, nz: f32);
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
   #[link_name = "glLineWidth"]
@@ -524,6 +547,8 @@ unsafe extern "C" {
     stride: i32,
     pointer: *const c_void,
   );
+  #[link_name = "glNormalPointer"]
+  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
   #[link_name = "glDrawArrays"]
   fn gl_DrawArrays(mode: u32, first: i32, count: i32);
   #[link_name = "glClear"]
@@ -536,6 +561,10 @@ unsafe extern "C" {
   fn gl_ClearStencil(s: i32);
   #[link_name = "glViewport"]
   fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
+  #[link_name = "glMaterialfv"]
+  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
+  #[link_name = "glMaterialf"]
+  fn gl_Materialf(face: u32, pname: u32, param: f32);
   #[link_name = "glUseProgram"]
   fn gl_UseProgram(program: u32);
 }
@@ -552,17 +581,21 @@ const GL_COLOR_MATERIAL: u32 = 0x0B57;
 const GL_POSITION: u32 = 0x1203;
 const GL_DIFFUSE: u32 = 0x1201;
 const GL_AMBIENT: u32 = 0x1200;
+const GL_SPECULAR: u32 = 0x1202;
+const GL_SHININESS: u32 = 0x1601;
 const GL_AMBIENT_AND_DIFFUSE: u32 = 0x1602;
 const GL_FRONT_AND_BACK: u32 = 0x0408;
 const GL_LIGHT_MODEL_AMBIENT: u32 = 0x0B53;
 const GL_LIGHT_MODEL_TWO_SIDE: u32 = 0x0B52;
 const GL_SMOOTH: u32 = 0x1D01;
 const GL_EQUAL: u32 = 0x0202;
+const GL_LEQUAL: u32 = 0x0203;
 const GL_LESS: u32 = 0x0201;
 const GL_TRIANGLES: u32 = 0x0004;
 const GL_LINES: u32 = 0x0001;
 const GL_FLOAT: u32 = 0x1406;
 const GL_VERTEX_ARRAY: u32 = 0x8074;
+const GL_NORMAL_ARRAY: u32 = 0x8075;
 const GL_DEPTH_BUFFER_BIT: u32 = 0x00000100;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x00000400;
