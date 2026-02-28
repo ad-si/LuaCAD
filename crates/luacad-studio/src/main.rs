@@ -396,6 +396,7 @@ fn main() {
           }
         }
         FileAction::Save => {
+          app.text_content = app.text_content.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n");
           if let Some(path) = app.current_file.clone() {
             match std::fs::write(&path, &app.text_content) {
               Ok(()) => {
@@ -421,6 +422,7 @@ fn main() {
           }
         }
         FileAction::SaveAs => {
+          app.text_content = app.text_content.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n");
           let default_name = app.current_file.as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
