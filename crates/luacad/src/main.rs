@@ -14,6 +14,9 @@ fn print_help() {
     "  luacad info <file.lua>                    Print geometry metadata"
   );
   println!(
+    "  luacad lint <file.lua|dir>...             Lint Lua files with selene"
+  );
+  println!(
     "  luacad convert <input.lua> <output.stl>   Convert to a mesh format"
   );
   println!(
@@ -229,6 +232,115 @@ fn cmd_info(args: &[String]) -> ExitCode {
   }
 
   ExitCode::SUCCESS
+}
+
+fn collect_lua_files(
+  paths: &[String],
+) -> Result<Vec<std::path::PathBuf>, String> {
+  let mut files = Vec::new();
+  for path_str in paths {
+    let path = Path::new(path_str);
+    if path.is_dir() {
+      for entry in std::fs::read_dir(path)
+        .map_err(|e| format!("Error reading directory {path_str}: {e}"))?
+      {
+        let entry = entry.map_err(|e| format!("Error reading entry: {e}"))?;
+        let p = entry.path();
+        if p.extension().is_some_and(|ext| ext == "lua") {
+          files.push(p);
+        }
+      }
+    } else {
+      files.push(path.to_path_buf());
+    }
+  }
+  files.sort();
+  Ok(files)
+}
+
+fn cmd_lint(args: &[String]) -> ExitCode {
+  if args.is_empty() {
+    eprintln!(
+      "Missing file or directory. Usage: luacad lint <file.lua|dir>..."
+    );
+    return ExitCode::FAILURE;
+  }
+
+  let files = match collect_lua_files(args) {
+    Ok(f) => f,
+    Err(e) => {
+      eprintln!("{e}");
+      return ExitCode::FAILURE;
+    }
+  };
+
+  if files.is_empty() {
+    eprintln!("No .lua files found");
+    return ExitCode::FAILURE;
+  }
+
+  let mut total_warnings = 0usize;
+  let mut total_errors = 0usize;
+  let mut had_parse_error = false;
+
+  for file in &files {
+    let code = match std::fs::read_to_string(file) {
+      Ok(c) => c,
+      Err(e) => {
+        eprintln!("Error reading {}: {e}", file.display());
+        had_parse_error = true;
+        continue;
+      }
+    };
+
+    match luacad::linter::lint(&code) {
+      Ok(diagnostics) => {
+        for d in &diagnostics {
+          let severity_str = match d.severity {
+            luacad::linter::LintSeverity::Warning => {
+              total_warnings += 1;
+              "warning"
+            }
+            luacad::linter::LintSeverity::Error => {
+              total_errors += 1;
+              "error"
+            }
+          };
+          eprintln!(
+            "{}:{}:{}: {severity_str}[{}]: {}",
+            file.display(),
+            d.line,
+            d.column,
+            d.code,
+            d.message,
+          );
+          for note in &d.notes {
+            eprintln!("  note: {note}");
+          }
+        }
+      }
+      Err(e) => {
+        eprintln!("{}:  parse error: {e}", file.display());
+        had_parse_error = true;
+      }
+    }
+  }
+
+  if total_errors > 0 || total_warnings > 0 || had_parse_error {
+    eprintln!();
+    eprintln!(
+      "Checked {} files: {total_errors} errors, {total_warnings} warnings",
+      files.len(),
+    );
+  } else {
+    eprintln!("Checked {} files: no issues found", files.len());
+  }
+
+  if total_errors > 0 || had_parse_error {
+    ExitCode::FAILURE
+  } else {
+    ExitCode::SUCCESS
+  }
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
@@ -462,6 +574,7 @@ fn main() -> ExitCode {
     }
     "run" => cmd_run(&args[1..]),
     "info" => cmd_info(&args[1..]),
+    "lint" => cmd_lint(&args[1..]),
     "convert" => cmd_convert(&args[1..]),
     "watch" => cmd_watch(&args[1..]),
     _ => cmd_run(&args),
