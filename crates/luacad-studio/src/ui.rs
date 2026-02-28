@@ -333,7 +333,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         let color = if *is_error {
           egui::Color32::RED
         } else {
-          egui::Color32::GREEN
+          egui::Color32::from_rgb(0, 180, 0)
         };
         ui.colored_label(color, msg.as_str());
       }
