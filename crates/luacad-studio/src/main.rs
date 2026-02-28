@@ -91,6 +91,23 @@ fn main() {
     }
     winit::event::Event::RedrawRequested(_) => {
     let mut frame_input = frame_input_generator.generate(&gl);
+
+    // Clear export status on any user interaction
+    if app.export_status.is_some() {
+      let has_interaction = frame_input.events.iter().any(|e| {
+        matches!(
+          e,
+          Event::KeyPress { .. }
+            | Event::MousePress { .. }
+            | Event::MouseWheel { .. }
+            | Event::Text(_)
+        )
+      });
+      if has_interaction {
+        app.export_status = None;
+      }
+    }
+
     // Detect clipboard key combos (Cmd+V/C/X) that three-d doesn't forward to egui
     let mut paste_text: Option<String> = None;
     let mut wants_copy = false;
