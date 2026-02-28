@@ -8,6 +8,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint-lua:
+    runs-on: ubuntu-latest
+    name: Lint Lua
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libwayland-dev
+
+      - name: Lint Lua examples
+        run: cargo run --package luacad -- lint examples/
+
   build:
     strategy:
       fail-fast: false

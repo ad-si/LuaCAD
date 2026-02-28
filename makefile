@@ -10,6 +10,11 @@ format:
 	# nix fmt  # TODO: Reactivate when it's faster
 
 
+.PHONY: lint-lua
+lint-lua:
+	cargo run --package luacad -- lint examples/
+
+
 .PHONY: test-units
 test-units:
 	cargo test --lib --bins -- --show-output
