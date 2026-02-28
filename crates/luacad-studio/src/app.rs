@@ -5,6 +5,7 @@ use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 use luacad::export::{ExportFormat, OpenScadFormat};
 use luacad::geometry::CsgGeometry;
+use luacad::linter::LintDiagnostic;
 
 #[derive(Debug, Clone)]
 pub enum FileAction {
@@ -48,6 +49,10 @@ pub struct AppState {
   pub clipboard_is_line: bool,
   /// Flattened CSG groups for OpenCSG preview rendering
   pub csg_groups: Vec<CsgGroup>,
+  /// Lint diagnostics for the current editor content
+  pub lint_diagnostics: Vec<LintDiagnostic>,
+  /// Snapshot of text_content used to detect changes for re-linting
+  pub lint_text_snapshot: String,
 }
 
 impl AppState {
@@ -76,6 +81,8 @@ impl AppState {
       editor_selection_len: 0,
       clipboard_is_line: false,
       csg_groups: vec![],
+      lint_diagnostics: vec![],
+      lint_text_snapshot: String::new(),
     };
     app.execute_lua_code();
     app
@@ -116,5 +123,15 @@ impl AppState {
 
     self.csg_groups = flatten_geometries(&self.geometries);
     self.scene_dirty = true;
+  }
+
+  /// Re-run the linter if the editor text has changed since last check.
+  pub fn update_lint(&mut self) {
+    if self.text_content == self.lint_text_snapshot {
+      return;
+    }
+    self.lint_text_snapshot = self.text_content.clone();
+    self.lint_diagnostics =
+      luacad::linter::lint(&self.text_content).unwrap_or_default();
   }
 }
