@@ -74,14 +74,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
     .default_width(screen_width * 0.4)
     .min_width(screen_width * 0.2)
     .show(gui_context, |ui| {
-      let title = match &app.current_file {
-        Some(path) => format!(
-          "Code Editor - {}",
-          path.file_name().unwrap_or_default().to_string_lossy()
-        ),
-        None => "Code Editor".to_string(),
-      };
-      ui.heading(title);
+      ui.heading("Code Editor");
 
       ui.horizontal(|ui| {
         if ui

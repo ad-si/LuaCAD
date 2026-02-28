@@ -90,6 +90,16 @@ fn main() {
       winit_window.request_redraw();
     }
     winit::event::Event::RedrawRequested(_) => {
+    // Update window title to reflect the current file
+    let window_title = match &app.current_file {
+      Some(path) => format!(
+        "{} — LuaCAD Studio",
+        path.file_name().unwrap_or_default().to_string_lossy()
+      ),
+      None => "LuaCAD Studio".to_string(),
+    };
+    winit_window.set_title(&window_title);
+
     let mut frame_input = frame_input_generator.generate(&gl);
 
     // Clear export status on any user interaction
