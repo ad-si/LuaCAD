@@ -6,6 +6,9 @@ pub enum EditorAction {
   InsertTab,              // Tab — insert 2 spaces or indent selected lines
   Unindent,               // Shift+Tab — unindent selected lines
   PasteLineAbove(String), // Paste whole-line clipboard above the current line
+  DeleteCharRight,        // Ctrl+D — delete character right of cursor
+  DeleteWordLeft,         // Ctrl+W — delete word left of cursor
+  WrapSelection(char),    // Wrap selected text with bracket pair: (, [, {
 }
 
 /// Get the word boundaries around a character index in the text.
@@ -261,6 +264,84 @@ pub fn apply_editor_action(
       // Keep cursor at its original position (shifted by inserted text), no selection
       let new_pos = cursor_start + insert_chars;
       (new_pos, new_pos)
+    }
+
+    EditorAction::DeleteCharRight => {
+      let chars: Vec<char> = text.chars().collect();
+      if cursor_start == cursor_end && cursor_start < chars.len() {
+        let byte_start: usize =
+          chars[..cursor_start].iter().collect::<String>().len();
+        let byte_end: usize =
+          chars[..cursor_start + 1].iter().collect::<String>().len();
+        text.replace_range(byte_start..byte_end, "");
+      }
+      (cursor_start, cursor_start)
+    }
+
+    EditorAction::DeleteWordLeft => {
+      if cursor_start == cursor_end && cursor_start > 0 {
+        let chars: Vec<char> = text.chars().collect();
+        let mut pos = cursor_start;
+
+        // Skip whitespace backwards first
+        while pos > 0
+          && chars[pos - 1].is_whitespace()
+          && chars[pos - 1] != '\n'
+        {
+          pos -= 1;
+        }
+
+        // Then delete the word (or single non-word char)
+        if pos > 0 {
+          if chars[pos - 1].is_alphanumeric() || chars[pos - 1] == '_' {
+            while pos > 0
+              && (chars[pos - 1].is_alphanumeric() || chars[pos - 1] == '_')
+            {
+              pos -= 1;
+            }
+          } else {
+            pos -= 1;
+          }
+        }
+
+        let byte_start: usize = chars[..pos].iter().collect::<String>().len();
+        let byte_end: usize =
+          chars[..cursor_start].iter().collect::<String>().len();
+        text.replace_range(byte_start..byte_end, "");
+        (pos, pos)
+      } else if cursor_start != cursor_end {
+        // Delete selection
+        let start = cursor_start.min(cursor_end);
+        let end = cursor_start.max(cursor_end);
+        let chars: Vec<char> = text.chars().collect();
+        let byte_start: usize = chars[..start].iter().collect::<String>().len();
+        let byte_end: usize = chars[..end].iter().collect::<String>().len();
+        text.replace_range(byte_start..byte_end, "");
+        (start, start)
+      } else {
+        (cursor_start, cursor_end)
+      }
+    }
+
+    EditorAction::WrapSelection(open) => {
+      let close = match open {
+        '(' => ')',
+        '[' => ']',
+        '{' => '}',
+        _ => *open,
+      };
+      let start = cursor_start.min(cursor_end);
+      let end = cursor_start.max(cursor_end);
+      let chars: Vec<char> = text.chars().collect();
+
+      // Insert closing bracket first (at end) so start index stays valid
+      let byte_end: usize = chars[..end].iter().collect::<String>().len();
+      text.insert(byte_end, close);
+      let byte_start: usize = chars[..start].iter().collect::<String>().len();
+      text.insert(byte_start, *open);
+
+      // New selection: inside the brackets (original selection shifted by 1)
+      (start + 1, end + 1)
     }
 
     EditorAction::Unindent => {

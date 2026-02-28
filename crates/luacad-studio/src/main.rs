@@ -123,12 +123,27 @@ fn main() {
     let mut wants_copy = false;
     let mut wants_cut = false;
     let mut consume_tab = false;
+    let mut consume_ctrl_key: Option<Key> = None;
     for event in frame_input.events.iter() {
       if let Event::KeyPress {
         kind, modifiers, ..
       } = event
       {
-        if modifiers.command {
+        if modifiers.ctrl && !modifiers.command {
+          match kind {
+            Key::D => {
+              app.pending_editor_action =
+                Some(EditorAction::DeleteCharRight);
+              consume_ctrl_key = Some(Key::D);
+            }
+            Key::W => {
+              app.pending_editor_action =
+                Some(EditorAction::DeleteWordLeft);
+              consume_ctrl_key = Some(Key::W);
+            }
+            _ => {}
+          }
+        } else if modifiers.command {
           match kind {
             Key::V => {
               if let Some(cb) = clipboard.as_mut() {
@@ -196,7 +211,40 @@ fn main() {
         }
       }
     }
-    // Remove Tab events so egui doesn't also insert a \t
+    // Wrap selection with brackets when typing (, [, or { while text is selected
+    let mut consume_bracket_text: Option<String> = None;
+    if app.editor_selection_len > 0 && app.pending_editor_action.is_none() {
+      for event in frame_input.events.iter() {
+        if let Event::Text(s) = event {
+          let ch = s.chars().next();
+          if matches!(ch, Some('(' | '[' | '{')) {
+            app.pending_editor_action =
+              Some(EditorAction::WrapSelection(ch.unwrap()));
+            consume_bracket_text = Some(s.clone());
+            break;
+          }
+        }
+      }
+    }
+
+    // Remove consumed events so egui doesn't also process them
+    if let Some(ref bracket) = consume_bracket_text {
+      frame_input.events.retain(|e| !matches!(e, Event::Text(s) if s == bracket));
+    }
+    if let Some(ctrl_key) = consume_ctrl_key {
+      frame_input.events.retain(|e| match e {
+        Event::KeyPress { kind, .. } | Event::KeyRelease { kind, .. }
+          if *kind == ctrl_key =>
+        {
+          false
+        }
+        // Ctrl+W produces \x17, Ctrl+D produces \x04
+        Event::Text(s) if s.chars().next().is_some_and(|c| c.is_control()) => {
+          false
+        }
+        _ => true,
+      });
+    }
     if consume_tab {
       frame_input.events.retain(|e| {
         !matches!(e, Event::KeyPress { kind: Key::Tab, .. } | Event::KeyRelease { kind: Key::Tab, .. })
