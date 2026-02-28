@@ -75,7 +75,10 @@ fn lua_table_to_scad_args(t: &mlua::Table) -> String {
   }
 
   // Collect named args
-  if let Ok(pairs) = t.pairs::<LuaValue, LuaValue>().collect::<Result<Vec<_>, _>>() {
+  if let Ok(pairs) = t
+    .pairs::<LuaValue, LuaValue>()
+    .collect::<Result<Vec<_>, _>>()
+  {
     for (k, v) in pairs {
       if let LuaValue::String(key) = k {
         let key_str = key.to_str().map(|s| s.to_string()).unwrap_or_default();
@@ -1012,7 +1015,8 @@ mod tests {
     register_bosl(&lua).expect("Failed to register BOSL");
 
     // Register a minimal render() to collect geometries
-    let collector = std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
+    let collector =
+      std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
     let collector_clone = collector.clone();
     let render_fn = lua
       .create_function(move |_, ud: mlua::AnyUserData| {
@@ -1023,7 +1027,8 @@ mod tests {
       .unwrap();
     lua.globals().set("render", render_fn).unwrap();
 
-    let result: mlua::MultiValue = lua.load(code).eval().expect("Lua eval failed");
+    let result: mlua::MultiValue =
+      lua.load(code).eval().expect("Lua eval failed");
 
     // Collect returned geometries
     let mut nodes = Vec::new();
@@ -1068,8 +1073,9 @@ mod tests {
 
   #[test]
   fn bosl_cuboid_with_named_args() {
-    let nodes =
-      run_bosl_lua("return bosl.cuboid { {10, 20, 30}, fillet = 2, center = true }");
+    let nodes = run_bosl_lua(
+      "return bosl.cuboid { {10, 20, 30}, fillet = 2, center = true }",
+    );
     assert_eq!(nodes.len(), 1);
     if let ScadNode::BoslCall { args, .. } = &nodes[0] {
       assert!(args.contains("[10, 20, 30]"));

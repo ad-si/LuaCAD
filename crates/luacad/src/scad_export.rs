@@ -682,9 +682,14 @@ impl ScadNode {
 }
 
 /// Collect all unique BOSL module names referenced in a ScadNode tree.
-fn collect_bosl_modules(node: &ScadNode, modules: &mut std::collections::BTreeSet<String>) {
+fn collect_bosl_modules(
+  node: &ScadNode,
+  modules: &mut std::collections::BTreeSet<String>,
+) {
   match node {
-    ScadNode::BoslCall { module, children, .. } => {
+    ScadNode::BoslCall {
+      module, children, ..
+    } => {
       modules.insert(module.clone());
       for child in children {
         collect_bosl_modules(child, modules);
