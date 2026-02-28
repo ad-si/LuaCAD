@@ -18,11 +18,11 @@ local my_gear = bosl.gear {
 }
 
 -- A NEMA 17 stepper motor model
-local motor = bosl.nema17_stepper { h = 34, shaft = 5 }
+local _motor = bosl.nema17_stepper { h = 34, shaft = 5 }
 
 -- BOSL constants are also available
-local up = bosl.V_UP     -- {0, 0, 1}
-local phi = bosl.PHI     -- golden ratio
+local _up = bosl.V_UP     -- {0, 0, 1}
+local _phi = bosl.PHI     -- golden ratio
 
 -- Combine objects (BOSL objects support all normal CSG operations)
 render(body:translate(0, 0, 0))
