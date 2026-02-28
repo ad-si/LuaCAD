@@ -294,8 +294,10 @@ fn main() {
 
         egui_cursor = gui_context.output(|o| o.cursor_icon);
         gui_context.output_mut(|o| {
-          if !o.copied_text.is_empty() {
-            copied_text = std::mem::take(&mut o.copied_text);
+          for cmd in o.commands.drain(..) {
+            if let egui::OutputCommand::CopyText(text) = cmd {
+              copied_text = text;
+            }
           }
         });
       },

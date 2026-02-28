@@ -1,3 +1,6 @@
 [workspace]
 members = ["crates/luacad", "crates/luacad-studio", "crates/opencsg-sys"]
 resolver = "3"
+
+[patch.crates-io]
+three-d-asset = { git = "https://github.com/asny/three-d-asset" }

@@ -125,23 +125,25 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         .min_scrolled_height(editor_height)
         .max_height(editor_height)
         .show(ui, |ui| {
-          let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
-            let theme = if ui.style().visuals.dark_mode {
-              syntax_highlighting::CodeTheme::dark(14.0)
-            } else {
-              syntax_highlighting::CodeTheme::light(14.0)
-            };
+          let mut layouter =
+            |ui: &egui::Ui, string: &dyn egui::TextBuffer, wrap_width: f32| {
+              let string = string.as_str();
+              let theme = if ui.style().visuals.dark_mode {
+                syntax_highlighting::CodeTheme::dark(14.0)
+              } else {
+                syntax_highlighting::CodeTheme::light(14.0)
+              };
 
-            let mut layout_job = syntax_highlighting::highlight(
-              ui.ctx(),
-              ui.style(),
-              &theme,
-              string,
-              "lua",
-            );
-            layout_job.wrap.max_width = wrap_width;
-            ui.fonts(|f| f.layout_job(layout_job))
-          };
+              let mut layout_job = syntax_highlighting::highlight(
+                ui.ctx(),
+                ui.style(),
+                &theme,
+                string,
+                "lua",
+              );
+              layout_job.wrap.max_width = wrap_width;
+              ui.fonts(|f| f.layout_job(layout_job))
+            };
 
           let te_output = egui::TextEdit::multiline(&mut app.text_content)
             .desired_width(ui.available_width())
@@ -238,7 +240,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         let has_geometry = !app.geometries.is_empty();
         let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
 
-        let csgrs_popup_id = ui.make_persistent_id("csgrs_export_popup");
         let csgrs_btn = ui
           .add_enabled(
             has_geometry,
@@ -246,15 +247,9 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           )
           .on_hover_cursor(egui::CursorIcon::PointingHand);
         paint_dropdown_arrow(ui, &csgrs_btn);
-        if csgrs_btn.clicked() {
-          ui.memory_mut(|mem| mem.toggle_popup(csgrs_popup_id));
-        }
-        egui::popup_below_widget(
-          ui,
-          csgrs_popup_id,
-          &csgrs_btn,
-          egui::PopupCloseBehavior::CloseOnClick,
-          |ui| {
+        egui::Popup::from_toggle_button_response(&csgrs_btn)
+          .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+          .show(|ui| {
             for &fmt in ExportFormat::ALL {
               if ui
                 .button(fmt.label())
@@ -264,10 +259,8 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 app.pending_export = Some(fmt);
               }
             }
-          },
-        );
+          });
 
-        let openscad_popup_id = ui.make_persistent_id("openscad_export_popup");
         let openscad_btn = ui
           .add_enabled(
             has_scad,
@@ -275,15 +268,9 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           )
           .on_hover_cursor(egui::CursorIcon::PointingHand);
         paint_dropdown_arrow(ui, &openscad_btn);
-        if openscad_btn.clicked() {
-          ui.memory_mut(|mem| mem.toggle_popup(openscad_popup_id));
-        }
-        egui::popup_below_widget(
-          ui,
-          openscad_popup_id,
-          &openscad_btn,
-          egui::PopupCloseBehavior::CloseOnClick,
-          |ui| {
+        egui::Popup::from_toggle_button_response(&openscad_btn)
+          .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+          .show(|ui| {
             for &fmt in OpenScadFormat::ALL {
               if ui
                 .button(fmt.label())
@@ -293,8 +280,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 app.pending_openscad_export = Some(fmt);
               }
             }
-          },
-        );
+          });
 
         if ui
           .add_enabled(has_scad, egui::Button::new("Export SCAD"))
