@@ -159,11 +159,13 @@ Other CAD software with programmatic model creation:
 - [Liquid CAD] - 2D constraint-solving CAD
 - [ManifoldCAD] - JavaScript-based online CAD
 - [OpenSCAD Rust] - Rust OpenSCAD VM
+- [openscad-rs] - OpenSCAD parser library for Rust
 - [OpenSCAD] - OpenSCAD language
 - [Rust Scad] - Generate OpenSCAD from Rust
 - [scad_tree] - Rust solid modeling via OpenSCAD
 - [ScalaCad] - CSG in Scala
 - [SolidRS] - Rust OpenSCAD model generation
+- [SynapsCAD] - AI-powered 3D CAD IDE
 
 [BlocksCAD]: https://www.blockscad3d.com/editor/
 [Flowscad]: https://github.com/SmoothDragon/flowscad
@@ -173,10 +175,12 @@ Other CAD software with programmatic model creation:
 [Liquid CAD]: https://github.com/twitchyliquid64/liquid-cad
 [ManifoldCAD]: https://manifoldcad.org/
 [OpenSCAD Rust]: https://github.com/Michael-F-Bryan/scad-rs
+[openscad-rs]: https://github.com/ierror/openscad-rs:
 [Rust Scad]: https://github.com/TheZoq2/Rust-Scad
 [scad_tree]: https://github.com/mrclean71774/scad_tree
 [ScalaCad]: https://github.com/joewing/ScalaCad
 [SolidRS]: https://github.com/MnlPhlp/solidrs
+[SynapsCAD]: https://github.com/ierror/synaps-cad
 
 
 ## History
