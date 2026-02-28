@@ -1219,6 +1219,12 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     })?;
     lua.globals().set("version", version_fn)?;
 
+    // ==================================================================
+    // BOSL LIBRARY
+    // ==================================================================
+
+    crate::bosl::register_bosl(&lua)?;
+
     lua.load(code).eval::<mlua::MultiValue>()
   })();
 
