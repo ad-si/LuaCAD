@@ -398,7 +398,10 @@ fn main() {
         FileAction::Save => {
           if let Some(path) = app.current_file.clone() {
             match std::fs::write(&path, &app.text_content) {
-              Ok(()) => app.export_status = Some((format!("Saved to {}", path.display()), false)),
+              Ok(()) => {
+                app.export_status = Some((format!("Saved to {}", path.display()), false));
+                app.execute_lua_code();
+              }
               Err(e) => app.export_status = Some((format!("Failed to save: {e}"), true)),
             }
           } else if let Some(path) = rfd::FileDialog::new()
@@ -411,6 +414,7 @@ fn main() {
               Ok(()) => {
                 app.current_file = Some(path.clone());
                 app.export_status = Some((format!("Saved to {}", path.display()), false));
+                app.execute_lua_code();
               }
               Err(e) => app.export_status = Some((format!("Failed to save: {e}"), true)),
             }
@@ -431,6 +435,7 @@ fn main() {
               Ok(()) => {
                 app.current_file = Some(path.clone());
                 app.export_status = Some((format!("Saved to {}", path.display()), false));
+                app.execute_lua_code();
               }
               Err(e) => app.export_status = Some((format!("Failed to save: {e}"), true)),
             }
