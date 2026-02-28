@@ -6,6 +6,18 @@ use crate::app::{AppState, FileAction};
 use crate::editor::apply_editor_action;
 use crate::theme::ThemeMode;
 
+/// Return the platform modifier key label: ⌘ on macOS, Ctrl elsewhere.
+fn modifier_label() -> &'static str {
+  #[cfg(target_os = "macos")]
+  {
+    "⌘"
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    "Ctrl"
+  }
+}
+
 /// Paint a small down-pointing triangle at the right edge of a button's rect.
 fn paint_dropdown_arrow(ui: &egui::Ui, response: &egui::Response) {
   let rect = response.rect;
@@ -337,55 +349,56 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       .resizable(false)
       .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
       .show(gui_context, |ui| {
-        let sections: &[(&str, &[(&str, &str)])] = &[
+        let m = modifier_label();
+        let sections: &[(&str, Vec<(String, &str)>)] = &[
           (
             "File",
-            &[
-              ("⌘ O", "Open file"),
-              ("⌘ S", "Save file"),
-              ("⌘ ↵", "Run code"),
+            vec![
+              (format!("{m} O"), "Open file"),
+              (format!("{m} S"), "Save file"),
+              (format!("{m} ↵"), "Run code"),
             ],
           ),
           (
             "Editing",
-            &[
-              ("⌘ C", "Copy"),
-              ("⌘ X", "Cut"),
-              ("⌘ V", "Paste"),
-              ("⌘ D", "Select word / next occurrence"),
-              ("⌘ L", "Select line"),
-              ("⌘ G", "Toggle comment"),
-              ("Tab", "Indent selection"),
-              ("⇧ Tab", "Unindent selection"),
+            vec![
+              (format!("{m} C"), "Copy"),
+              (format!("{m} X"), "Cut"),
+              (format!("{m} V"), "Paste"),
+              (format!("{m} D"), "Select word / next occurrence"),
+              (format!("{m} L"), "Select line"),
+              (format!("{m} G"), "Toggle comment"),
+              ("Tab".into(), "Indent selection"),
+              ("⇧ Tab".into(), "Unindent selection"),
             ],
           ),
           (
             "Viewport",
-            &[
-              ("Drag", "Rotate camera"),
-              ("Scroll", "Zoom in / out"),
-              ("⌘ 4", "Top"),
-              ("⌘ 5", "Bottom"),
-              ("⌘ 6", "Left"),
-              ("⌘ 7", "Right"),
-              ("⌘ 8", "Front"),
-              ("⌘ 9", "Back"),
-              ("⌘ 0", "Diagonal"),
+            vec![
+              ("Drag".into(), "Rotate camera"),
+              ("Scroll".into(), "Zoom in / out"),
+              (format!("{m} 4"), "Top"),
+              (format!("{m} 5"), "Bottom"),
+              (format!("{m} 6"), "Left"),
+              (format!("{m} 7"), "Right"),
+              (format!("{m} 8"), "Front"),
+              (format!("{m} 9"), "Back"),
+              (format!("{m} 0"), "Diagonal"),
             ],
           ),
         ];
-        for (i, &(section, shortcuts)) in sections.iter().enumerate() {
+        for (i, (section, shortcuts)) in sections.iter().enumerate() {
           if i > 0 {
             ui.add_space(6.0);
           }
-          ui.label(egui::RichText::new(section).strong().size(14.0));
+          ui.label(egui::RichText::new(*section).strong().size(14.0));
           egui::Grid::new(format!("shortcuts_{section}"))
             .num_columns(2)
             .spacing([20.0, 4.0])
             .show(ui, |ui| {
-              for &(key, desc) in shortcuts {
-                ui.label(egui::RichText::new(key).monospace());
-                ui.label(desc);
+              for (key, desc) in shortcuts {
+                ui.label(egui::RichText::new(key.as_str()).monospace());
+                ui.label(*desc);
                 ui.end_row();
               }
             });
@@ -429,11 +442,12 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
       let (az, el) = (app.camera_azimuth, app.camera_elevation);
       let is = |a: f32, e: f32| (az - a).abs() < 1.0 && (el - e).abs() < 1.0;
+      let m = modifier_label();
 
       if ui
         .selectable_label(is(-30.0, 30.0), "Diagonal")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 0")
+        .on_hover_text(format!("{m} 0"))
         .clicked()
       {
         app.camera_azimuth = -30.0;
@@ -442,7 +456,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(-90.0, 89.0), "Top")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 4")
+        .on_hover_text(format!("{m} 4"))
         .clicked()
       {
         app.camera_azimuth = -90.0;
@@ -451,7 +465,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(-90.0, -89.0), "Bottom")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 5")
+        .on_hover_text(format!("{m} 5"))
         .clicked()
       {
         app.camera_azimuth = -90.0;
@@ -460,7 +474,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(180.0, 0.0), "Left")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 6")
+        .on_hover_text(format!("{m} 6"))
         .clicked()
       {
         app.camera_azimuth = 180.0;
@@ -469,7 +483,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(0.0, 0.0), "Right")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 7")
+        .on_hover_text(format!("{m} 7"))
         .clicked()
       {
         app.camera_azimuth = 0.0;
@@ -478,7 +492,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(-90.0, 0.0), "Front")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 8")
+        .on_hover_text(format!("{m} 8"))
         .clicked()
       {
         app.camera_azimuth = -90.0;
@@ -487,7 +501,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       if ui
         .selectable_label(is(90.0, 0.0), "Back")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("⌘ 9")
+        .on_hover_text(format!("{m} 9"))
         .clicked()
       {
         app.camera_azimuth = 90.0;
