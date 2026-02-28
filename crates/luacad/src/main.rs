@@ -11,6 +11,9 @@ fn print_help() {
   println!("Usage:");
   println!("  luacad run <file.lua>                     Run a LuaCAD file");
   println!(
+    "  luacad info <file.lua>                    Print geometry metadata"
+  );
+  println!(
     "  luacad convert <input.lua> <output.stl>   Convert to a mesh format"
   );
   println!(
@@ -129,6 +132,103 @@ fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
   }
 
   Ok(count)
+}
+
+fn cmd_info(args: &[String]) -> ExitCode {
+  if args.is_empty() {
+    eprintln!("Missing input file. Usage: luacad info <file.lua>");
+    return ExitCode::FAILURE;
+  }
+
+  let input = &args[0];
+  let code = match std::fs::read_to_string(input) {
+    Ok(c) => c,
+    Err(e) => {
+      eprintln!("Error reading {input}: {e}");
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let mut geometries = match luacad::lua_engine::execute_lua(&code) {
+    Ok(g) => g,
+    Err(e) => {
+      eprintln!("{e}");
+      return ExitCode::FAILURE;
+    }
+  };
+
+  if geometries.is_empty() {
+    println!("File:       {input}");
+    println!("Objects:    0");
+    return ExitCode::SUCCESS;
+  }
+
+  use csgrs::traits::CSG;
+
+  let mut total_polygons: usize = 0;
+  let mut total_triangles: usize = 0;
+  let mut overall_min = [f32::MAX; 3];
+  let mut overall_max = [f32::MIN; 3];
+  let mut per_object: Vec<(usize, usize)> = Vec::new();
+
+  for geom in &mut geometries {
+    geom.materialize();
+    let mesh = geom.mesh.as_ref().unwrap();
+    let poly_count = mesh.polygons.len();
+    let tri_count: usize = mesh
+      .polygons
+      .iter()
+      .map(|p| p.vertices.len().saturating_sub(2))
+      .sum();
+    total_polygons += poly_count;
+    total_triangles += tri_count;
+    per_object.push((poly_count, tri_count));
+
+    if !mesh.polygons.is_empty() {
+      let bb = mesh.bounding_box();
+      overall_min[0] = overall_min[0].min(bb.mins.x);
+      overall_min[1] = overall_min[1].min(bb.mins.y);
+      overall_min[2] = overall_min[2].min(bb.mins.z);
+      overall_max[0] = overall_max[0].max(bb.maxs.x);
+      overall_max[1] = overall_max[1].max(bb.maxs.y);
+      overall_max[2] = overall_max[2].max(bb.maxs.z);
+    }
+  }
+
+  println!("File:       {input}");
+  println!("Objects:    {}", geometries.len());
+  println!("Polygons:   {total_polygons}");
+  println!("Triangles:  {total_triangles}");
+
+  if overall_min[0] <= overall_max[0] {
+    println!("Bounding box:");
+    println!(
+      "  X: {:.3} .. {:.3}  (W: {:.3})",
+      overall_min[0],
+      overall_max[0],
+      overall_max[0] - overall_min[0]
+    );
+    println!(
+      "  Y: {:.3} .. {:.3}  (D: {:.3})",
+      overall_min[1],
+      overall_max[1],
+      overall_max[1] - overall_min[1]
+    );
+    println!(
+      "  Z: {:.3} .. {:.3}  (H: {:.3})",
+      overall_min[2],
+      overall_max[2],
+      overall_max[2] - overall_min[2]
+    );
+  }
+
+  if geometries.len() > 1 {
+    for (i, (polys, tris)) in per_object.iter().enumerate() {
+      println!("Object {}: {polys} polygons, {tris} triangles", i + 1);
+    }
+  }
+
+  ExitCode::SUCCESS
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
@@ -361,6 +461,7 @@ fn main() -> ExitCode {
       ExitCode::SUCCESS
     }
     "run" => cmd_run(&args[1..]),
+    "info" => cmd_info(&args[1..]),
     "convert" => cmd_convert(&args[1..]),
     "watch" => cmd_watch(&args[1..]),
     _ => cmd_run(&args),
