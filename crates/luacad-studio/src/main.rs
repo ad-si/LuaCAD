@@ -21,6 +21,17 @@ use theme::ThemeMode;
 use three_d::*;
 use ui::render_ui;
 
+/// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_model.3mf`.
+fn timestamped_filename(ext: &str) -> String {
+  let now = time::OffsetDateTime::now_local()
+    .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+  let format =
+    time::format_description::parse("[year]-[month]-[day]t[hour][minute]")
+      .expect("valid format description");
+  let stamp = now.format(&format).expect("format timestamp");
+  format!("{stamp}_model.{ext}")
+}
+
 /// Convert an egui CursorIcon to a winit CursorIcon.
 fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
   match cursor {
@@ -372,21 +383,19 @@ fn main() {
       // Handle csgrs export requests
       #[cfg(feature = "csgrs")]
       if let Some(fmt) = app.pending_export.take() {
-        let (title, filter_name, ext, default_name) = match fmt {
-          ExportFormat::ThreeMF => {
-            ("Export 3MF", "3MF Files", "3mf", "model.3mf")
-          }
-          ExportFormat::STL => ("Export STL", "STL Files", "stl", "model.stl"),
-          ExportFormat::OBJ => ("Export OBJ", "OBJ Files", "obj", "model.obj"),
-          ExportFormat::PLY => ("Export PLY", "PLY Files", "ply", "model.ply"),
+        let (title, filter_name, ext) = match fmt {
+          ExportFormat::ThreeMF => ("Export 3MF", "3MF Files", "3mf"),
+          ExportFormat::STL => ("Export STL", "STL Files", "stl"),
+          ExportFormat::OBJ => ("Export OBJ", "OBJ Files", "obj"),
+          ExportFormat::PLY => ("Export PLY", "PLY Files", "ply"),
           ExportFormat::OpenSCAD => {
-            ("Export OpenSCAD", "OpenSCAD Files", "scad", "model.scad")
+            ("Export OpenSCAD", "OpenSCAD Files", "scad")
           }
         };
         if let Some(path) = rfd::FileDialog::new()
           .set_title(title)
           .add_filter(filter_name, &[ext])
-          .set_file_name(default_name)
+          .set_file_name(timestamped_filename(ext))
           .save_file()
         {
           let result = match fmt {
@@ -429,7 +438,7 @@ fn main() {
         if let Some(path) = rfd::FileDialog::new()
           .set_title("Export OpenSCAD")
           .add_filter("OpenSCAD Files", &["scad"])
-          .set_file_name("model.scad")
+          .set_file_name(timestamped_filename("scad"))
           .save_file()
         {
           let nodes: Vec<_> = app
@@ -456,7 +465,7 @@ fn main() {
         } else if let Some(path) = rfd::FileDialog::new()
           .set_title(format!("Export via Manifold — {}", fmt.label()))
           .add_filter(fmt.filter_name(), &[fmt.extension()])
-          .set_file_name(fmt.default_filename())
+          .set_file_name(timestamped_filename(fmt.extension()))
           .save_file()
         {
           let result = luacad::export::export_manifold(

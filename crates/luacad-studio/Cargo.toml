@@ -22,3 +22,4 @@ winit = "0.28"
 glutin = "0.30"
 glow = "0.16"
 raw-window-handle = "0.5"
+time = { version = "0.3", features = ["formatting", "local-offset"] }
