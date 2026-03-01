@@ -1,5 +1,5 @@
 use egui_extras::syntax_highlighting;
-use luacad::export::{ExportFormat, ManifoldFormat, OpenScadFormat};
+use luacad::export::{ExportFormat, ManifoldFormat};
 use luacad::linter::LintSeverity;
 use three_d::egui;
 
@@ -275,7 +275,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
       ui.horizontal(|ui| {
         let has_geometry = !app.geometries.is_empty();
-        let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
 
         let csgrs_btn = ui
           .add_enabled(
@@ -298,26 +297,14 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
             }
           });
 
-        let openscad_btn = ui
-          .add_enabled(
-            has_scad,
-            egui::Button::new(egui::RichText::new("Export via OpenSCAD   ")),
-          )
-          .on_hover_cursor(egui::CursorIcon::PointingHand);
-        paint_dropdown_arrow(ui, &openscad_btn);
-        egui::Popup::from_toggle_button_response(&openscad_btn)
-          .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-          .show(|ui| {
-            for &fmt in OpenScadFormat::ALL {
-              if ui
-                .button(fmt.label())
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-              {
-                app.pending_openscad_export = Some(fmt);
-              }
-            }
-          });
+        let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
+        if ui
+          .add_enabled(has_scad, egui::Button::new("Export SCAD"))
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_export = Some(ExportFormat::OpenSCAD);
+        }
 
         let manifold_btn = ui
           .add_enabled(
@@ -339,14 +326,6 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
               }
             }
           });
-
-        if ui
-          .add_enabled(has_scad, egui::Button::new("Export SCAD"))
-          .on_hover_cursor(egui::CursorIcon::PointingHand)
-          .clicked()
-        {
-          app.pending_export = Some(ExportFormat::OpenSCAD);
-        }
       });
 
       ui.add_space(6.0);

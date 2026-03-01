@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::csg_tree::{CsgGroup, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
-use luacad::export::{ExportFormat, ManifoldFormat, OpenScadFormat};
+use luacad::export::{ExportFormat, ManifoldFormat};
 use luacad::geometry::CsgGeometry;
 use luacad::linter::LintDiagnostic;
 
@@ -35,8 +35,6 @@ pub struct AppState {
   pub current_file: Option<PathBuf>,
   /// Pending file action (save/open) requested this frame
   pub pending_file_action: Option<FileAction>,
-  /// Pending OpenSCAD-based export requested this frame
-  pub pending_openscad_export: Option<OpenScadFormat>,
   /// Pending Manifold-based export requested this frame
   pub pending_manifold_export: Option<ManifoldFormat>,
   /// Auto-zoom to fit on next scene rebuild (initial load / file open)
@@ -76,7 +74,6 @@ impl AppState {
       pending_export: None,
       current_file: None,
       pending_file_action: None,
-      pending_openscad_export: None,
       pending_manifold_export: None,
       needs_fit_to_view: true,
       show_shortcuts: false,
