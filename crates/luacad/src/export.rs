@@ -564,6 +564,14 @@ impl ManifoldFormat {
     ManifoldFormat::Amf,
   ];
 
+  /// All formats except ThreeMF, for the dropdown menu.
+  pub const DROPDOWN: &[ManifoldFormat] = &[
+    ManifoldFormat::Stl,
+    ManifoldFormat::Obj,
+    ManifoldFormat::Ply,
+    ManifoldFormat::Off,
+    ManifoldFormat::Amf,
+  ];
   pub fn label(self) -> &'static str {
     match self {
       Self::ThreeMF => "Export as 3MF",

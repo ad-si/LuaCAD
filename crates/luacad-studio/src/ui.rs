@@ -311,17 +311,17 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           app.pending_scad_export = true;
         }
 
-        let manifold_btn = ui
+        let export_btn = ui
           .add_enabled(
             has_geometry,
-            egui::Button::new(egui::RichText::new("Export via Manifold   ")),
+            egui::Button::new(egui::RichText::new("Export   ")),
           )
           .on_hover_cursor(egui::CursorIcon::PointingHand);
-        paint_dropdown_arrow(ui, &manifold_btn);
-        egui::Popup::from_toggle_button_response(&manifold_btn)
+        paint_dropdown_arrow(ui, &export_btn);
+        egui::Popup::from_toggle_button_response(&export_btn)
           .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
           .show(|ui| {
-            for &fmt in ManifoldFormat::ALL {
+            for &fmt in ManifoldFormat::DROPDOWN {
               if ui
                 .button(fmt.label())
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -331,6 +331,22 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
               }
             }
           });
+
+        ui.with_layout(
+          egui::Layout::right_to_left(egui::Align::Center),
+          |ui| {
+            let threemf_btn =
+              egui::Button::new(egui::RichText::new("Export 3MF").size(18.0))
+                .min_size(egui::vec2(100.0, 30.0));
+            if ui
+              .add_enabled(has_geometry, threemf_btn)
+              .on_hover_cursor(egui::CursorIcon::PointingHand)
+              .clicked()
+            {
+              app.pending_manifold_export = Some(ManifoldFormat::ThreeMF);
+            }
+          },
+        );
       });
 
       ui.add_space(6.0);
