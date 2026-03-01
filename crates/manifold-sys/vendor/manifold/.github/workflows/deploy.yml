@@ -1,0 +1,45 @@
+name: Deploy documentation 
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types:
+      - completed
+    branches: [master]
+
+jobs:
+  deploy_github_pages:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Doxygen Action
+      uses: mattnotmitt/doxygen-action@edge
+
+    - name: Move deployables
+      run: |
+        mkdir public
+        mv ./samples ./public
+        mv ./docs ./public
+
+    - name: Download manifoldCAD editor, examples and documentation
+      uses: dawidd6/action-download-artifact@v6
+      with:
+        workflow: manifold.yml
+        workflow_conclusion: completed
+        # specific to the triggering workflow
+        run_id: ${{github.event.workflow_run.id}}
+        # do not download from old run
+        check_artifacts: true 
+        name: wasm
+        path: ./public
+
+    - name: Deploy to Github Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_branch: gh-pages
+        force_orphan: true
+        cname: manifoldcad.org
+        publish_dir: ./public

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::SystemTime;
 
-const FORMATS: &[&str] = &["stl", "obj", "ply", "3mf", "scad"];
+const FORMATS: &[&str] = &["stl", "obj", "ply", "off", "amf", "3mf", "scad"];
 
 fn print_help() {
   let version = env!("CARGO_PKG_VERSION");
@@ -17,7 +17,7 @@ fn print_help() {
     "  luacad lint <file.lua|dir>...             Lint Lua files with selene"
   );
   println!(
-    "  luacad convert <input.lua> <output.stl>   Convert to a mesh format"
+    "  luacad convert <input.lua> <output.stl>   Convert to a mesh format with csgrs"
   );
   println!(
     "  luacad watch <input.lua> <output.stl>     Rebuild on file changes"
@@ -34,6 +34,9 @@ fn print_help() {
   println!(
     "  --via-openscad   Use OpenSCAD to generate the output instead of csgrs"
   );
+  println!(
+    "  --via-manifold   Use Manifold to generate the output (3mf, stl, obj, ply, off, amf)"
+  );
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
 }
@@ -48,6 +51,8 @@ fn infer_format(path: &Path) -> Option<&'static str> {
     "stl" => Some("stl"),
     "obj" => Some("obj"),
     "ply" => Some("ply"),
+    "off" => Some("off"),
+    "amf" => Some("amf"),
     "3mf" => Some("3mf"),
     "scad" => Some("scad"),
     _ => None,
@@ -63,6 +68,8 @@ fn export(
     "stl" => luacad::export::export_stl(geometries, output),
     "obj" => luacad::export::export_obj(geometries, output),
     "ply" => luacad::export::export_ply(geometries, output),
+    "off" => luacad::export::export_off(geometries, output),
+    "amf" => luacad::export::export_amf(geometries, output),
     "3mf" => luacad::export::export_3mf(geometries, output),
     "scad" => {
       let nodes: Vec<_> =
@@ -117,6 +124,7 @@ struct ConvertOpts<'a> {
   output: &'a Path,
   format: &'a str,
   via_openscad: bool,
+  via_manifold: bool,
 }
 
 /// Run a single convert cycle: execute Lua, then export.
@@ -128,7 +136,9 @@ fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
   let geometries = luacad::lua_engine::execute_lua(&code)?;
   let count = geometries.len();
 
-  if opts.via_openscad {
+  if opts.via_manifold {
+    luacad::export::export_manifold(&geometries, opts.format, opts.output)?;
+  } else if opts.via_openscad {
     export_via_openscad(&geometries, opts.output)?;
   } else {
     export(&geometries, opts.format, opts.output)?;
@@ -378,14 +388,15 @@ fn cmd_run(args: &[String]) -> ExitCode {
   }
 }
 
-/// Parse convert/watch args into (input, output_str, format_override, via_openscad).
+/// Parse convert/watch args into (input, output_str, format_override, via_openscad, via_manifold).
 fn parse_convert_args(
   args: &[String],
-) -> Result<(&str, &str, Option<&str>, bool), ExitCode> {
+) -> Result<(&str, &str, Option<&str>, bool, bool), ExitCode> {
   let mut input: Option<&str> = None;
   let mut output: Option<&str> = None;
   let mut format_override: Option<&str> = None;
   let mut via_openscad = false;
+  let mut via_manifold = false;
   let mut i = 0;
 
   while i < args.len() {
@@ -400,6 +411,9 @@ fn parse_convert_args(
       }
       "--via-openscad" => {
         via_openscad = true;
+      }
+      "--via-manifold" => {
+        via_manifold = true;
       }
       arg if arg.starts_with('-') => {
         eprintln!("Unknown option: {arg}");
@@ -428,7 +442,7 @@ fn parse_convert_args(
     return Err(ExitCode::FAILURE);
   };
 
-  Ok((input, output, format_override, via_openscad))
+  Ok((input, output, format_override, via_openscad, via_manifold))
 }
 
 /// Resolve the output format from override or file extension.
@@ -455,7 +469,7 @@ where
 }
 
 fn cmd_convert(args: &[String]) -> ExitCode {
-  let (input, output_str, format_override, via_openscad) =
+  let (input, output_str, format_override, via_openscad, via_manifold) =
     match parse_convert_args(args) {
       Ok(v) => v,
       Err(code) => return code,
@@ -472,6 +486,7 @@ fn cmd_convert(args: &[String]) -> ExitCode {
     output: output_path,
     format,
     via_openscad,
+    via_manifold,
   };
 
   match do_convert(&opts) {
@@ -489,7 +504,7 @@ fn cmd_convert(args: &[String]) -> ExitCode {
 }
 
 fn cmd_watch(args: &[String]) -> ExitCode {
-  let (input, output_str, format_override, via_openscad) =
+  let (input, output_str, format_override, via_openscad, via_manifold) =
     match parse_convert_args(args) {
       Ok(v) => v,
       Err(code) => return code,
@@ -512,6 +527,7 @@ fn cmd_watch(args: &[String]) -> ExitCode {
     output: output_path,
     format,
     via_openscad,
+    via_manifold,
   };
 
   println!("Watching {input} for changes (Ctrl+C to stop)");

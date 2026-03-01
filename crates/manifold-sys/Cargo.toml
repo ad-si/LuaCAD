@@ -1,0 +1,10 @@
+[package]
+name = "manifold-sys"
+version = "0.1.0"
+edition = "2021"
+description = "Raw FFI bindings for Manifold v3.4.0 C API"
+publish = false
+
+[build-dependencies]
+cmake = "0.1"
+bindgen = "0.71"

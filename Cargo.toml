@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/luacad", "crates/luacad-studio", "crates/opencsg-sys"]
+members = ["crates/luacad", "crates/luacad-studio", "crates/opencsg-sys", "crates/manifold-sys"]
 resolver = "3"
 
 [patch.crates-io]

@@ -1,0 +1,388 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: GCC ${{matrix.gcc}} (CrossSection:${{matrix.cross_section}}, TBB:${{matrix.parallelization}})
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        cross_section: [ON]
+        parallelization: [OFF, ON]
+        os: [ubuntu-24.04]
+        gcc: [13, 14]
+        include:
+          - cross_section: OFF
+            parallelization: ON
+            os: ubuntu-24.04
+            gcc: 14
+          - cross_section: ON
+            parallelization: ON
+            os: ubuntu-22.04
+            gcc: 11
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: gcc-${{ matrix.gcc }}
+      CXX: g++-${{ matrix.gcc }}
+    steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install libgtest-dev libassimp-dev git libtbb-dev pkg-config libpython3-dev lcov
+        python -m pip install -U trimesh pytest
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 4.0.2
+    - name: Build ${{matrix.parallelization}}
+      if: matrix.parallelization != 'OFF'
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DMANIFOLD_STRICT=ON -DMANIFOLD_PYBIND=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_ASSERT=ON -DMANIFOLD_FLAGS=-UNDEBUG -DMANIFOLD_CROSS_SECTION=${{matrix.cross_section}} -DASSIMP_ENABLE=ON -DMANIFOLD_PAR=${{matrix.parallelization}} .. && make
+    - name: Test ${{matrix.parallelization}}
+      if: matrix.parallelization != 'OFF'
+      run: |
+        cd build/test
+        ./manifold_test
+    - name: Test Python bindings ${{matrix.parallelization}}
+      if: matrix.parallelization != 'OFF' && matrix.cross_section == 'ON'
+      run: |
+        export PYTHONPATH=$PYTHONPATH:$(pwd)/build/bindings/python
+        python3 bindings/python/examples/run_all.py -e
+        python3 -m pytest
+    - name: Coverage Report
+      # only do code coverage for default sequential backend, it seems that TBB
+      # backend will cause failure
+      # perhaps issue related to invalid memory access?
+      if: matrix.parallelization == 'OFF'
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DMANIFOLD_STRICT=ON -DMANIFOLD_CROSS_SECTION=${{matrix.cross_section}} -DMANIFOLD_PAR=${{matrix.parallelization}} -DCODE_COVERAGE=ON .. && make
+        lcov --capture --gcov-tool gcov-${{ matrix.gcc }} --ignore-errors mismatch --initial --directory . --output-file ./code_coverage_init.info
+        cd test
+        ./manifold_test
+        cd ../
+        lcov --capture --gcov-tool gcov-${{ matrix.gcc }} --ignore-errors mismatch --directory . --output-file ./code_coverage_test.info
+        lcov --add-tracefile ./code_coverage_init.info --add-tracefile ./code_coverage_test.info --output-file ./code_coverage_total.info
+        lcov --extract ./code_coverage_total.info "/*/manifold/src/*" --output-file ./code_coverage.info
+        cd ../
+    - uses: codecov/codecov-action@v5
+      if: matrix.parallelization == 'OFF'
+      with:
+        disable_search: true
+        files: build/code_coverage.info
+        fail_ci_if_error: false
+        name: ${{matrix.parallelization}}
+        token: ${{secrets.CODECOV_TOKEN}}
+        verbose: true
+    - name: test cmake consumer
+      run: |
+        cd build
+        sudo cmake --install .
+        cd ..
+        ./scripts/test-cmake.sh
+
+  build_wasm:
+    name: WASM (TBB:${{matrix.parallelization}}, DEBUG:${{matrix.debug}})
+    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        parallelization: [OFF, ON]
+        debug: [OFF, ON]
+    steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get -y update
+        DEBIAN_FRONTEND=noninteractive sudo apt install -y nodejs
+    - uses: actions/checkout@v4
+    - name: Setup WASM
+      run: |
+        # setup emscripten
+        git clone https://github.com/emscripten-core/emsdk.git
+        cd emsdk
+        ./emsdk install 3.1.64
+        ./emsdk activate 3.1.64
+    - uses: jwlawson/actions-setup-cmake@v2
+    - name: Build WASM ${{matrix.parallelization}}
+      run: |
+        source ./emsdk/emsdk_env.sh
+        mkdir build
+        cd build
+        emcmake cmake -DCMAKE_BUILD_TYPE=MinSizeRel -DMANIFOLD_STRICT=ON -DMANIFOLD_PAR=${{matrix.parallelization}} -DMANIFOLD_USE_BUILTIN_TBB=ON -DMANIFOLD_DEBUG=${{matrix.debug}} -DMANIFOLD_ASSERT=${{matrix.debug}} .. && emmake make
+    - name: Test WASM
+      if: matrix.parallelization == 'OFF'
+      run: |
+        cd build/test
+        node ./manifold_test.js
+    - name: Run unit tests
+      if: matrix.parallelization == 'OFF'
+      run: |
+        cd bindings/wasm
+        npm ci
+        npm run build
+        npm test
+    - name: Isolated npm smoke test
+      if: matrix.parallelization == 'OFF'
+      run: |
+        set -ev -o pipefail
+        cd bindings/wasm
+        wasmpath=$(pwd)
+        npmtestpath=../npmtest
+        # Create an npm package.
+        npm ci && npm pack
+        # Install it in an empty directory.
+        mkdir -p ${npmtestpath} && cd ${npmtestpath}
+        npm install ${wasmpath}/manifold-3d*.tgz
+        cp ${wasmpath}/test/fixtures/npm/* .
+        # Positive case smoke test.
+        npx manifold-cad ./unitSphere.mjs ./unitSphere.glb && echo "Positive smoke test succeeded"
+        # Negative case smoke test.
+        npx manifold-cad ./unitSphereNoManifoldImport.mjs ./unitSphereNoManifoldImport.glb || echo "Negative smoke test failed as expected"
+    - name: Build manifoldCAD editor
+      if: matrix.parallelization == 'OFF'
+      run: |
+        cd bindings/wasm
+        npm run ci:editor
+        npm run build:editor
+    - name: Build WASM examples
+      if: matrix.parallelization == 'OFF'
+      run: |
+        cd bindings/wasm/examples
+        npm run ci:examples
+        npm run build:examples
+    - name: Build WASM documentation and site
+      if: matrix.parallelization == 'OFF'
+      run: |
+        cd bindings/wasm
+        npm run docs
+        npm run public
+    - name: Upload manifoldCAD editor, examples and documentation
+      uses: actions/upload-artifact@v4
+      if: github.event_name == 'push' && matrix.parallelization == 'OFF' && matrix.debug == 'OFF'
+      with:
+        name: wasm
+        path: bindings/wasm/public/
+        retention-days: 90
+        overwrite: true
+
+  build_fuzzer:
+    name: fuzzer
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get -y update
+        DEBIAN_FRONTEND=noninteractive sudo apt install -y libgtest-dev clang
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMANIFOLD_STRICT=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_FUZZ=ON -DMANIFOLD_PYBIND=OFF -DCMAKE_CXX_COMPILER=clang++ ..
+        make
+
+  build_fuzzer_mac:
+    name: fuzzer mac
+    timeout-minutes: 30
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install common dependencies
+      run: |
+        brew install googletest
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 3.31.6
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMANIFOLD_STRICT=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_FUZZ=ON -DMANIFOLD_PYBIND=OFF -DCMAKE_CXX_COMPILER=clang++ -DMANIFOLD_PAR=OFF ..
+        ASAN_OPTIONS=detect_container_overflow=0 make
+
+  build_windows:
+    name: Windows (TBB:${{matrix.parallelization}}, SHARED:${{matrix.shared}})
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        parallelization: [OFF, ON]
+        shared: [OFF, ON]
+    runs-on: windows-2025
+    steps:
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 4.0.2
+    - uses: ilammy/msvc-dev-cmd@v1
+    - name: Build ${{matrix.parallelization}}
+      shell: powershell
+      run: |
+        cmake . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=${{matrix.shared}} -DMANIFOLD_STRICT=ON -DMANIFOLD_USE_BUILTIN_TBB=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_ASSERT=ON -DMANIFOLD_PAR=${{matrix.parallelization}} -A x64 -B build
+        cd build
+        cmake --build . --target ALL_BUILD --config Release
+    - name: Test dll location
+      if: matrix.shared == 'ON'
+      shell: bash
+      run: |
+        ls ./build/lib/Release
+        [ -f ./build/lib/Release/manifold.dll ]
+        [ -f ./build/lib/Release/manifoldc.dll ]
+    - name: Test
+      shell: bash
+      run: |
+        cp ./build/lib/Release/* ./build/bin/Release
+        cd build/bin/Release
+        ./manifold_test.exe
+        cd ../../
+    - name: test cmake consumer
+      run: |
+        cd build
+        cmake --install .
+        cd ..
+        ./scripts/test-cmake.sh
+
+  build_mxe:
+    name: MXE (TBB:${{matrix.parallelization == 'ON'}})
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        parallelization: [OFF, ON]
+    runs-on: ubuntu-latest
+    container: openscad/mxe-x86_64-gui:latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        export MXEDIR=/mxe
+        export MXE_TARGETS=x86_64-w64-mingw32.static.posix
+        export MXEDIR=$HOME/openscad_deps/mxe
+        export MXETARGETDIR=$MXEDIR/usr/$MXE_TARGETS
+        export PATH=/mxe/usr/bin:$PATH
+        export CMAKE=$MXE_TARGETS-cmake
+        $CMAKE -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DMANIFOLD_STRICT=ON -DMANIFOLD_PYBIND=OFF -DMANIFOLD_CBIND=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_PAR=${{matrix.parallelization}} .. && make
+
+  build_mac:
+    name: MacOS (TBB:${{matrix.parallelization == 'ON'}}, shared lib:${{matrix.shared == 'ON'}}, ${{matrix.os}})
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        parallelization: [OFF, ON]
+        shared: [OFF, ON]
+        # macos-15-intel: intel
+        # macos-latest: arm
+        os: [macos-15-intel, macos-latest]
+    runs-on: ${{matrix.os}}
+    steps:
+    - name: Install common dependencies
+      run: |
+        brew install googletest assimp
+        pip install trimesh pytest
+    - name: Install TBB
+      if: matrix.parallelization == 'ON'
+      run: brew install tbb
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 4.0.2
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=${{matrix.shared}} -DMANIFOLD_STRICT=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_ASSERT=ON -DMANIFOLD_PYBIND=ON -DASSIMP_ENABLE=ON -DMANIFOLD_PAR=${{matrix.parallelization}} .. && make
+    - name: Test
+      run: |
+        cd build/test
+        ./manifold_test
+        cd ../../
+    - name: test cmake consumer
+      run: |
+        cd build
+        sudo cmake --install .
+        cd ..
+        ./scripts/test-cmake.sh
+    - name: test pkg-config consumer
+      if: matrix.shared == 'ON'
+      run: |
+        LDFLAGS=-Wl,-rpath,/usr/local/lib ./scripts/test-pkgconfig.sh
+
+  build_mac_builtin_tbb:
+    timeout-minutes: 30
+    runs-on: macos-latest
+    steps:
+    - name: Install common dependencies
+      run: |
+        brew install googletest
+        pip install trimesh pytest
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 4.0.2
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DMANIFOLD_STRICT=ON -DMANIFOLD_USE_BUILTIN_TBB=ON -DMANIFOLD_DEBUG=ON -DMANIFOLD_ASSERT=ON -DMANIFOLD_PYBIND=OFF -DMANIFOLD_PAR=ON .. && make
+    - name: Test
+      run: |
+        cd build/test
+        ./manifold_test
+        cd ../../
+    - name: test cmake consumer
+      run: |
+        cd build
+        sudo cmake --install .
+        cd ..
+        ./scripts/test-cmake.sh
+        LDFLAGS=-Wl,-rpath,/usr/local/lib ./scripts/test-pkgconfig.sh
+
+  build_mac_builtin_tbb_subdir:
+    timeout-minutes: 30
+    runs-on: macos-latest
+    steps:
+    - name: Install common dependencies
+      run: |
+        brew install googletest
+        pip install trimesh pytest
+    - uses: actions/checkout@v4
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: 4.0.2
+    - name: test cmake consumer
+      run: |
+        cd ..
+        ./manifold/scripts/test-cmake-subdir.sh
+
+  build_nix:
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        variant: [manifold-none, manifold-tbb, manifold-js, manifold-js-tbb, manifold3d]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: DeterminateSystems/nix-installer-action@main
+    - run: nix build -L '.?submodules=1#${{matrix.variant}}'
+

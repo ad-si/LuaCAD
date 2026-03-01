@@ -15,6 +15,7 @@ selene-lib = { version = "0.30", default-features = false, features = ["lua54"] 
 full_moon = { version = "2", features = ["lua54"] }
 toml = "0.7"
 serde_yaml = "0.9"
+manifold-sys = { path = "../manifold-sys" }
 
 [dev-dependencies]
 insta = "1"
