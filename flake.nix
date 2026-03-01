@@ -22,6 +22,7 @@
             cargo
             cargo-insta
             clippy
+            cmake
             coreutils
             gnumake
             rust-analyzer
