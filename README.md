@@ -1,20 +1,29 @@
 # LuaCAD
 
-Scriptable CAD with Lua.
-Write parametric 2D and 3D models in Lua
-and export them to STL, 3MF, OBJ, PLY, or SCAD.
+Solid 3D CAD modeling with Lua.
 
-![Simple Model](./images/simple_model.png)
+Write parametric 2D and 3D models in Lua
+and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD.
+
+![Screenshot of LuaCAD Studio app](images/2026-02-25t1353_screenshot.png)
 
 LuaCAD embeds Lua 5.4 in a Rust engine
-that evaluates CSG operations directly (via [csgrs])
-or generates [OpenSCAD] code for external rendering.
+that evaluates CSG operations directly (via [Manifold])
+or generates [SCAD] code for external rendering.
 
-[csgrs]: https://github.com/nickmass/csgrs
-[OpenSCAD]: https://www.openscad.org/
+[Manifold]: https://github.com/elalish/manifold
+[SCAD]: https://openscad.org/documentation.html
 
 
 ## Installation
+
+### Via Crates
+
+```sh
+cargo install luacad  # CLI for running and converting LuaCAD scripts
+cargo install luacad-studio  # GUI desktop app with live 3D preview
+```
+
 
 ### From source
 
@@ -26,26 +35,19 @@ cd LuaCAD
 make install
 ```
 
-This installs two binaries:
-
-- `luacad` -- CLI for running and converting LuaCAD scripts
-- `luacad-studio` -- GUI desktop app with live 3D preview
-
-![Screenshot of LuaCAD Studio app](images/2026-02-25t1353_screenshot.png)
-
 
 ## Usage
 
 ### CLI
 
 ```sh
-luacad convert model.lua output.stl          # Convert to STL
-luacad convert model.lua output.3mf          # Convert to 3MF
-luacad convert model.lua output.scad         # Export as OpenSCAD
-luacad watch model.lua output.stl            # Rebuild on file changes
-luacad convert model.lua out.stl --via-openscad  # Use OpenSCAD backend
-luacad run model.lua                         # Execute (side-effects only)
+luacad convert model.lua output.3mf   # Convert to 3MF
+luacad convert model.lua output.stl   # Convert to STL
+luacad convert model.lua output.scad  # Export as SCAD for OpenSCAD
+luacad watch model.lua output.3mf     # Rebuild on file changes
+luacad run model.lua                  # Execute (side-effects only)
 ```
+
 
 ### Studio
 
@@ -142,10 +144,10 @@ Lua is a better fit:
 - [SCAD](https://en.wikipedia.org/wiki/OpenSCAD)
 - [3MF](https://en.wikipedia.org/wiki/3D_Manufacturing_Format)
 - [STL](https://en.wikipedia.org/wiki/STL_(file_format))
-- [DXF](https://en.wikipedia.org/wiki/AutoCAD_DXF)
 - [OBJ](https://en.wikipedia.org/wiki/Wavefront_.obj_file)
-- [SVG](https://en.wikipedia.org/wiki/Scalable_Vector_Graphics)
-- [WRL](https://en.wikipedia.org/wiki/VRML)
+- [PLY](https://en.wikipedia.org/wiki/PLY_(file_format))
+- [OFF](https://en.wikipedia.org/wiki/OFF_(file_format))
+- [AMF](https://en.wikipedia.org/wiki/Additive_manufacturing_file_format)
 
 
 ## Roadmap
