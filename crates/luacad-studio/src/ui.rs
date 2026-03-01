@@ -1,5 +1,5 @@
 use egui_extras::syntax_highlighting;
-use luacad::export::{ExportFormat, OpenScadFormat};
+use luacad::export::{ExportFormat, ManifoldFormat, OpenScadFormat};
 use luacad::linter::LintSeverity;
 use three_d::egui;
 
@@ -315,6 +315,27 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
                 .clicked()
               {
                 app.pending_openscad_export = Some(fmt);
+              }
+            }
+          });
+
+        let manifold_btn = ui
+          .add_enabled(
+            has_geometry,
+            egui::Button::new(egui::RichText::new("Export via Manifold   ")),
+          )
+          .on_hover_cursor(egui::CursorIcon::PointingHand);
+        paint_dropdown_arrow(ui, &manifold_btn);
+        egui::Popup::from_toggle_button_response(&manifold_btn)
+          .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+          .show(|ui| {
+            for &fmt in ManifoldFormat::ALL {
+              if ui
+                .button(fmt.label())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+              {
+                app.pending_manifold_export = Some(fmt);
               }
             }
           });

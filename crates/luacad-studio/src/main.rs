@@ -424,6 +424,25 @@ fn main() {
       }
     }
 
+    // Handle Manifold-based export
+    if let Some(fmt) = app.pending_manifold_export.take() {
+      if app.geometries.is_empty() {
+        app.export_status = Some(("No geometry to export".to_string(), true));
+      } else if let Some(path) = rfd::FileDialog::new()
+        .set_title(format!("Export via Manifold — {}", fmt.label()))
+        .add_filter(fmt.filter_name(), &[fmt.extension()])
+        .set_file_name(fmt.default_filename())
+        .save_file()
+      {
+        let result =
+          luacad::export::export_manifold(&app.geometries, fmt.extension(), &path);
+        match result {
+          Ok(()) => app.export_status = Some((format!("Exported via Manifold to {}", path.display()), false)),
+          Err(e) => app.export_status = Some((format!("Manifold export failed: {e}"), true)),
+        }
+      }
+    }
+
     // Handle file open/save requests
     if let Some(action) = app.pending_file_action.take() {
       match action {
