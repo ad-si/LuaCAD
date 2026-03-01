@@ -65,16 +65,24 @@ fn export(
   output: &Path,
 ) -> Result<(), String> {
   match format {
-    "stl" => luacad::export::export_stl(geometries, output),
-    "obj" => luacad::export::export_obj(geometries, output),
-    "ply" => luacad::export::export_ply(geometries, output),
-    "off" => luacad::export::export_off(geometries, output),
-    "amf" => luacad::export::export_amf(geometries, output),
-    "3mf" => luacad::export::export_3mf(geometries, output),
     "scad" => {
       let nodes: Vec<_> =
         geometries.iter().filter_map(|g| g.scad.clone()).collect();
       luacad::scad_export::export_scad(&nodes, output)
+    }
+    #[cfg(feature = "csgrs")]
+    fmt @ ("stl" | "obj" | "ply" | "off" | "amf" | "3mf") => match fmt {
+      "stl" => luacad::export::export_stl(geometries, output),
+      "obj" => luacad::export::export_obj(geometries, output),
+      "ply" => luacad::export::export_ply(geometries, output),
+      "off" => luacad::export::export_off(geometries, output),
+      "amf" => luacad::export::export_amf(geometries, output),
+      "3mf" => luacad::export::export_3mf(geometries, output),
+      _ => unreachable!(),
+    },
+    #[cfg(not(feature = "csgrs"))]
+    "stl" | "obj" | "ply" | "off" | "amf" | "3mf" => {
+      luacad::export::export_manifold(geometries, format, output)
     }
     other => Err(format!(
       "Unknown format: {other}\nSupported formats: {}",
@@ -162,7 +170,7 @@ fn cmd_info(args: &[String]) -> ExitCode {
     }
   };
 
-  let mut geometries = match luacad::lua_engine::execute_lua(&code) {
+  let geometries = match luacad::lua_engine::execute_lua(&code) {
     Ok(g) => g,
     Err(e) => {
       eprintln!("{e}");
@@ -176,41 +184,34 @@ fn cmd_info(args: &[String]) -> ExitCode {
     return ExitCode::SUCCESS;
   }
 
-  use csgrs::traits::CSG;
-
-  let mut total_polygons: usize = 0;
   let mut total_triangles: usize = 0;
   let mut overall_min = [f32::MAX; 3];
   let mut overall_max = [f32::MIN; 3];
-  let mut per_object: Vec<(usize, usize)> = Vec::new();
+  let mut per_object: Vec<usize> = Vec::new();
 
-  for geom in &mut geometries {
-    geom.materialize();
-    let mesh = geom.mesh.as_ref().unwrap();
-    let poly_count = mesh.polygons.len();
-    let tri_count: usize = mesh
-      .polygons
-      .iter()
-      .map(|p| p.vertices.len().saturating_sub(2))
-      .sum();
-    total_polygons += poly_count;
-    total_triangles += tri_count;
-    per_object.push((poly_count, tri_count));
+  for geom in &geometries {
+    if let Some(ref scad) = geom.scad {
+      let manifold = luacad::export::materialize_scad_manifold(scad);
+      let tri_count = manifold.num_tri();
+      total_triangles += tri_count;
+      per_object.push(tri_count);
 
-    if !mesh.polygons.is_empty() {
-      let bb = mesh.bounding_box();
-      overall_min[0] = overall_min[0].min(bb.mins.x);
-      overall_min[1] = overall_min[1].min(bb.mins.y);
-      overall_min[2] = overall_min[2].min(bb.mins.z);
-      overall_max[0] = overall_max[0].max(bb.maxs.x);
-      overall_max[1] = overall_max[1].max(bb.maxs.y);
-      overall_max[2] = overall_max[2].max(bb.maxs.z);
+      if tri_count > 0 {
+        let (bb_min, bb_max) = manifold.bounding_box();
+        overall_min[0] = overall_min[0].min(bb_min[0]);
+        overall_min[1] = overall_min[1].min(bb_min[1]);
+        overall_min[2] = overall_min[2].min(bb_min[2]);
+        overall_max[0] = overall_max[0].max(bb_max[0]);
+        overall_max[1] = overall_max[1].max(bb_max[1]);
+        overall_max[2] = overall_max[2].max(bb_max[2]);
+      }
+    } else {
+      per_object.push(0);
     }
   }
 
   println!("File:       {input}");
   println!("Objects:    {}", geometries.len());
-  println!("Polygons:   {total_polygons}");
   println!("Triangles:  {total_triangles}");
 
   if overall_min[0] <= overall_max[0] {
@@ -236,8 +237,8 @@ fn cmd_info(args: &[String]) -> ExitCode {
   }
 
   if geometries.len() > 1 {
-    for (i, (polys, tris)) in per_object.iter().enumerate() {
-      println!("Object {}: {polys} polygons, {tris} triangles", i + 1);
+    for (i, tris) in per_object.iter().enumerate() {
+      println!("Object {}: {tris} triangles", i + 1);
     }
   }
 

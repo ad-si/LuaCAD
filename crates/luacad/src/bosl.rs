@@ -6,7 +6,9 @@
 /// Because BOSL is an OpenSCAD library, these functions produce ScadNode-only
 /// geometry (no mesh). The generated SCAD output automatically includes the
 /// required `use <BOSL/...>` directives.
+#[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
+#[cfg(feature = "csgrs")]
 use csgrs::traits::CSG;
 use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
@@ -98,7 +100,16 @@ fn lua_table_to_scad_args(t: &mlua::Table) -> String {
 /// Create a CsgGeometry representing a BOSL function call.
 fn bosl_geometry(module: &str, function: &str, args: String) -> CsgGeometry {
   CsgGeometry {
-    mesh: Some(CsgMesh::<()>::new()),
+    mesh: {
+      #[cfg(feature = "csgrs")]
+      {
+        Some(CsgMesh::<()>::new())
+      }
+      #[cfg(not(feature = "csgrs"))]
+      {
+        None
+      }
+    },
     color: None,
     scad: Some(ScadNode::BoslCall {
       module: module.to_string(),

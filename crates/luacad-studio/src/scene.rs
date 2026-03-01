@@ -2,7 +2,6 @@ use three_d::*;
 
 use crate::app::AppState;
 use crate::csg_tree::CsgGroup;
-use csgrs::traits::CSG;
 use luacad::geometry::CsgGeometry;
 use opencsg_sys::OcsgPrimitive;
 use std::ffi::c_void;
@@ -396,15 +395,19 @@ pub fn compute_fit_distance(
 
   let mut max_extent: f32 = 0.0;
   for geom in geometries {
-    let mesh = match geom.mesh.as_ref() {
-      Some(m) if !m.polygons.is_empty() => m,
-      _ => continue,
+    let scad = match geom.scad.as_ref() {
+      Some(s) => s,
+      None => continue,
     };
-    let bb = mesh.bounding_box();
+    let manifold = luacad::export::materialize_scad_manifold(scad);
+    if manifold.num_tri() == 0 {
+      continue;
+    }
+    let (bb_min, bb_max) = manifold.bounding_box();
     // Check all 8 corners, converting CAD (x,y,z) → GL (y,z,x)
-    for &cx in &[bb.mins.x, bb.maxs.x] {
-      for &cy in &[bb.mins.y, bb.maxs.y] {
-        for &cz in &[bb.mins.z, bb.maxs.z] {
+    for &cx in &[bb_min[0], bb_max[0]] {
+      for &cy in &[bb_min[1], bb_max[1]] {
+        for &cz in &[bb_min[2], bb_max[2]] {
           let gl = vec3(cy, cz, cx);
           max_extent = max_extent.max(gl.magnitude());
         }

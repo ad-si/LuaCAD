@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use crate::csg_tree::{CsgGroup, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
-use luacad::export::{ExportFormat, ManifoldFormat};
+#[cfg(feature = "csgrs")]
+use luacad::export::ExportFormat;
+use luacad::export::ManifoldFormat;
 use luacad::geometry::CsgGeometry;
 use luacad::linter::LintDiagnostic;
 
@@ -29,12 +31,15 @@ pub struct AppState {
   pub pending_editor_action: Option<EditorAction>,
   /// Status message from last export attempt
   pub export_status: Option<(String, bool)>, // (message, is_error)
-  /// Pending export format requested this frame
+  /// Pending export format requested this frame (csgrs only)
+  #[cfg(feature = "csgrs")]
   pub pending_export: Option<ExportFormat>,
   /// Currently opened file path
   pub current_file: Option<PathBuf>,
   /// Pending file action (save/open) requested this frame
   pub pending_file_action: Option<FileAction>,
+  /// Pending SCAD export requested this frame
+  pub pending_scad_export: bool,
   /// Pending Manifold-based export requested this frame
   pub pending_manifold_export: Option<ManifoldFormat>,
   /// Auto-zoom to fit on next scene rebuild (initial load / file open)
@@ -71,7 +76,9 @@ impl AppState {
       theme_colors: if is_dark { ThemeColors::dark() } else { ThemeColors::light() },
       pending_editor_action: None,
       export_status: None,
+      #[cfg(feature = "csgrs")]
       pending_export: None,
+      pending_scad_export: false,
       current_file: None,
       pending_file_action: None,
       pending_manifold_export: None,

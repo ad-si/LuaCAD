@@ -1,3 +1,4 @@
+#[cfg(feature = "csgrs")]
 use luacad::export::{
   export_3mf_bytes, export_obj, export_ply, export_stl_ascii,
 };
@@ -25,6 +26,7 @@ fn scad_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
 }
 
 /// Export to OBJ (text format) via a temp file and read back.
+#[cfg(feature = "csgrs")]
 fn obj_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
   let dir = std::env::temp_dir().join("luacad_snapshot_tests");
   std::fs::create_dir_all(&dir).unwrap();
@@ -36,6 +38,7 @@ fn obj_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
 }
 
 /// Export to PLY (text format) via a temp file and read back.
+#[cfg(feature = "csgrs")]
 fn ply_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
   let dir = std::env::temp_dir().join("luacad_snapshot_tests");
   std::fs::create_dir_all(&dir).unwrap();
@@ -47,11 +50,13 @@ fn ply_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
 }
 
 /// Export to ASCII STL via csgrs.
+#[cfg(feature = "csgrs")]
 fn stl_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
   export_stl_ascii(geometries, "LuaCAD_Studio").unwrap()
 }
 
 /// Export to 3MF (zip of XML), extract the model XML for snapshotting.
+#[cfg(feature = "csgrs")]
 fn threemf_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
   let bytes = export_3mf_bytes(geometries).unwrap();
   let cursor = std::io::Cursor::new(bytes);
@@ -70,24 +75,28 @@ fn simple_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_obj() {
   let geoms = run_lua("simple.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_ply() {
   let geoms = run_lua("simple.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_stl() {
   let geoms = run_lua("simple.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_3mf() {
   let geoms = run_lua("simple.lua");
@@ -102,24 +111,28 @@ fn box_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn box_obj() {
   let geoms = run_lua("box.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn box_ply() {
   let geoms = run_lua("box.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn box_stl() {
   let geoms = run_lua("box.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn box_3mf() {
   let geoms = run_lua("box.lua");
@@ -134,24 +147,28 @@ fn gear_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn gear_obj() {
   let geoms = run_lua("gear.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn gear_ply() {
   let geoms = run_lua("gear.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn gear_stl() {
   let geoms = run_lua("gear.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn gear_3mf() {
   let geoms = run_lua("gear.lua");
@@ -166,24 +183,28 @@ fn simple_car_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_obj() {
   let geoms = run_lua("simple_car.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_ply() {
   let geoms = run_lua("simple_car.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_stl() {
   let geoms = run_lua("simple_car.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_3mf() {
   let geoms = run_lua("simple_car.lua");
@@ -198,24 +219,28 @@ fn difference_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn difference_obj() {
   let geoms = run_lua("difference.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn difference_ply() {
   let geoms = run_lua("difference.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn difference_stl() {
   let geoms = run_lua("difference.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn difference_3mf() {
   let geoms = run_lua("difference.lua");
@@ -230,24 +255,28 @@ fn rounded_rectangle_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_obj() {
   let geoms = run_lua("rounded_rectangle.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_ply() {
   let geoms = run_lua("rounded_rectangle.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_stl() {
   let geoms = run_lua("rounded_rectangle.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_3mf() {
   let geoms = run_lua("rounded_rectangle.lua");
@@ -262,24 +291,28 @@ fn customizer_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn customizer_obj() {
   let geoms = run_lua("customizer.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn customizer_ply() {
   let geoms = run_lua("customizer.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn customizer_stl() {
   let geoms = run_lua("customizer.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn customizer_3mf() {
   let geoms = run_lua("customizer.lua");
@@ -294,24 +327,28 @@ fn literal_openscad_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_obj() {
   let geoms = run_lua("literal_openscad.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_ply() {
   let geoms = run_lua("literal_openscad.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_stl() {
   let geoms = run_lua("literal_openscad.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_3mf() {
   let geoms = run_lua("literal_openscad.lua");
@@ -326,24 +363,28 @@ fn tostring_demo_scad() {
   insta::assert_snapshot!(scad_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_obj() {
   let geoms = run_lua("tostring_demo.lua");
   insta::assert_snapshot!(obj_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_ply() {
   let geoms = run_lua("tostring_demo.lua");
   insta::assert_snapshot!(ply_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_stl() {
   let geoms = run_lua("tostring_demo.lua");
   insta::assert_snapshot!(stl_output(&geoms));
 }
 
+#[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_3mf() {
   let geoms = run_lua("tostring_demo.lua");

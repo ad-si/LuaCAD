@@ -1,4 +1,6 @@
+#[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
+#[cfg(feature = "csgrs")]
 use csgrs::traits::CSG;
 use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
@@ -219,15 +221,23 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // ---- cube() ----
     let cube_fn = lua.create_function(|_, args: mlua::MultiValue| {
       let (w, d, h, center) = parse_cube_args(&args)?;
-      let mesh = CsgMesh::<()>::cuboid(w, d, h, None);
-      let mesh = if center {
-        mesh.translate(-w / 2.0, -d / 2.0, -h / 2.0)
-      } else {
-        mesh
-      };
       let scad = Some(ScadNode::Cube { w, d, h, center });
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            let mesh = CsgMesh::<()>::cuboid(w, d, h, None);
+            Some(if center {
+              mesh.translate(-w / 2.0, -d / 2.0, -h / 2.0)
+            } else {
+              mesh
+            })
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -237,18 +247,26 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // ---- sphere() ----
     let sphere_fn = lua.create_function(|_, args: mlua::MultiValue| {
       let (radius, segments) = parse_sphere_args(&args)?;
-      let mesh = CsgMesh::<()>::sphere(
-        radius,
-        segments as usize,
-        segments as usize,
-        None,
-      );
       let scad = Some(ScadNode::Sphere {
         r: radius,
         segments,
       });
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::sphere(
+              radius,
+              segments as usize,
+              segments as usize,
+              None,
+            ))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -258,12 +276,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // ---- cylinder() ----
     let cylinder_fn = lua.create_function(|_, args: mlua::MultiValue| {
       let (r1, r2, h, segments, center) = parse_cylinder_args(&args)?;
-      let mesh = CsgMesh::<()>::frustum(r1, r2, h, segments as usize, None);
-      let mesh = if center {
-        mesh.translate(0.0, 0.0, -h / 2.0)
-      } else {
-        mesh
-      };
       let scad = Some(ScadNode::Cylinder {
         r1,
         r2,
@@ -272,7 +284,22 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         center,
       });
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            let mesh =
+              CsgMesh::<()>::frustum(r1, r2, h, segments as usize, None);
+            Some(if center {
+              mesh.translate(0.0, 0.0, -h / 2.0)
+            } else {
+              mesh
+            })
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -360,10 +387,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
 
       let face_refs: Vec<&[usize]> =
         faces.iter().map(|f| f.as_slice()).collect();
-      let mesh =
-        CsgMesh::<()>::polyhedron(&points, &face_refs, None).map_err(|e| {
-          mlua::Error::RuntimeError(format!("polyhedron() error: {e:?}"))
-        })?;
       let scad_base = ScadNode::Polyhedron {
         points: points.clone(),
         faces: faces.clone(),
@@ -378,13 +401,26 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       } else {
         Some(scad_base)
       };
-      let mesh = if tx != 0.0 || ty != 0.0 || tz != 0.0 {
-        mesh.translate(tx, ty, tz)
-      } else {
-        mesh
-      };
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            let mesh = CsgMesh::<()>::polyhedron(&points, &face_refs, None)
+              .map_err(|e| {
+                mlua::Error::RuntimeError(format!("polyhedron() error: {e:?}"))
+              })?;
+            Some(if tx != 0.0 || ty != 0.0 || tz != 0.0 {
+              mesh.translate(tx, ty, tz)
+            } else {
+              mesh
+            })
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            let _ = &face_refs;
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -410,10 +446,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ];
         let face_refs: Vec<&[usize]> =
           faces.iter().map(|f| f.as_slice()).collect();
-        let mesh = CsgMesh::<()>::polyhedron(&points, &face_refs, None)
-          .map_err(|e| {
-            mlua::Error::RuntimeError(format!("pyramid() error: {e:?}"))
-          })?;
         let scad_base = ScadNode::Polyhedron {
           points: points.clone(),
           faces: faces.clone(),
@@ -428,13 +460,26 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         } else {
           Some(scad_base)
         };
-        let mesh = if x != 0.0 || y != 0.0 || z != 0.0 {
-          mesh.translate(x, y, z)
-        } else {
-          mesh
-        };
         Ok(CsgGeometry {
-          mesh: Some(mesh),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              let mesh = CsgMesh::<()>::polyhedron(&points, &face_refs, None)
+                .map_err(|e| {
+                mlua::Error::RuntimeError(format!("pyramid() error: {e:?}"))
+              })?;
+              Some(if x != 0.0 || y != 0.0 || z != 0.0 {
+                mesh.translate(x, y, z)
+              } else {
+                mesh
+              })
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              let _ = &face_refs;
+              None
+            }
+          },
           color: None,
           scad,
         })
@@ -458,8 +503,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let seg_major = table_segments(t, 24) as usize;
         let seg_minor =
           table_get_u32(t, "segments_minor").unwrap_or(16) as usize;
-        let mesh =
-          CsgMesh::<()>::torus(major, minor, seg_major, seg_minor, None);
         // Torus via rotate_extrude of a translated circle
         let scad = Some(ScadNode::RotateExtrude {
           angle: 360.0,
@@ -475,14 +518,24 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh: Some(mesh),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              Some(CsgMesh::<()>::torus(
+                major, minor, seg_major, seg_minor, None,
+              ))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: None,
           scad,
         })
       } else if args.len() >= 2 {
         let major = lua_val_to_f32(&args[0]).unwrap_or(2.0);
         let minor = lua_val_to_f32(&args[1]).unwrap_or(0.5);
-        let mesh = CsgMesh::<()>::torus(major, minor, 24, 16, None);
         let scad = Some(ScadNode::RotateExtrude {
           angle: 360.0,
           segments: 24,
@@ -497,7 +550,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh: Some(mesh),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              Some(CsgMesh::<()>::torus(major, minor, 24, 16, None))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: None,
           scad,
         })
@@ -518,7 +580,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       } else {
         args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
       };
-      let mesh = CsgMesh::<()>::octahedron(radius, None);
       let r = radius;
       let scad = Some(ScadNode::Polyhedron {
         points: vec![
@@ -541,7 +602,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::octahedron(radius, None))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -557,7 +627,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       } else {
         args.front().and_then(lua_val_to_f32).unwrap_or(1.0)
       };
-      let mesh = CsgMesh::<()>::icosahedron(radius, None);
       // Generate icosahedron vertices and faces for OpenSCAD polyhedron
       let phi = (1.0 + 5.0_f32.sqrt()) / 2.0;
       let a = radius / (1.0 + phi * phi).sqrt();
@@ -601,7 +670,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::icosahedron(radius, None))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -619,7 +697,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let ry = table_get_f32(t, "ry").unwrap_or(1.0);
         let rz = table_get_f32(t, "rz").unwrap_or(1.0);
         let segs = table_segments(t, 16) as usize;
-        let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, segs, segs, None);
         let scad = Some(ScadNode::Scale {
           x: rx,
           y: ry,
@@ -630,7 +707,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh: Some(mesh),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              Some(CsgMesh::<()>::ellipsoid(rx, ry, rz, segs, segs, None))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: None,
           scad,
         })
@@ -638,7 +724,6 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let rx = lua_val_to_f32(&args[0]).unwrap_or(1.0);
         let ry = lua_val_to_f32(&args[1]).unwrap_or(1.0);
         let rz = lua_val_to_f32(&args[2]).unwrap_or(1.0);
-        let mesh = CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None);
         let scad = Some(ScadNode::Scale {
           x: rx,
           y: ry,
@@ -649,7 +734,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
-          mesh: Some(mesh),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              Some(CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: None,
           scad,
         })
@@ -681,26 +775,37 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           t.get::<f32>(1).unwrap_or(1.0)
         };
         let segments = table_segments(t, 32) as usize;
-        let sketch =
-          csgrs::sketch::Sketch::<()>::circle(radius, segments, None);
         let scad = Some(ScadNode::Circle {
           r: radius,
           segments: segments as u32,
         });
         Ok(CsgSketch {
-          sketch,
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              csgrs::sketch::Sketch::<()>::circle(radius, segments, None)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: None,
           scad,
         })
       } else {
         let radius = lua_val_to_f32(first).unwrap_or(1.0);
-        let sketch = csgrs::sketch::Sketch::<()>::circle(radius, 32, None);
         let scad = Some(ScadNode::Circle {
           r: radius,
           segments: 32,
         });
         Ok(CsgSketch {
-          sketch,
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              csgrs::sketch::Sketch::<()>::circle(radius, 32, None)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: None,
           scad,
         })
@@ -726,28 +831,42 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
             (w, h)
           };
         let center = table_get_bool(t, "center");
-        let mut sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
-        if center {
-          use csgrs::traits::CSG;
-          sketch = sketch.translate(-w / 2.0, -h / 2.0, 0.0);
-        }
         let scad = Some(ScadNode::Square { w, h, center });
         Ok(CsgSketch {
-          sketch,
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              let mut sketch =
+                csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
+              if center {
+                use csgrs::traits::CSG;
+                sketch = sketch.translate(-w / 2.0, -h / 2.0, 0.0);
+              }
+              sketch
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: None,
           scad,
         })
       } else {
         let w = lua_val_to_f32(first).unwrap_or(1.0);
         let h = args.get(1).and_then(lua_val_to_f32).unwrap_or(w);
-        let sketch = csgrs::sketch::Sketch::<()>::rectangle(w, h, None);
         let scad = Some(ScadNode::Square {
           w,
           h,
           center: false,
         });
         Ok(CsgSketch {
-          sketch,
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              csgrs::sketch::Sketch::<()>::rectangle(w, h, None)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: None,
           scad,
         })
@@ -783,12 +902,18 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         points.push([x, y]);
       }
 
-      let sketch = csgrs::sketch::Sketch::<()>::polygon(&points, None);
       let scad = Some(ScadNode::Polygon {
         points: points.clone(),
       });
       Ok(CsgSketch {
-        sketch,
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            csgrs::sketch::Sketch::<()>::polygon(&points, None)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: None,
         scad,
       })
@@ -817,7 +942,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // but a Literal ScadNode so it participates in SCAD export.
     let scad_fn = lua.create_function(|_, code: String| {
       Ok(CsgGeometry {
-        mesh: Some(CsgMesh::<()>::new()),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::new())
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad: Some(ScadNode::Literal { code }),
       })
@@ -837,7 +971,16 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // constructor; here it's mainly for API compatibility.
     let cad_fn = lua.create_function(|_, ()| {
       Ok(CsgGeometry {
-        mesh: Some(CsgMesh::<()>::new()),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::new())
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad: None,
       })
@@ -986,9 +1129,15 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         valign,
       });
       // Return a minimal 2D sketch (point) — text can't be rendered in viewport
-      let sketch = csgrs::sketch::Sketch::<()>::rectangle(0.001, 0.001, None);
       Ok(CsgSketch {
-        sketch,
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            csgrs::sketch::Sketch::<()>::rectangle(0.001, 0.001, None)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: None,
         scad,
       })
@@ -1047,9 +1196,17 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         child: Box::new(text_node),
       });
       // Minimal mesh placeholder
-      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -1075,9 +1232,17 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         .map(|v| v as u32)
         .unwrap_or(0);
       let scad = Some(ScadNode::Import { file, convexity });
-      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })
@@ -1113,9 +1278,17 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         center,
         convexity,
       });
-      let mesh = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            Some(CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: None,
         scad,
       })

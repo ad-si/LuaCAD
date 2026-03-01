@@ -1,13 +1,19 @@
+#[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
+#[cfg(feature = "csgrs")]
 use csgrs::mesh::plane::Plane;
+#[cfg(feature = "csgrs")]
 use csgrs::traits::CSG;
 use mlua::{UserData, UserDataMethods, Value as LuaValue};
+#[cfg(feature = "csgrs")]
 use nalgebra::{Matrix4, Vector3};
+#[cfg(feature = "csgrs")]
 use std::sync::OnceLock;
 
 use crate::scad_export::ScadNode;
 
 /// Create an empty csgrs mesh with no polygons.
+#[cfg(feature = "csgrs")]
 fn empty_mesh() -> CsgMesh<()> {
   CsgMesh {
     polygons: vec![],
@@ -219,14 +225,16 @@ fn named_color(name: &str) -> Option<[f32; 3]> {
 
 #[derive(Clone, Debug)]
 pub struct CsgGeometry {
-  /// The materialized mesh. `None` when the geometry was produced by a CSG
-  /// boolean and we're deferring the expensive mesh computation until export.
-  /// Call [`CsgGeometry::materialize`] to force evaluation.
+  /// The materialized csgrs mesh (only available with `csgrs` feature).
+  #[cfg(feature = "csgrs")]
   pub mesh: Option<CsgMesh<()>>,
+  #[cfg(not(feature = "csgrs"))]
+  pub mesh: Option<()>,
   pub color: Option<[f32; 3]>,
   pub scad: Option<ScadNode>,
 }
 
+#[cfg(feature = "csgrs")]
 impl CsgGeometry {
   /// Ensure `self.mesh` is populated by evaluating the ScadNode tree if needed.
   /// After this call, `self.mesh` is guaranteed to be `Some`.
@@ -252,6 +260,7 @@ impl CsgGeometry {
 }
 
 /// Recursively evaluate a ScadNode tree into a csgrs mesh.
+#[cfg(feature = "csgrs")]
 pub fn materialize_scad(node: &ScadNode) -> CsgMesh<()> {
   match node {
     // --- Leaf 3D primitives ---
@@ -395,7 +404,16 @@ impl UserData for CsgGeometry {
           child: Box::new(s.clone()),
         });
         Ok(CsgGeometry {
-          mesh: this.mesh.as_ref().map(|m| m.translate(x, y, z)),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.mesh.as_ref().map(|m| m.translate(x, y, z))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: this.color,
           scad,
         })
@@ -411,11 +429,20 @@ impl UserData for CsgGeometry {
         let rx = lua_val_to_f32(&args[3]).unwrap_or(0.0);
         let ry = lua_val_to_f32(&args[4]).unwrap_or(0.0);
         let rz = lua_val_to_f32(&args[5]).unwrap_or(0.0);
-        let mesh = this.mesh.as_ref().map(|m| {
-          m.translate(-cx, -cy, -cz)
-            .rotate(rx, ry, rz)
-            .translate(cx, cy, cz)
-        });
+        let mesh = {
+          #[cfg(feature = "csgrs")]
+          {
+            this.mesh.as_ref().map(|m| {
+              m.translate(-cx, -cy, -cz)
+                .rotate(rx, ry, rz)
+                .translate(cx, cy, cz)
+            })
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        };
         let scad = this.scad.as_ref().map(|s| ScadNode::Translate {
           x: cx,
           y: cy,
@@ -452,7 +479,16 @@ impl UserData for CsgGeometry {
           child: Box::new(s.clone()),
         });
         Ok(CsgGeometry {
-          mesh: this.mesh.as_ref().map(|m| m.rotate(rx, ry, rz)),
+          mesh: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.mesh.as_ref().map(|m| m.rotate(rx, ry, rz))
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {
+              None
+            }
+          },
           color: this.color,
           scad,
         })
@@ -462,11 +498,20 @@ impl UserData for CsgGeometry {
     methods.add_method(
       "rotate2d",
       |_, this, (x, y, angle): (f32, f32, f32)| {
-        let mesh = this.mesh.as_ref().map(|m| {
-          m.translate(-x, -y, 0.0)
-            .rotate(0.0, 0.0, angle)
-            .translate(x, y, 0.0)
-        });
+        let mesh = {
+          #[cfg(feature = "csgrs")]
+          {
+            this.mesh.as_ref().map(|m| {
+              m.translate(-x, -y, 0.0)
+                .rotate(0.0, 0.0, angle)
+                .translate(x, y, 0.0)
+            })
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        };
         let scad = this.scad.as_ref().map(|s| ScadNode::Translate {
           x,
           y,
@@ -499,44 +544,57 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.as_ref().map(|m| m.scale(sx, sy, sz)),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.mesh.as_ref().map(|m| m.scale(sx, sy, sz))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: this.color,
         scad,
       })
     });
 
     methods.add_method_mut("resize", |_, this, (x, y, z): (f32, f32, f32)| {
-      // resize() needs the bounding box, so materialize if needed
-      let mesh = this.mesh();
-      let bb = mesh.bounding_box();
-      let cur_w = bb.maxs.x - bb.mins.x;
-      let cur_d = bb.maxs.y - bb.mins.y;
-      let cur_h = bb.maxs.z - bb.mins.z;
-
-      let sx = if x > 0.0 && cur_w > 1e-9 {
-        x / cur_w
-      } else {
-        1.0
-      };
-      let sy = if y > 0.0 && cur_d > 1e-9 {
-        y / cur_d
-      } else {
-        1.0
-      };
-      let sz = if z > 0.0 && cur_h > 1e-9 {
-        z / cur_h
-      } else {
-        1.0
-      };
-
       let scad = this.scad.as_ref().map(|s| ScadNode::Resize {
         x,
         y,
         z,
         child: Box::new(s.clone()),
       });
+      #[cfg(feature = "csgrs")]
+      let mesh = {
+        // resize() needs the bounding box, so materialize if needed
+        let m = this.mesh();
+        let bb = m.bounding_box();
+        let cur_w = bb.maxs.x - bb.mins.x;
+        let cur_d = bb.maxs.y - bb.mins.y;
+        let cur_h = bb.maxs.z - bb.mins.z;
+        let sx = if x > 0.0 && cur_w > 1e-9 {
+          x / cur_w
+        } else {
+          1.0
+        };
+        let sy = if y > 0.0 && cur_d > 1e-9 {
+          y / cur_d
+        } else {
+          1.0
+        };
+        let sz = if z > 0.0 && cur_h > 1e-9 {
+          z / cur_h
+        } else {
+          1.0
+        };
+        this.mesh.as_ref().map(|m| m.scale(sx, sy, sz))
+      };
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: this.mesh.as_ref().map(|m| m.scale(sx, sy, sz)),
+        mesh,
         color: this.color,
         scad,
       })
@@ -547,7 +605,6 @@ impl UserData for CsgGeometry {
       if len_sq < 1e-12 {
         return Ok(this.clone());
       }
-      let plane = Plane::from_normal(Vector3::new(x, y, z), 0.0);
       let scad = this.scad.as_ref().map(|s| ScadNode::Mirror {
         x,
         y,
@@ -555,7 +612,17 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.as_ref().map(|m| m.mirror(plane)),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            let plane = Plane::from_normal(Vector3::new(x, y, z), 0.0);
+            this.mesh.as_ref().map(|m| m.mirror(plane))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: this.color,
         scad,
       })
@@ -570,14 +637,6 @@ impl UserData for CsgGeometry {
           "multmatrix requires a table with 16 elements".to_string(),
         ));
       }
-      // Row-major to nalgebra column-major
-      #[rustfmt::skip]
-      let mat = Matrix4::new(
-        vals[0],  vals[1],  vals[2],  vals[3],
-        vals[4],  vals[5],  vals[6],  vals[7],
-        vals[8],  vals[9],  vals[10], vals[11],
-        vals[12], vals[13], vals[14], vals[15],
-      );
       let scad = this.scad.as_ref().map(|s| {
         let mut arr = [0.0f32; 16];
         arr.copy_from_slice(&vals);
@@ -587,7 +646,24 @@ impl UserData for CsgGeometry {
         }
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.as_ref().map(|m| m.transform(&mat)),
+        mesh: {
+          #[cfg(feature = "csgrs")]
+          {
+            // Row-major to nalgebra column-major
+            #[rustfmt::skip]
+            let mat = Matrix4::new(
+              vals[0],  vals[1],  vals[2],  vals[3],
+              vals[4],  vals[5],  vals[6],  vals[7],
+              vals[8],  vals[9],  vals[10], vals[11],
+              vals[12], vals[13], vals[14], vals[15],
+            );
+            this.mesh.as_ref().map(|m| m.transform(&mat))
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            None
+          }
+        },
         color: this.color,
         scad,
       })
@@ -630,7 +706,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: Some(color),
         scad,
       })
@@ -669,7 +745,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: Some(color),
         scad,
       })
@@ -685,7 +761,7 @@ impl UserData for CsgGeometry {
       });
       // Projection produces a 2D result; keep mesh as-is for viewport
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -700,7 +776,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -714,7 +790,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -726,7 +802,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -738,7 +814,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -750,7 +826,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh.clone(),
+        mesh: this.mesh,
         color: this.color,
         scad,
       })
@@ -843,15 +919,22 @@ impl UserData for CsgGeometry {
         .scad
         .as_ref()
         .map(|s| ScadNode::Hull(Box::new(s.clone())));
-      let mesh = this.mesh();
+      #[cfg(feature = "csgrs")]
+      let mesh = {
+        let m = this.mesh();
+        Some(m.convex_hull())
+      };
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: Some(mesh.convex_hull()),
+        mesh,
         color: this.color,
         scad,
       })
     });
 
     methods.add_method_mut("minkowski", |_, this, other: mlua::AnyUserData| {
+      #[allow(unused_mut)]
       let mut other_ref = other.borrow_mut::<CsgGeometry>()?;
       let mut children = Vec::new();
       if let Some(s) = &this.scad {
@@ -865,10 +948,16 @@ impl UserData for CsgGeometry {
       } else {
         Some(ScadNode::Minkowski(children))
       };
-      let this_mesh = this.mesh();
-      let other_mesh = other_ref.mesh();
+      #[cfg(feature = "csgrs")]
+      let mesh = {
+        let this_mesh = this.mesh();
+        let other_mesh = other_ref.mesh();
+        Some(this_mesh.minkowski_sum(other_mesh))
+      };
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: Some(this_mesh.minkowski_sum(other_mesh)),
+        mesh,
         color: this.color,
         scad,
       })
@@ -938,8 +1027,11 @@ impl UserData for CsgGeometry {
         .color
         .map(|c| format!(", color: [{:.2},{:.2},{:.2}]", c[0], c[1], c[2]))
         .unwrap_or_default();
+      #[cfg(feature = "csgrs")]
       let poly_count =
         this.mesh.as_ref().map(|m| m.polygons.len()).unwrap_or(0);
+      #[cfg(not(feature = "csgrs"))]
+      let poly_count = 0usize;
       Ok(format!(
         "CsgGeometry(polygons: {}{}, lazy: {})",
         poly_count,
@@ -954,11 +1046,15 @@ impl UserData for CsgGeometry {
 // CsgSketch — 2D shapes that can be extruded to 3D
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "csgrs")]
 use csgrs::sketch::Sketch;
 
 #[derive(Clone, Debug)]
 pub struct CsgSketch {
+  #[cfg(feature = "csgrs")]
   pub sketch: Sketch<()>,
+  #[cfg(not(feature = "csgrs"))]
+  pub sketch: (),
   pub color: Option<[f32; 3]>,
   pub scad: Option<ScadNode>,
 }
@@ -975,7 +1071,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.translate(x, y, 0.0),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.translate(x, y, 0.0)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -989,7 +1092,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.rotate(0.0, 0.0, angle),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.rotate(0.0, 0.0, angle)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1003,7 +1113,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.scale(sx, sy, 1.0),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.scale(sx, sy, 1.0)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1014,7 +1131,6 @@ impl UserData for CsgSketch {
       if len_sq < 1e-12 {
         return Ok(this.clone());
       }
-      let plane = Plane::from_normal(Vector3::new(x, y, 0.0), 0.0);
       let scad = this.scad.as_ref().map(|s| ScadNode::Mirror {
         x,
         y,
@@ -1022,7 +1138,15 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.mirror(plane),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            let plane = Plane::from_normal(Vector3::new(x, y, 0.0), 0.0);
+            this.sketch.mirror(plane)
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1039,7 +1163,14 @@ impl UserData for CsgSketch {
           child: Box::new(s.clone()),
         });
         Ok(CsgSketch {
-          sketch: this.sketch.offset(d),
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.sketch.offset(d)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: this.color,
           scad,
         })
@@ -1057,7 +1188,14 @@ impl UserData for CsgSketch {
           child: Box::new(s.clone()),
         });
         Ok(CsgSketch {
-          sketch: this.sketch.offset(r),
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.sketch.offset(r)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: this.color,
           scad,
         })
@@ -1073,7 +1211,14 @@ impl UserData for CsgSketch {
         .as_ref()
         .map(|s| ScadNode::Hull(Box::new(s.clone())));
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1095,7 +1240,14 @@ impl UserData for CsgSketch {
         Some(ScadNode::Minkowski(children))
       };
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1119,13 +1271,6 @@ impl UserData for CsgSketch {
           let h = args.front().and_then(lua_val_to_f32).unwrap_or(1.0);
           (h, false, 0.0, 0, 1.0)
         };
-      let mesh = this.sketch.extrude(height);
-      let mesh = if center {
-        use csgrs::traits::CSG;
-        mesh.translate(0.0, 0.0, -height / 2.0)
-      } else {
-        mesh
-      };
       let scad = this.scad.as_ref().map(|s| ScadNode::LinearExtrude {
         height,
         center,
@@ -1134,8 +1279,20 @@ impl UserData for CsgSketch {
         scale,
         child: Box::new(s.clone()),
       });
+      #[cfg(feature = "csgrs")]
+      let mesh = {
+        let m = this.sketch.extrude(height);
+        Some(if center {
+          use csgrs::traits::CSG;
+          m.translate(0.0, 0.0, -height / 2.0)
+        } else {
+          m
+        })
+      };
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh,
         color: this.color,
         scad,
       })
@@ -1148,17 +1305,22 @@ impl UserData for CsgSketch {
         .and_then(lua_val_to_f32)
         .map(|v| v as usize)
         .unwrap_or(32);
-      let mesh = this
-        .sketch
-        .revolve(angle, segments)
-        .map_err(|e| mlua::Error::RuntimeError(format!("{e:?}")))?;
       let scad = this.scad.as_ref().map(|s| ScadNode::RotateExtrude {
         angle,
         segments: segments as u32,
         child: Box::new(s.clone()),
       });
+      #[cfg(feature = "csgrs")]
+      let mesh = Some(
+        this
+          .sketch
+          .revolve(angle, segments)
+          .map_err(|e| mlua::Error::RuntimeError(format!("{e:?}")))?,
+      );
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh,
         color: this.color,
         scad,
       })
@@ -1172,17 +1334,22 @@ impl UserData for CsgSketch {
         .and_then(lua_val_to_f32)
         .map(|v| v as usize)
         .unwrap_or(32);
-      let mesh = this
-        .sketch
-        .revolve(angle, segments)
-        .map_err(|e| mlua::Error::RuntimeError(format!("{e:?}")))?;
       let scad = this.scad.as_ref().map(|s| ScadNode::RotateExtrude {
         angle,
         segments: segments as u32,
         child: Box::new(s.clone()),
       });
+      #[cfg(feature = "csgrs")]
+      let mesh = Some(
+        this
+          .sketch
+          .revolve(angle, segments)
+          .map_err(|e| mlua::Error::RuntimeError(format!("{e:?}")))?,
+      );
+      #[cfg(not(feature = "csgrs"))]
+      let mesh = None;
       Ok(CsgGeometry {
-        mesh: Some(mesh),
+        mesh,
         color: this.color,
         scad,
       })
@@ -1210,7 +1377,14 @@ impl UserData for CsgSketch {
         [1.0, 1.0, 1.0]
       };
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: Some(color),
         scad: this.scad.clone(),
       })
@@ -1243,7 +1417,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: Some(color),
         scad,
       })
@@ -1257,7 +1438,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1269,7 +1457,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1281,7 +1476,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1293,7 +1495,14 @@ impl UserData for CsgSketch {
         child: Box::new(s.clone()),
       });
       Ok(CsgSketch {
-        sketch: this.sketch.clone(),
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
         color: this.color,
         scad,
       })
@@ -1312,7 +1521,14 @@ impl UserData for CsgSketch {
           _ => None,
         };
         Ok(CsgSketch {
-          sketch: this.sketch.union(&other_ref.sketch),
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.sketch.union(&other_ref.sketch)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: this.color,
           scad,
         })
@@ -1330,7 +1546,14 @@ impl UserData for CsgSketch {
           _ => None,
         };
         Ok(CsgSketch {
-          sketch: this.sketch.difference(&other_ref.sketch),
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.sketch.difference(&other_ref.sketch)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: this.color,
           scad,
         })
@@ -1348,18 +1571,26 @@ impl UserData for CsgSketch {
           _ => None,
         };
         Ok(CsgSketch {
-          sketch: this.sketch.intersection(&other_ref.sketch),
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              this.sketch.intersection(&other_ref.sketch)
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
           color: this.color,
           scad,
         })
       },
     );
 
-    methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
-      Ok(format!(
-        "CsgSketch(geometries: {})",
-        this.sketch.geometry.len()
-      ))
+    methods.add_meta_method(mlua::MetaMethod::ToString, |_, _this, ()| {
+      #[cfg(feature = "csgrs")]
+      let geom_count = _this.sketch.geometry.len();
+      #[cfg(not(feature = "csgrs"))]
+      let geom_count = 0usize;
+      Ok(format!("CsgSketch(geometries: {})", geom_count))
     });
   }
 }

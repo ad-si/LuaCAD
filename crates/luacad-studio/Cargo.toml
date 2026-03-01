@@ -6,11 +6,15 @@ description = "A 3D CAD studio with Lua scripting and live preview"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/ad-si/LuaCAD"
 
+[features]
+default = []
+csgrs = ["dep:csgrs", "luacad/csgrs"]
+
 [dependencies]
 luacad = { version = "0.1.0", path = "../luacad" }
 three-d = { git = "https://github.com/asny/three-d", features = ["window", "egui-gui"] }
 egui_extras = { version = "0.32", features = ["default", "syntect"] }
-csgrs = { version = "0.20", default-features = false, features = ["f32"] }
+csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
 opencsg-sys = { version = "0.1.0", path = "../opencsg-sys" }
 arboard = "3"
 rfd = "0.15"

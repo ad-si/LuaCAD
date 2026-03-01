@@ -42,21 +42,24 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> Vec<CsgGroup> {
     let color = geom.color.unwrap_or(DEFAULT_COLOR);
     if let Some(ref scad) = geom.scad {
       groups.extend(flatten_node(scad, &IDENTITY, color));
-    } else if let Some(ref mesh) = geom.mesh
-      && !mesh.polygons.is_empty()
-    {
-      // Fallback: use the already-computed csgrs mesh as a single leaf.
-      let vertices = cad_to_gl_vertices(mesh_to_triangles(mesh));
-      if !vertices.is_empty() {
-        groups.push(CsgGroup {
-          primitives: vec![CsgLeaf {
-            vertices,
-            transform: IDENTITY,
-            operation: INTERSECTION,
-            convexity: 1,
-            color,
-          }],
-        });
+    } else {
+      #[cfg(feature = "csgrs")]
+      if let Some(ref mesh) = geom.mesh {
+        if !mesh.polygons.is_empty() {
+          // Fallback: use the already-computed csgrs mesh as a single leaf.
+          let vertices = cad_to_gl_vertices(mesh_to_triangles(mesh));
+          if !vertices.is_empty() {
+            groups.push(CsgGroup {
+              primitives: vec![CsgLeaf {
+                vertices,
+                transform: IDENTITY,
+                operation: INTERSECTION,
+                convexity: 1,
+                color,
+              }],
+            });
+          }
+        }
       }
     }
   }
@@ -521,6 +524,7 @@ fn tessellate_polyhedron(
 }
 
 /// Convert a csgrs mesh into flat triangle vertices (CAD coordinates).
+#[cfg(feature = "csgrs")]
 fn mesh_to_triangles(mesh: &csgrs::mesh::Mesh<()>) -> Vec<[f32; 3]> {
   let tri = mesh.triangulate();
   let mut verts = Vec::new();

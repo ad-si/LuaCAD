@@ -1,9 +1,13 @@
 use crate::geometry::CsgGeometry;
+#[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
+#[cfg(feature = "csgrs")]
 use csgrs::traits::CSG;
+#[cfg(feature = "csgrs")]
 use std::collections::HashMap;
 use threemf::Mesh as ThreemfMesh;
 
+#[cfg(feature = "csgrs")]
 #[derive(Debug, Clone, Copy)]
 pub enum ExportFormat {
   ThreeMF,
@@ -13,6 +17,7 @@ pub enum ExportFormat {
   OpenSCAD,
 }
 
+#[cfg(feature = "csgrs")]
 impl ExportFormat {
   pub const ALL: &[ExportFormat] = &[
     ExportFormat::ThreeMF,
@@ -92,14 +97,17 @@ impl OpenScadFormat {
   }
 }
 
+#[cfg(feature = "csgrs")]
 type VKey = (i64, i64, i64);
 
 /// Quantize a float to an integer key for vertex deduplication.
 /// Uses micron precision (0.001mm) which is well beyond 3D printing accuracy.
+#[cfg(feature = "csgrs")]
 fn quantize(v: f32) -> i64 {
   (v as f64 * 1000.0).round() as i64
 }
 
+#[cfg(feature = "csgrs")]
 fn vkey(x: f32, y: f32, z: f32) -> VKey {
   (quantize(x), quantize(y), quantize(z))
 }
@@ -111,6 +119,7 @@ fn vkey(x: f32, y: f32, z: f32) -> VKey {
 /// determine the correct outward winding for each triangle independently, rather than
 /// relying on edge-neighbor consistency. Vertices are deduplicated by quantized position
 /// to produce a proper indexed mesh.
+#[cfg(feature = "csgrs")]
 pub fn export_3mf(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -236,6 +245,7 @@ pub fn export_3mf(
 }
 
 /// Export all geometries to 3MF bytes in memory.
+#[cfg(feature = "csgrs")]
 pub fn export_3mf_bytes(geometries: &[CsgGeometry]) -> Result<Vec<u8>, String> {
   use std::collections::HashMap;
   use std::io::Cursor;
@@ -351,6 +361,7 @@ pub fn export_3mf_bytes(geometries: &[CsgGeometry]) -> Result<Vec<u8>, String> {
 
 /// Merge all geometries into one csgrs mesh via union.
 /// Materializes lazy meshes from their ScadNode trees as needed.
+#[cfg(feature = "csgrs")]
 fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
   if geometries.is_empty() {
     return Err("No geometry to export".to_string());
@@ -382,6 +393,7 @@ fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
 }
 
 /// Export all geometries to a PLY file using csgrs's built-in PLY export.
+#[cfg(feature = "csgrs")]
 pub fn export_ply(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -393,6 +405,7 @@ pub fn export_ply(
 }
 
 /// Export all geometries to a binary STL file using csgrs's built-in STL export.
+#[cfg(feature = "csgrs")]
 pub fn export_stl(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -407,6 +420,7 @@ pub fn export_stl(
 }
 
 /// Export all geometries to an ASCII STL string using csgrs's built-in STL export.
+#[cfg(feature = "csgrs")]
 pub fn export_stl_ascii(
   geometries: &[CsgGeometry],
   name: &str,
@@ -416,6 +430,7 @@ pub fn export_stl_ascii(
 }
 
 /// Export all geometries to an OBJ file using csgrs's built-in OBJ export.
+#[cfg(feature = "csgrs")]
 pub fn export_obj(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -427,6 +442,7 @@ pub fn export_obj(
 }
 
 /// Export all geometries to an OFF file.
+#[cfg(feature = "csgrs")]
 pub fn export_off(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -468,6 +484,7 @@ pub fn export_off(
 }
 
 /// Export all geometries to an AMF file.
+#[cfg(feature = "csgrs")]
 pub fn export_amf(
   geometries: &[CsgGeometry],
   path: &std::path::Path,
@@ -607,6 +624,7 @@ impl ManifoldFormat {
 
 /// Extract deduplicated vertices and triangles from a csgrs mesh.
 /// Returns (vertices as flat [x,y,z,...], triangle indices as flat [i0,i1,i2,...]).
+#[cfg(feature = "csgrs")]
 fn mesh_to_flat_arrays(mesh: &CsgMesh<()>) -> (Vec<f32>, Vec<u32>) {
   let mut verts: Vec<[f32; 3]> = Vec::new();
   let mut tris: Vec<[u32; 3]> = Vec::new();
@@ -688,7 +706,7 @@ fn mesh_to_flat_arrays(mesh: &CsgMesh<()>) -> (Vec<f32>, Vec<u32>) {
 
 /// RAII wrapper around a ManifoldManifold pointer.
 /// Automatically frees the pointer on drop.
-struct Manifold(*mut manifold_sys::ManifoldManifold);
+pub struct Manifold(*mut manifold_sys::ManifoldManifold);
 
 impl Manifold {
   fn alloc() -> *mut std::os::raw::c_void {
@@ -708,6 +726,28 @@ impl Manifold {
   fn is_empty(&self) -> bool {
     unsafe { manifold_sys::manifold_is_empty(self.0) != 0 }
   }
+
+  /// Return the axis-aligned bounding box as (min, max) in [x, y, z].
+  pub fn bounding_box(&self) -> ([f32; 3], [f32; 3]) {
+    unsafe {
+      let bbox = manifold_sys::manifold_bounding_box(
+        manifold_sys::manifold_alloc_box() as *mut std::os::raw::c_void,
+        self.0,
+      );
+      let mn = manifold_sys::manifold_box_min(bbox);
+      let mx = manifold_sys::manifold_box_max(bbox);
+      manifold_sys::manifold_delete_box(bbox);
+      (
+        [mn.x as f32, mn.y as f32, mn.z as f32],
+        [mx.x as f32, mx.y as f32, mx.z as f32],
+      )
+    }
+  }
+
+  /// Return the number of triangles in the mesh.
+  pub fn num_tri(&self) -> usize {
+    unsafe { manifold_sys::manifold_num_tri(self.0) as usize }
+  }
 }
 
 impl Drop for Manifold {
@@ -719,6 +759,7 @@ impl Drop for Manifold {
 }
 
 /// Convert a single csgrs mesh into a Manifold object via FFI.
+#[cfg(feature = "csgrs")]
 fn csg_mesh_to_manifold(mesh: &CsgMesh<()>) -> Result<Manifold, String> {
   use manifold_sys::*;
   use std::os::raw::c_void;
@@ -767,7 +808,9 @@ fn csg_mesh_to_manifold(mesh: &CsgMesh<()>) -> Result<Manifold, String> {
 /// Recursively evaluate a ScadNode tree into a Manifold object.
 /// All boolean operations, transforms, and primitives are performed
 /// directly by the Manifold library — no csgrs involved.
-fn materialize_scad_manifold(node: &crate::scad_export::ScadNode) -> Manifold {
+pub fn materialize_scad_manifold(
+  node: &crate::scad_export::ScadNode,
+) -> Manifold {
   use crate::scad_export::ScadNode;
   use manifold_sys::*;
 
@@ -804,10 +847,58 @@ fn materialize_scad_manifold(node: &crate::scad_export::ScadNode) -> Manifold {
       )
     }),
 
-    ScadNode::Polyhedron { .. } => {
-      // Fall back to csgrs mesh → Manifold conversion for polyhedra
-      let mesh = crate::geometry::materialize_scad(node);
-      csg_mesh_to_manifold(&mesh).unwrap_or_else(|_| Manifold::empty())
+    ScadNode::Polyhedron { points, faces } => {
+      use manifold_sys::*;
+      use std::os::raw::c_void;
+
+      // Fan-triangulate faces and build flat arrays
+      let mut flat_verts: Vec<f32> = Vec::new();
+      let mut flat_tris: Vec<u32> = Vec::new();
+
+      for p in points {
+        flat_verts.push(p[0]);
+        flat_verts.push(p[1]);
+        flat_verts.push(p[2]);
+      }
+
+      for face in faces {
+        if face.len() < 3 {
+          continue;
+        }
+        // Fan triangulation from first vertex
+        for i in 1..face.len() - 1 {
+          flat_tris.push(face[0] as u32);
+          flat_tris.push(face[i] as u32);
+          flat_tris.push(face[i + 1] as u32);
+        }
+      }
+
+      let n_verts = points.len();
+      let n_tris = flat_tris.len() / 3;
+
+      if n_verts == 0 || n_tris == 0 {
+        return Manifold::empty();
+      }
+
+      unsafe {
+        let mesh_gl = manifold_meshgl(
+          manifold_alloc_meshgl() as *mut c_void,
+          flat_verts.as_mut_ptr(),
+          n_verts,
+          3,
+          flat_tris.as_mut_ptr(),
+          n_tris,
+        );
+        let m = Manifold(manifold_of_meshgl(Manifold::alloc(), mesh_gl));
+        manifold_delete_meshgl(mesh_gl);
+
+        let status = manifold_status(m.ptr());
+        if status != ManifoldError_MANIFOLD_NO_ERROR {
+          Manifold::empty()
+        } else {
+          m
+        }
+      }
     }
 
     // --- CSG booleans ---
@@ -1009,13 +1100,13 @@ fn materialize_scad_manifold(node: &crate::scad_export::ScadNode) -> Manifold {
 }
 
 /// Extracted triangle mesh from a Manifold object.
-struct ManifoldMesh {
-  vertices: Vec<[f32; 3]>,
-  triangles: Vec<[u32; 3]>,
+pub struct ManifoldMesh {
+  pub vertices: Vec<[f32; 3]>,
+  pub triangles: Vec<[u32; 3]>,
 }
 
 /// Extract the triangle mesh (vertices + triangles) from a Manifold object.
-fn extract_manifold_mesh(manifold: &Manifold) -> ManifoldMesh {
+pub fn extract_manifold_mesh(manifold: &Manifold) -> ManifoldMesh {
   use manifold_sys::*;
   use std::alloc::{Layout, alloc};
   use std::os::raw::c_void;
@@ -1365,10 +1456,13 @@ pub fn export_manifold(
         }
       }
       // Fall back to converting a pre-materialized csgrs mesh
-      if let Some(ref mesh) = geom.mesh
-        && !mesh.polygons.is_empty()
+      #[cfg(feature = "csgrs")]
       {
-        return csg_mesh_to_manifold(mesh).ok();
+        if let Some(ref mesh) = geom.mesh
+          && !mesh.polygons.is_empty()
+        {
+          return csg_mesh_to_manifold(mesh).ok();
+        }
       }
       None
     })
@@ -1408,7 +1502,7 @@ pub fn export_manifold_3mf(
   export_manifold(geometries, "3mf", path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "csgrs"))]
 mod tests {
   use super::*;
   use crate::scad_export::ScadNode;

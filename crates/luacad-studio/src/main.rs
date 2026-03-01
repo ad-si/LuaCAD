@@ -8,7 +8,9 @@ mod ui;
 
 use app::{AppState, FileAction};
 use editor::EditorAction;
+#[cfg(feature = "csgrs")]
 use luacad::export::ExportFormat;
+#[cfg(feature = "csgrs")]
 use luacad::scad_export;
 use scene::{
   build_camera, camera_projection_matrix, camera_view_matrix,
@@ -367,7 +369,8 @@ fn main() {
         let _ = cb.set_text(copied_text);
       }
 
-      // Handle export requests
+      // Handle csgrs export requests
+      #[cfg(feature = "csgrs")]
       if let Some(fmt) = app.pending_export.take() {
         let (title, filter_name, ext, default_name) = match fmt {
           ExportFormat::ThreeMF => {
@@ -409,6 +412,32 @@ fn main() {
             }
           };
           match result {
+            Ok(()) => {
+              app.export_status =
+                Some((format!("Exported to {}", path.display()), false))
+            }
+            Err(e) => {
+              app.export_status = Some((format!("Export failed: {e}"), true))
+            }
+          }
+        }
+      }
+
+      // Handle SCAD export
+      if app.pending_scad_export {
+        app.pending_scad_export = false;
+        if let Some(path) = rfd::FileDialog::new()
+          .set_title("Export OpenSCAD")
+          .add_filter("OpenSCAD Files", &["scad"])
+          .set_file_name("model.scad")
+          .save_file()
+        {
+          let nodes: Vec<_> = app
+            .geometries
+            .iter()
+            .filter_map(|g| g.scad.clone())
+            .collect();
+          match luacad::scad_export::export_scad(&nodes, &path) {
             Ok(()) => {
               app.export_status =
                 Some((format!("Exported to {}", path.display()), false))

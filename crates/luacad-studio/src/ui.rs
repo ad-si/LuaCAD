@@ -1,5 +1,7 @@
 use egui_extras::syntax_highlighting;
-use luacad::export::{ExportFormat, ManifoldFormat};
+#[cfg(feature = "csgrs")]
+use luacad::export::ExportFormat;
+use luacad::export::ManifoldFormat;
 use luacad::linter::LintSeverity;
 use three_d::egui;
 
@@ -276,26 +278,29 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       ui.horizontal(|ui| {
         let has_geometry = !app.geometries.is_empty();
 
-        let csgrs_btn = ui
-          .add_enabled(
-            has_geometry,
-            egui::Button::new(egui::RichText::new("Export via csgrs   ")),
-          )
-          .on_hover_cursor(egui::CursorIcon::PointingHand);
-        paint_dropdown_arrow(ui, &csgrs_btn);
-        egui::Popup::from_toggle_button_response(&csgrs_btn)
-          .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
-          .show(|ui| {
-            for &fmt in ExportFormat::ALL {
-              if ui
-                .button(fmt.label())
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-              {
-                app.pending_export = Some(fmt);
+        #[cfg(feature = "csgrs")]
+        {
+          let csgrs_btn = ui
+            .add_enabled(
+              has_geometry,
+              egui::Button::new(egui::RichText::new("Export via csgrs   ")),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+          paint_dropdown_arrow(ui, &csgrs_btn);
+          egui::Popup::from_toggle_button_response(&csgrs_btn)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+            .show(|ui| {
+              for &fmt in ExportFormat::ALL {
+                if ui
+                  .button(fmt.label())
+                  .on_hover_cursor(egui::CursorIcon::PointingHand)
+                  .clicked()
+                {
+                  app.pending_export = Some(fmt);
+                }
               }
-            }
-          });
+            });
+        }
 
         let has_scad = app.geometries.iter().any(|g| g.scad.is_some());
         if ui
@@ -303,7 +308,7 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
           .on_hover_cursor(egui::CursorIcon::PointingHand)
           .clicked()
         {
-          app.pending_export = Some(ExportFormat::OpenSCAD);
+          app.pending_scad_export = true;
         }
 
         let manifold_btn = ui
@@ -584,11 +589,20 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         app.camera_azimuth, app.camera_elevation, app.camera_distance
       ));
       if !app.geometries.is_empty() {
-        let total_polys: usize = app
-          .geometries
-          .iter()
-          .map(|g| g.mesh.as_ref().map_or(0, |m| m.polygons.len()))
-          .sum();
+        let total_polys: usize = {
+          #[cfg(feature = "csgrs")]
+          {
+            app
+              .geometries
+              .iter()
+              .map(|g| g.mesh.as_ref().map_or(0, |m| m.polygons.len()))
+              .sum()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {
+            0
+          }
+        };
         ui.separator();
         let num_objects = app.geometries.len();
         ui.label(format!(

@@ -6,9 +6,13 @@ description = "A Lua-based CAD scripting engine built on CSG operations"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/ad-si/LuaCAD"
 
+[features]
+default = []
+csgrs = ["dep:csgrs"]
+
 [dependencies]
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
-csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"] }
+csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"], optional = true }
 nalgebra = "0.33"
 threemf = "0.5"
 selene-lib = { version = "0.30", default-features = false, features = ["lua54"] }
