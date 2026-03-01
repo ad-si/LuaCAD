@@ -203,6 +203,7 @@ pub enum BoslPreviewParams {
     w: f32,
     d: f32,
     h: f32,
+    rounding: f32,
     center: bool,
   },
   Cylinder {

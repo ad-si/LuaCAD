@@ -4,6 +4,7 @@
 //! tagged as Intersection or Subtraction. Complex CSG trees (nested unions, etc.) are
 //! decomposed into multiple OpenCSG render calls (one per [`CsgGroup`]).
 
+use luacad::export::{extract_manifold_mesh, materialize_scad_manifold};
 use luacad::geometry::CsgGeometry;
 use luacad::scad_export::{BoslPreviewParams, CylAxis, ScadNode};
 use opencsg_sys::{INTERSECTION, SUBTRACTION};
@@ -329,9 +330,20 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
 
     // --- BOSL2 shapes with preview parameters ---
     ScadNode::BoslCall { preview, .. } => match preview {
-      BoslPreviewParams::Cuboid { w, d, h, center } => {
-        let verts = tessellate_cube(*w, *d, *h, *center);
-        make_leaf_group(verts, ctx, op, 1)
+      BoslPreviewParams::Cuboid {
+        w,
+        d,
+        h,
+        rounding,
+        center,
+      } => {
+        if *rounding > 0.0 {
+          let verts = manifold_rounded_cube(*w, *d, *h, *rounding, *center);
+          make_leaf_group(verts, ctx, op, 1)
+        } else {
+          let verts = tessellate_cube(*w, *d, *h, *center);
+          make_leaf_group(verts, ctx, op, 1)
+        }
       }
       BoslPreviewParams::Cylinder {
         r1,
@@ -455,6 +467,56 @@ fn tessellate_cube(w: f32, d: f32, h: f32, center: bool) -> Vec<[f32; 3]> {
     out.push(v[f[2]]);
   }
   out
+}
+
+/// Compute a rounded cuboid mesh via Manifold's Minkowski sum of an inner
+/// box with a sphere. Same approach OpenSCAD uses for Minkowski preview:
+/// compute the full mesh first, then pass it to OpenCSG as a leaf primitive.
+fn manifold_rounded_cube(
+  w: f32,
+  d: f32,
+  h: f32,
+  rounding: f32,
+  center: bool,
+) -> Vec<[f32; 3]> {
+  let min_half = w.min(d).min(h) / 2.0;
+  let r = rounding.min(min_half).max(0.0);
+  if r < 1e-6 {
+    return tessellate_cube(w, d, h, center);
+  }
+
+  // Build ScadNode tree: Minkowski(Cube(w-2r, d-2r, h-2r), Sphere(r))
+  // This is the same decomposition BOSL2 uses internally.
+  let inner = ScadNode::Cube {
+    w: (w - 2.0 * r).max(0.001),
+    d: (d - 2.0 * r).max(0.001),
+    h: (h - 2.0 * r).max(0.001),
+    center,
+  };
+  let ball = ScadNode::Sphere { r, segments: 32 };
+  let node = if center {
+    ScadNode::Minkowski(vec![inner, ball])
+  } else {
+    // Cube is corner-anchored, sphere is centered — shift result by +r
+    ScadNode::Translate {
+      x: r,
+      y: r,
+      z: r,
+      child: Box::new(ScadNode::Minkowski(vec![inner, ball])),
+    }
+  };
+
+  let manifold = materialize_scad_manifold(&node);
+  let mesh = extract_manifold_mesh(&manifold);
+
+  // Flatten indexed mesh to flat triangle vertex list
+  let mut verts = Vec::with_capacity(mesh.triangles.len() * 3);
+  for tri in &mesh.triangles {
+    verts.push(mesh.vertices[tri[0] as usize]);
+    verts.push(mesh.vertices[tri[1] as usize]);
+    verts.push(mesh.vertices[tri[2] as usize]);
+  }
+  verts
 }
 
 fn tessellate_sphere(r: f32, segments: u32) -> Vec<[f32; 3]> {

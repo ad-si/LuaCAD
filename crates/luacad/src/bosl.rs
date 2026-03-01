@@ -142,8 +142,8 @@ fn extract_cuboid_size(t: &mlua::Table) -> Option<(f64, f64, f64)> {
   }
   // Fallback: bare numbers at positions 1, 2, 3
   let x = table_get_f64_idx(t, 1)?;
-  let y = table_get_f64_idx(t, 2)?;
-  let z = table_get_f64_idx(t, 3)?;
+  let y = table_get_f64_idx(t, 2).unwrap_or(x);
+  let z = table_get_f64_idx(t, 3).unwrap_or(y);
   Some((x, y, z))
 }
 
@@ -151,10 +151,12 @@ fn extract_cuboid_preview(t: &mlua::Table) -> BoslPreviewParams {
   let (w, d, h) = extract_cuboid_size(t).unwrap_or((1.0, 1.0, 1.0));
   // BOSL2 cuboid defaults center=true (via anchor=CENTER)
   let center = table_get_bool(t, "center").unwrap_or(true);
+  let rounding = table_get_f64(t, "rounding").unwrap_or(0.0) as f32;
   BoslPreviewParams::Cuboid {
     w: w as f32,
     d: d as f32,
     h: h as f32,
+    rounding,
     center,
   }
 }
@@ -221,6 +223,7 @@ fn extract_scalar_preview(function: &str, val: f64) -> BoslPreviewParams {
       w: val as f32,
       d: val as f32,
       h: val as f32,
+      rounding: 0.0,
       center: true,
     },
     "cyl" | "zcyl" | "xcyl" | "ycyl" => {
@@ -1759,10 +1762,17 @@ mod tests {
     let nodes = run_bosl_lua("return bosl.cuboid { {10, 20, 30} }");
     if let ScadNode::BoslCall { preview, .. } = &nodes[0] {
       match preview {
-        BoslPreviewParams::Cuboid { w, d, h, center } => {
+        BoslPreviewParams::Cuboid {
+          w,
+          d,
+          h,
+          rounding,
+          center,
+        } => {
           assert_eq!(*w, 10.0);
           assert_eq!(*d, 20.0);
           assert_eq!(*h, 30.0);
+          assert_eq!(*rounding, 0.0);
           assert!(*center); // BOSL2 default
         }
         other => panic!("Expected Cuboid preview, got {:?}", other),
@@ -1778,10 +1788,17 @@ mod tests {
     let nodes = run_bosl_lua("return bosl.cuboid({40, 40, 40})");
     if let ScadNode::BoslCall { preview, .. } = &nodes[0] {
       match preview {
-        BoslPreviewParams::Cuboid { w, d, h, center } => {
+        BoslPreviewParams::Cuboid {
+          w,
+          d,
+          h,
+          rounding,
+          center,
+        } => {
           assert_eq!(*w, 40.0);
           assert_eq!(*d, 40.0);
           assert_eq!(*h, 40.0);
+          assert_eq!(*rounding, 0.0);
           assert!(*center);
         }
         other => panic!("Expected Cuboid preview, got {:?}", other),
@@ -1867,10 +1884,17 @@ mod tests {
     if let ScadNode::BoslCall { preview, args, .. } = &nodes[0] {
       assert_eq!(args, "40");
       match preview {
-        BoslPreviewParams::Cuboid { w, d, h, center } => {
+        BoslPreviewParams::Cuboid {
+          w,
+          d,
+          h,
+          rounding,
+          center,
+        } => {
           assert_eq!(*w, 40.0);
           assert_eq!(*d, 40.0);
           assert_eq!(*h, 40.0);
+          assert_eq!(*rounding, 0.0);
           assert!(*center);
         }
         other => panic!("Expected Cuboid preview, got {:?}", other),
