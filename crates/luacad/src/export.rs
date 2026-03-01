@@ -28,11 +28,11 @@ impl ExportFormat {
 
   pub fn label(self) -> &'static str {
     match self {
-      Self::ThreeMF => "Export as 3MF",
-      Self::STL => "Export as STL",
-      Self::OBJ => "Export as OBJ",
-      Self::PLY => "Export as PLY",
-      Self::OpenSCAD => "Export as SCAD",
+      Self::ThreeMF => "Export 3MF",
+      Self::STL => "Export STL",
+      Self::OBJ => "Export OBJ",
+      Self::PLY => "Export PLY",
+      Self::OpenSCAD => "Export SCAD",
     }
   }
 }
@@ -58,11 +58,11 @@ impl OpenScadFormat {
 
   pub fn label(self) -> &'static str {
     match self {
-      Self::Stl => "Export as STL",
-      Self::ThreeMf => "Export as 3MF",
-      Self::Off => "Export as OFF",
-      Self::Amf => "Export as AMF",
-      Self::Csg => "Export as CSG",
+      Self::Stl => "Export STL",
+      Self::ThreeMf => "Export 3MF",
+      Self::Off => "Export OFF",
+      Self::Amf => "Export AMF",
+      Self::Csg => "Export CSG",
     }
   }
 
@@ -572,14 +572,15 @@ impl ManifoldFormat {
     ManifoldFormat::Off,
     ManifoldFormat::Amf,
   ];
+
   pub fn label(self) -> &'static str {
     match self {
-      Self::ThreeMF => "Export as 3MF",
-      Self::Stl => "Export as STL",
-      Self::Obj => "Export as OBJ",
-      Self::Ply => "Export as PLY",
-      Self::Off => "Export as OFF",
-      Self::Amf => "Export as AMF",
+      Self::ThreeMF => "Export 3MF",
+      Self::Stl => "Export STL",
+      Self::Obj => "Export OBJ",
+      Self::Ply => "Export PLY",
+      Self::Off => "Export OFF",
+      Self::Amf => "Export AMF",
     }
   }
 
