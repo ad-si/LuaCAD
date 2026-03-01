@@ -38,6 +38,12 @@ fn main() {
     .include(&glad_include)
     .warnings(false);
 
+  // Suppress nix cc-wrapper warning about --target triple mismatch.
+  // The cc crate passes the LLVM triple (arm64-apple-macosx) while nix
+  // expects arm64-apple-darwin; they're functionally equivalent.
+  // SAFETY: build scripts are single-threaded at this point.
+  unsafe { std::env::set_var("NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING", "1") };
+
   for file in &cpp_files {
     build.file(file);
   }
