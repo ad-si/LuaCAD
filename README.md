@@ -93,6 +93,16 @@ More examples in the [examples/](examples/) directory.
 [Check out the website](https://ad-si.github.io/LuaCAD/openscad-to-luacad.html)
 to see all supported features!
 
+For easier usage, LuaCAD has full support for the
+[Belfry OpenSCAD Library v2][BOSL2].
+You can use its functions like this:
+
+```lua
+bosl.cuboid { {40, 40, 40}, rounding = 2 }
+bosl.regular_prism { 5, r = 10, h = 25 }
+bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
+```
+
 
 ## Why Lua?
 
@@ -140,9 +150,7 @@ Lua is a better fit:
 
 ## Roadmap
 
-- [ ] Full support for [Belfry OpenSCAD Library v2][BOSL2]
-- [ ] Support for exporting `.png` files
-
+- [ ]
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
 

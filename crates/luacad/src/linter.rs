@@ -254,7 +254,7 @@ globals:
   PI:
     property: read-only
 
-  # BOSL library table (extensible)
+  # BOSL2 library table (extensible)
   bosl:
     property: new-fields
 "#;

@@ -5,7 +5,7 @@
 //! decomposed into multiple OpenCSG render calls (one per [`CsgGroup`]).
 
 use luacad::geometry::CsgGeometry;
-use luacad::scad_export::ScadNode;
+use luacad::scad_export::{BoslPreviewParams, CylAxis, ScadNode};
 use opencsg_sys::{INTERSECTION, SUBTRACTION};
 use std::f32::consts::PI;
 use std::os::raw::c_int;
@@ -326,6 +326,47 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
     | ScadNode::RotateExtrude { .. }
     | ScadNode::Hull(_)
     | ScadNode::Minkowski(_) => vec![],
+
+    // --- BOSL2 shapes with preview parameters ---
+    ScadNode::BoslCall { preview, .. } => match preview {
+      BoslPreviewParams::Cuboid { w, d, h, center } => {
+        let verts = tessellate_cube(*w, *d, *h, *center);
+        make_leaf_group(verts, ctx, op, 1)
+      }
+      BoslPreviewParams::Cylinder {
+        r1,
+        r2,
+        h,
+        center,
+        axis,
+      } => {
+        let verts = tessellate_cylinder(*r1, *r2, *h, 32, *center);
+        match axis {
+          CylAxis::Z => make_leaf_group(verts, ctx, op, 1),
+          CylAxis::X => {
+            let m = mat4_mul(&ctx.transform, &mat4_rotate_y(90.0));
+            let child_ctx = Ctx {
+              transform: m,
+              color: ctx.color,
+            };
+            make_leaf_group(verts, &child_ctx, op, 1)
+          }
+          CylAxis::Y => {
+            let m = mat4_mul(&ctx.transform, &mat4_rotate_x(-90.0));
+            let child_ctx = Ctx {
+              transform: m,
+              color: ctx.color,
+            };
+            make_leaf_group(verts, &child_ctx, op, 1)
+          }
+        }
+      }
+      BoslPreviewParams::Sphere { r } => {
+        let verts = tessellate_sphere(*r, 32);
+        make_leaf_group(verts, ctx, op, 1)
+      }
+      BoslPreviewParams::None => vec![],
+    },
 
     // --- 2D primitives, file ops, text, etc.: no 3D geometry ---
     _ => vec![],
