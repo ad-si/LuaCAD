@@ -198,6 +198,263 @@ fn extract_sphere_preview(t: &mlua::Table) -> BoslPreviewParams {
   BoslPreviewParams::Sphere { r: r as f32 }
 }
 
+/// Extract a u32 integer from a Lua table by string key.
+fn table_get_u32(t: &mlua::Table, key: &str) -> Option<u32> {
+  match t.get::<LuaValue>(key).ok()? {
+    LuaValue::Integer(n) => Some(n as u32),
+    LuaValue::Number(n) => Some(n as u32),
+    _ => None,
+  }
+}
+
+/// Extract a 2-element size [w, d] from a Lua table key that holds a sub-table.
+fn table_get_size2(t: &mlua::Table, key: &str) -> Option<[f64; 2]> {
+  let inner = t.get::<mlua::Table>(key).ok()?;
+  let w = table_get_f64_idx(&inner, 1)?;
+  let d = table_get_f64_idx(&inner, 2)?;
+  Some([w, d])
+}
+
+/// Extract a 3-element size [w, d, h] from the first positional arg (sub-table).
+fn extract_size3_positional(t: &mlua::Table) -> Option<(f64, f64, f64)> {
+  let inner = t.get::<mlua::Table>(1).ok()?;
+  let w = table_get_f64_idx(&inner, 1)?;
+  let d = table_get_f64_idx(&inner, 2)?;
+  let h = table_get_f64_idx(&inner, 3)?;
+  Some((w, d, h))
+}
+
+fn extract_tube_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let h = table_get_f64(t, "h")
+    .or_else(|| table_get_f64(t, "l"))
+    .unwrap_or(1.0);
+
+  // Outer radius: or > od/2 > r > d/2
+  let or_uniform = table_get_f64(t, "or")
+    .or_else(|| table_get_f64(t, "od").map(|d| d / 2.0))
+    .or_else(|| table_get_f64(t, "r"))
+    .or_else(|| table_get_f64(t, "d").map(|d| d / 2.0));
+
+  let or1 = table_get_f64(t, "or1")
+    .or_else(|| table_get_f64(t, "od1").map(|d| d / 2.0))
+    .or(or_uniform);
+
+  let or2 = table_get_f64(t, "or2")
+    .or_else(|| table_get_f64(t, "od2").map(|d| d / 2.0))
+    .or(or_uniform);
+
+  // Inner radius: ir > id/2
+  let ir_uniform =
+    table_get_f64(t, "ir").or_else(|| table_get_f64(t, "id").map(|d| d / 2.0));
+
+  let ir1 = table_get_f64(t, "ir1")
+    .or_else(|| table_get_f64(t, "id1").map(|d| d / 2.0))
+    .or(ir_uniform);
+
+  let ir2 = table_get_f64(t, "ir2")
+    .or_else(|| table_get_f64(t, "id2").map(|d| d / 2.0))
+    .or(ir_uniform);
+
+  let wall = table_get_f64(t, "wall");
+
+  // Derive missing dimensions from wall thickness
+  let (or1, ir1) = match (or1, ir1, wall) {
+    (Some(o), Some(i), _) => (o, i),
+    (Some(o), None, Some(w)) => (o, (o - w).max(0.0)),
+    (None, Some(i), Some(w)) => (i + w, i),
+    (Some(o), None, None) => (o, o * 0.8), // fallback
+    _ => (10.0, 8.0),                      // fallback
+  };
+  let (or2, ir2) = match (or2, ir2, wall) {
+    (Some(o), Some(i), _) => (o, i),
+    (Some(o), None, Some(w)) => (o, (o - w).max(0.0)),
+    (None, Some(i), Some(w)) => (i + w, i),
+    (Some(o), None, None) => (o, o * 0.8),
+    _ => (or1, ir1),
+  };
+
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::Tube {
+    or1: or1 as f32,
+    or2: or2 as f32,
+    ir1: ir1 as f32,
+    ir2: ir2 as f32,
+    h: h as f32,
+    center,
+  }
+}
+
+fn extract_torus_preview(t: &mlua::Table) -> BoslPreviewParams {
+  // Method 1: r_maj + r_min (or d_maj/d_min)
+  let r_maj = table_get_f64(t, "r_maj")
+    .or_else(|| table_get_f64(t, "d_maj").map(|d| d / 2.0));
+  let r_min = table_get_f64(t, "r_min")
+    .or_else(|| table_get_f64(t, "d_min").map(|d| d / 2.0));
+
+  if let (Some(maj), Some(min)) = (r_maj, r_min) {
+    return BoslPreviewParams::Torus {
+      r_maj: maj as f32,
+      r_min: min as f32,
+    };
+  }
+
+  // Method 2: or + ir (or od/id)
+  let or_val =
+    table_get_f64(t, "or").or_else(|| table_get_f64(t, "od").map(|d| d / 2.0));
+  let ir_val =
+    table_get_f64(t, "ir").or_else(|| table_get_f64(t, "id").map(|d| d / 2.0));
+
+  if let (Some(outer), Some(inner)) = (or_val, ir_val) {
+    return BoslPreviewParams::Torus {
+      r_maj: ((outer + inner) / 2.0) as f32,
+      r_min: ((outer - inner) / 2.0).abs() as f32,
+    };
+  }
+
+  // Partial: r_maj with or/ir providing the other
+  let maj = r_maj.unwrap_or(10.0);
+  let min = r_min.unwrap_or(2.0);
+  BoslPreviewParams::Torus {
+    r_maj: maj as f32,
+    r_min: min as f32,
+  }
+}
+
+fn extract_prismoid_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let h = table_get_f64(t, "h")
+    .or_else(|| table_get_f64(t, "l"))
+    .unwrap_or(1.0);
+
+  let size1 = table_get_size2(t, "size1").unwrap_or([1.0, 1.0]);
+  let size2 = table_get_size2(t, "size2").unwrap_or(size1);
+
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::Prismoid {
+    size1: [size1[0] as f32, size1[1] as f32],
+    size2: [size2[0] as f32, size2[1] as f32],
+    h: h as f32,
+    center,
+  }
+}
+
+fn extract_rect_tube_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let h = table_get_f64(t, "h")
+    .or_else(|| table_get_f64(t, "l"))
+    .unwrap_or(1.0);
+
+  let size = table_get_size2(t, "size").unwrap_or([10.0, 10.0]);
+  let wall = table_get_f64(t, "wall");
+
+  let isize = table_get_size2(t, "isize").unwrap_or_else(|| {
+    if let Some(w) = wall {
+      [(size[0] - 2.0 * w).max(0.0), (size[1] - 2.0 * w).max(0.0)]
+    } else {
+      [size[0] * 0.8, size[1] * 0.8]
+    }
+  });
+
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::RectTube {
+    size: [size[0] as f32, size[1] as f32],
+    isize: [isize[0] as f32, isize[1] as f32],
+    h: h as f32,
+    center,
+  }
+}
+
+fn extract_wedge_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let (w, d, h) = extract_size3_positional(t)
+    .or_else(|| {
+      let s = table_get_size2(t, "size");
+      s.and_then(|s| {
+        // wedge "size" can be [w,d,h] stored as a 3-element table
+        let inner = t.get::<mlua::Table>("size").ok()?;
+        let h = table_get_f64_idx(&inner, 3)?;
+        Some((s[0], s[1], h))
+      })
+    })
+    .unwrap_or((10.0, 10.0, 10.0));
+
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::Wedge {
+    w: w as f32,
+    d: d as f32,
+    h: h as f32,
+    center,
+  }
+}
+
+fn extract_octahedron_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let size = table_get_f64(t, "size")
+    .or_else(|| table_get_f64_idx(t, 1))
+    .unwrap_or(10.0);
+  BoslPreviewParams::Octahedron { size: size as f32 }
+}
+
+fn extract_pie_slice_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let h = table_get_f64(t, "h")
+    .or_else(|| table_get_f64(t, "l"))
+    .unwrap_or(1.0);
+
+  let r_uniform =
+    table_get_f64(t, "r").or_else(|| table_get_f64(t, "d").map(|d| d / 2.0));
+
+  let r1 = table_get_f64(t, "r1")
+    .or_else(|| table_get_f64(t, "d1").map(|d| d / 2.0))
+    .or(r_uniform)
+    .unwrap_or(1.0);
+
+  let r2 = table_get_f64(t, "r2")
+    .or_else(|| table_get_f64(t, "d2").map(|d| d / 2.0))
+    .or(r_uniform)
+    .unwrap_or(r1);
+
+  let ang = table_get_f64(t, "ang").unwrap_or(90.0);
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::PieSlice {
+    r1: r1 as f32,
+    r2: r2 as f32,
+    h: h as f32,
+    ang: ang as f32,
+    center,
+  }
+}
+
+fn extract_regular_prism_preview(t: &mlua::Table) -> BoslPreviewParams {
+  let n = table_get_u32(t, "n").unwrap_or(6);
+  let h = table_get_f64(t, "h")
+    .or_else(|| table_get_f64(t, "l"))
+    .unwrap_or(1.0);
+
+  let r_uniform =
+    table_get_f64(t, "r").or_else(|| table_get_f64(t, "d").map(|d| d / 2.0));
+
+  let r1 = table_get_f64(t, "r1")
+    .or_else(|| table_get_f64(t, "d1").map(|d| d / 2.0))
+    .or(r_uniform)
+    .unwrap_or(1.0);
+
+  let r2 = table_get_f64(t, "r2")
+    .or_else(|| table_get_f64(t, "d2").map(|d| d / 2.0))
+    .or(r_uniform)
+    .unwrap_or(r1);
+
+  let center = table_get_bool(t, "center").unwrap_or(true);
+
+  BoslPreviewParams::RegularPrism {
+    n,
+    r1: r1 as f32,
+    r2: r2 as f32,
+    h: h as f32,
+    center,
+  }
+}
+
 fn extract_preview_params(
   function: &str,
   table: Option<&mlua::Table>,
@@ -211,6 +468,15 @@ fn extract_preview_params(
     "xcyl" => extract_cyl_preview(t, CylAxis::X),
     "ycyl" => extract_cyl_preview(t, CylAxis::Y),
     "spheroid" => extract_sphere_preview(t),
+    "tube" => extract_tube_preview(t),
+    "torus" => extract_torus_preview(t),
+    "prismoid" => extract_prismoid_preview(t),
+    "rect_tube" => extract_rect_tube_preview(t),
+    "wedge" => extract_wedge_preview(t),
+    "octahedron" => extract_octahedron_preview(t),
+    "pie_slice" => extract_pie_slice_preview(t),
+    "regular_prism" => extract_regular_prism_preview(t),
+    "teardrop" | "onion" => extract_sphere_preview(t),
     _ => BoslPreviewParams::None,
   }
 }
@@ -240,7 +506,10 @@ fn extract_scalar_preview(function: &str, val: f64) -> BoslPreviewParams {
         axis,
       }
     }
-    "spheroid" => BoslPreviewParams::Sphere { r: val as f32 },
+    "spheroid" | "teardrop" | "onion" => {
+      BoslPreviewParams::Sphere { r: val as f32 }
+    }
+    "octahedron" => BoslPreviewParams::Octahedron { size: val as f32 },
     _ => BoslPreviewParams::None,
   }
 }

@@ -377,6 +377,95 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         let verts = tessellate_sphere(*r, 32);
         make_leaf_group(verts, ctx, op, 1)
       }
+      BoslPreviewParams::Tube {
+        or1,
+        or2,
+        ir1,
+        ir2,
+        h,
+        center,
+      } => {
+        let outer = ScadNode::Cylinder {
+          r1: *or1,
+          r2: *or2,
+          h: *h,
+          segments: 32,
+          center: *center,
+        };
+        let inner = ScadNode::Cylinder {
+          r1: *ir1,
+          r2: *ir2,
+          h: *h,
+          segments: 32,
+          center: *center,
+        };
+        let node = ScadNode::Difference(vec![outer, inner]);
+        manifold_preview(&node, ctx, op, 2)
+      }
+      BoslPreviewParams::Torus { r_maj, r_min } => {
+        let node = torus_polyhedron(*r_maj, *r_min, 32, 16);
+        manifold_preview(&node, ctx, op, 2)
+      }
+      BoslPreviewParams::Prismoid {
+        size1,
+        size2,
+        h,
+        center,
+      } => {
+        let node = prismoid_polyhedron(size1, size2, *h, *center);
+        manifold_preview(&node, ctx, op, 1)
+      }
+      BoslPreviewParams::RectTube {
+        size,
+        isize,
+        h,
+        center,
+      } => {
+        let outer = ScadNode::Cube {
+          w: size[0],
+          d: size[1],
+          h: *h,
+          center: *center,
+        };
+        let inner = ScadNode::Cube {
+          w: isize[0],
+          d: isize[1],
+          h: *h + 0.01, // slightly taller to ensure clean boolean
+          center: *center,
+        };
+        let node = ScadNode::Difference(vec![outer, inner]);
+        manifold_preview(&node, ctx, op, 2)
+      }
+      BoslPreviewParams::Wedge { w, d, h, center } => {
+        let node = wedge_polyhedron(*w, *d, *h, *center);
+        manifold_preview(&node, ctx, op, 1)
+      }
+      BoslPreviewParams::Octahedron { size } => {
+        let node = octahedron_polyhedron(*size);
+        manifold_preview(&node, ctx, op, 1)
+      }
+      BoslPreviewParams::PieSlice {
+        r1,
+        r2,
+        h,
+        ang,
+        center,
+      } => {
+        let verts = tessellate_pie_slice(*r1, *r2, *h, *ang, *center);
+        // Pie slice is non-convex: a ray through the center hits 2 front faces
+        make_leaf_group(verts, ctx, op, 2)
+      }
+      BoslPreviewParams::RegularPrism {
+        n,
+        r1,
+        r2,
+        h,
+        center,
+      } => {
+        // A regular prism is just a cylinder with segment count = n
+        let verts = tessellate_cylinder(*r1, *r2, *h, *n, *center);
+        make_leaf_group(verts, ctx, op, 1)
+      }
       BoslPreviewParams::None => vec![],
     },
 
@@ -623,6 +712,240 @@ fn tessellate_polyhedron(
       verts.push(points[face[i + 1]]);
     }
   }
+  verts
+}
+
+// ---------------------------------------------------------------------------
+// Manifold-based preview helpers for BOSL2 shapes
+// ---------------------------------------------------------------------------
+
+/// Build a ScadNode tree from primitives, materialize it via Manifold, and
+/// return CsgGroups ready for OpenCSG rendering.
+fn manifold_preview(
+  node: &ScadNode,
+  ctx: &Ctx,
+  op: c_int,
+  convexity: u32,
+) -> Vec<CsgGroup> {
+  let manifold = materialize_scad_manifold(node);
+  let mesh = extract_manifold_mesh(&manifold);
+  let mut verts = Vec::with_capacity(mesh.triangles.len() * 3);
+  for tri in &mesh.triangles {
+    verts.push(mesh.vertices[tri[0] as usize]);
+    verts.push(mesh.vertices[tri[1] as usize]);
+    verts.push(mesh.vertices[tri[2] as usize]);
+  }
+  make_leaf_group(verts, ctx, op, convexity)
+}
+
+/// Build a torus as a polyhedron (ring of circular cross-sections).
+fn torus_polyhedron(
+  r_maj: f32,
+  r_min: f32,
+  segs_maj: u32,
+  segs_min: u32,
+) -> ScadNode {
+  let n_maj = segs_maj.max(3) as usize;
+  let n_min = segs_min.max(3) as usize;
+
+  let mut points = Vec::with_capacity(n_maj * n_min);
+  for i in 0..n_maj {
+    let theta = 2.0 * PI * i as f32 / n_maj as f32;
+    let (st, ct) = (theta.sin(), theta.cos());
+    for j in 0..n_min {
+      let phi = 2.0 * PI * j as f32 / n_min as f32;
+      let (sp, cp) = (phi.sin(), phi.cos());
+      let x = (r_maj + r_min * cp) * ct;
+      let y = (r_maj + r_min * cp) * st;
+      let z = r_min * sp;
+      points.push([x, y, z]);
+    }
+  }
+
+  let mut faces = Vec::with_capacity(n_maj * n_min);
+  for i in 0..n_maj {
+    let i_next = (i + 1) % n_maj;
+    for j in 0..n_min {
+      let j_next = (j + 1) % n_min;
+      // Quad as two triangles — but polyhedron supports quads via face lists
+      faces.push(vec![
+        i * n_min + j,
+        i_next * n_min + j,
+        i_next * n_min + j_next,
+        i * n_min + j_next,
+      ]);
+    }
+  }
+
+  ScadNode::Polyhedron { points, faces }
+}
+
+/// Build a prismoid (rectangular frustum) as a polyhedron.
+fn prismoid_polyhedron(
+  size1: &[f32; 2],
+  size2: &[f32; 2],
+  h: f32,
+  center: bool,
+) -> ScadNode {
+  let z_off = if center { -h / 2.0 } else { 0.0 };
+  let (hw1, hd1) = (size1[0] / 2.0, size1[1] / 2.0);
+  let (hw2, hd2) = (size2[0] / 2.0, size2[1] / 2.0);
+
+  let points = vec![
+    // Bottom face (z = z_off)
+    [-hw1, -hd1, z_off],
+    [hw1, -hd1, z_off],
+    [hw1, hd1, z_off],
+    [-hw1, hd1, z_off],
+    // Top face (z = z_off + h)
+    [-hw2, -hd2, z_off + h],
+    [hw2, -hd2, z_off + h],
+    [hw2, hd2, z_off + h],
+    [-hw2, hd2, z_off + h],
+  ];
+
+  let faces = vec![
+    vec![3, 2, 1, 0], // bottom (CCW from below)
+    vec![4, 5, 6, 7], // top
+    vec![0, 1, 5, 4], // front
+    vec![2, 3, 7, 6], // back
+    vec![0, 4, 7, 3], // left
+    vec![1, 2, 6, 5], // right
+  ];
+
+  ScadNode::Polyhedron { points, faces }
+}
+
+/// Build a wedge (triangular prism) as a polyhedron.
+/// The wedge has its right-angle at the bottom-left:
+///   bottom face is a full rectangle, top face tapers to a line along the left edge.
+fn wedge_polyhedron(w: f32, d: f32, h: f32, center: bool) -> ScadNode {
+  let (ox, oy, oz) = if center {
+    (-w / 2.0, -d / 2.0, -h / 2.0)
+  } else {
+    (0.0, 0.0, 0.0)
+  };
+
+  let points = vec![
+    [ox, oy, oz],         // 0: bottom-front-left
+    [ox + w, oy, oz],     // 1: bottom-front-right
+    [ox + w, oy + d, oz], // 2: bottom-back-right
+    [ox, oy + d, oz],     // 3: bottom-back-left
+    [ox, oy, oz + h],     // 4: top-front-left
+    [ox, oy + d, oz + h], // 5: top-back-left
+  ];
+
+  let faces = vec![
+    vec![3, 2, 1, 0], // bottom
+    vec![4, 5, 3, 0], // left
+    vec![0, 1, 4],    // front (triangle)
+    vec![2, 3, 5],    // back (triangle)
+    vec![1, 2, 5, 4], // slope
+  ];
+
+  ScadNode::Polyhedron { points, faces }
+}
+
+/// Build an octahedron as a polyhedron.
+fn octahedron_polyhedron(size: f32) -> ScadNode {
+  let s = size / 2.0;
+
+  let points = vec![
+    [s, 0.0, 0.0],  // 0: +X
+    [-s, 0.0, 0.0], // 1: -X
+    [0.0, s, 0.0],  // 2: +Y
+    [0.0, -s, 0.0], // 3: -Y
+    [0.0, 0.0, s],  // 4: +Z
+    [0.0, 0.0, -s], // 5: -Z
+  ];
+
+  let faces = vec![
+    vec![0, 2, 4], // +X +Y +Z
+    vec![2, 1, 4], // -X +Y +Z
+    vec![1, 3, 4], // -X -Y +Z
+    vec![3, 0, 4], // +X -Y +Z
+    vec![2, 0, 5], // +X +Y -Z
+    vec![1, 2, 5], // -X +Y -Z
+    vec![3, 1, 5], // -X -Y -Z
+    vec![0, 3, 5], // +X -Y -Z
+  ];
+
+  ScadNode::Polyhedron { points, faces }
+}
+
+/// Tessellate a pie slice (partial cylinder) directly as triangles.
+fn tessellate_pie_slice(
+  r1: f32,
+  r2: f32,
+  h: f32,
+  ang_deg: f32,
+  center: bool,
+) -> Vec<[f32; 3]> {
+  let ang = ang_deg.clamp(0.0, 360.0).to_radians();
+  let segs = ((ang_deg / 360.0 * 32.0).ceil() as u32).max(1) as usize;
+  let z_off = if center { -h / 2.0 } else { 0.0 };
+
+  let mut verts = Vec::new();
+  let center_b = [0.0, 0.0, z_off];
+  let center_t = [0.0, 0.0, z_off + h];
+
+  for i in 0..segs {
+    let a0 = ang * i as f32 / segs as f32;
+    let a1 = ang * (i + 1) as f32 / segs as f32;
+    let (s0, c0) = (a0.sin(), a0.cos());
+    let (s1, c1) = (a1.sin(), a1.cos());
+
+    let b0 = [r1 * c0, r1 * s0, z_off];
+    let b1 = [r1 * c1, r1 * s1, z_off];
+    let t0 = [r2 * c0, r2 * s0, z_off + h];
+    let t1 = [r2 * c1, r2 * s1, z_off + h];
+
+    // Curved side (two triangles per segment)
+    verts.push(b0);
+    verts.push(b1);
+    verts.push(t1);
+    verts.push(b0);
+    verts.push(t1);
+    verts.push(t0);
+
+    // Bottom cap (fan from center)
+    verts.push(center_b);
+    verts.push(b1);
+    verts.push(b0);
+
+    // Top cap (fan from center)
+    verts.push(center_t);
+    verts.push(t0);
+    verts.push(t1);
+  }
+
+  // Start flat side (at angle=0): quad center_b→bs→ts→center_t
+  // Normal should point -Y (away from pie interior)
+  let bs = [r1, 0.0, z_off];
+  let ts = [r2, 0.0, z_off + h];
+  // Triangle 1: center_b, bs, ts  (matches cylinder side winding convention)
+  verts.push(center_b);
+  verts.push(bs);
+  verts.push(ts);
+  // Triangle 2: center_b, ts, center_t
+  verts.push(center_b);
+  verts.push(ts);
+  verts.push(center_t);
+
+  // End flat side (at angle=ang): quad center_b→center_t→te→be
+  // Normal should point outward (rotated +Y direction)
+  let (se, ce) = (ang.sin(), ang.cos());
+  let be = [r1 * ce, r1 * se, z_off];
+  let te = [r2 * ce, r2 * se, z_off + h];
+  // Triangle 1: center_b, te, be  (reversed from start side)
+  verts.push(center_b);
+  verts.push(te);
+  verts.push(be);
+  // Triangle 2: center_b, center_t, te
+  verts.push(center_b);
+  verts.push(center_t);
+  verts.push(te);
+
   verts
 }
 

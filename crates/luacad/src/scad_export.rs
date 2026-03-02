@@ -216,6 +216,53 @@ pub enum BoslPreviewParams {
   Sphere {
     r: f32,
   },
+  Tube {
+    or1: f32,
+    or2: f32,
+    ir1: f32,
+    ir2: f32,
+    h: f32,
+    center: bool,
+  },
+  Torus {
+    r_maj: f32,
+    r_min: f32,
+  },
+  Prismoid {
+    size1: [f32; 2],
+    size2: [f32; 2],
+    h: f32,
+    center: bool,
+  },
+  RectTube {
+    size: [f32; 2],
+    isize: [f32; 2],
+    h: f32,
+    center: bool,
+  },
+  Wedge {
+    w: f32,
+    d: f32,
+    h: f32,
+    center: bool,
+  },
+  Octahedron {
+    size: f32,
+  },
+  PieSlice {
+    r1: f32,
+    r2: f32,
+    h: f32,
+    ang: f32,
+    center: bool,
+  },
+  RegularPrism {
+    n: u32,
+    r1: f32,
+    r2: f32,
+    h: f32,
+    center: bool,
+  },
 }
 
 fn fmt_f32(v: f32) -> String {
