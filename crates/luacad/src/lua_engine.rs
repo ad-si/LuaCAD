@@ -7,6 +7,9 @@ use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 use crate::geometry::{CsgGeometry, CsgSketch, lua_val_to_f32};
 use crate::scad_export::ScadNode;
 
+/// Default number of segments for round primitives (sphere, cylinder, etc.).
+const DEFAULT_SEGMENTS: u32 = 32;
+
 // ---------------------------------------------------------------------------
 // Table helpers
 // ---------------------------------------------------------------------------
@@ -116,7 +119,7 @@ fn parse_sphere_args(args: &mlua::MultiValue) -> mlua::Result<(f32, u32)> {
     } else {
       t.get::<f32>(1).unwrap_or(1.0)
     };
-    let segments = table_segments(t, 16);
+    let segments = table_segments(t, DEFAULT_SEGMENTS);
     return Ok((radius, segments));
   }
 
@@ -129,7 +132,7 @@ fn parse_sphere_args(args: &mlua::MultiValue) -> mlua::Result<(f32, u32)> {
     .get(1)
     .and_then(lua_val_to_f32)
     .map(|v| v as u32)
-    .unwrap_or(16);
+    .unwrap_or(DEFAULT_SEGMENTS);
   Ok((radius, segments))
 }
 
@@ -168,7 +171,7 @@ fn parse_cylinder_args(
       (0.5, 0.5)
     };
 
-    let segments = table_segments(t, 16);
+    let segments = table_segments(t, DEFAULT_SEGMENTS);
     let center = table_get_bool(t, "center");
     return Ok((r1, r2, h, segments, center));
   }
@@ -184,7 +187,7 @@ fn parse_cylinder_args(
     .get(2)
     .and_then(lua_val_to_f32)
     .map(|v| v as u32)
-    .unwrap_or(16);
+    .unwrap_or(DEFAULT_SEGMENTS);
   Ok((r, r, h, segments, false))
 }
 
@@ -500,9 +503,9 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let minor = table_get_f32(t, "r")
           .or_else(|| table_get_f32(t, "minor"))
           .unwrap_or(0.5);
-        let seg_major = table_segments(t, 24) as usize;
-        let seg_minor =
-          table_get_u32(t, "segments_minor").unwrap_or(16) as usize;
+        let seg_major = table_segments(t, DEFAULT_SEGMENTS) as usize;
+        let seg_minor = table_get_u32(t, "segments_minor")
+          .unwrap_or(DEFAULT_SEGMENTS) as usize;
         // Torus via rotate_extrude of a translated circle
         let scad = Some(ScadNode::RotateExtrude {
           angle: 360.0,
@@ -538,14 +541,14 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let minor = lua_val_to_f32(&args[1]).unwrap_or(0.5);
         let scad = Some(ScadNode::RotateExtrude {
           angle: 360.0,
-          segments: 24,
+          segments: DEFAULT_SEGMENTS,
           child: Box::new(ScadNode::Translate {
             x: major,
             y: 0.0,
             z: 0.0,
             child: Box::new(ScadNode::Circle {
               r: minor,
-              segments: 16,
+              segments: DEFAULT_SEGMENTS,
             }),
           }),
         });
@@ -553,7 +556,13 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           mesh: {
             #[cfg(feature = "csgrs")]
             {
-              Some(CsgMesh::<()>::torus(major, minor, 24, 16, None))
+              Some(CsgMesh::<()>::torus(
+                major,
+                minor,
+                DEFAULT_SEGMENTS as usize,
+                DEFAULT_SEGMENTS as usize,
+                None,
+              ))
             }
             #[cfg(not(feature = "csgrs"))]
             {
@@ -696,7 +705,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         let rx = table_get_f32(t, "rx").unwrap_or(1.0);
         let ry = table_get_f32(t, "ry").unwrap_or(1.0);
         let rz = table_get_f32(t, "rz").unwrap_or(1.0);
-        let segs = table_segments(t, 16) as usize;
+        let segs = table_segments(t, DEFAULT_SEGMENTS) as usize;
         let scad = Some(ScadNode::Scale {
           x: rx,
           y: ry,
@@ -730,14 +739,21 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           z: rz,
           child: Box::new(ScadNode::Sphere {
             r: 1.0,
-            segments: 16,
+            segments: DEFAULT_SEGMENTS,
           }),
         });
         Ok(CsgGeometry {
           mesh: {
             #[cfg(feature = "csgrs")]
             {
-              Some(CsgMesh::<()>::ellipsoid(rx, ry, rz, 16, 16, None))
+              Some(CsgMesh::<()>::ellipsoid(
+                rx,
+                ry,
+                rz,
+                DEFAULT_SEGMENTS as usize,
+                DEFAULT_SEGMENTS as usize,
+                None,
+              ))
             }
             #[cfg(not(feature = "csgrs"))]
             {

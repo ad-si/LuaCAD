@@ -9,7 +9,7 @@ union() {
     union() {
       cube([1, 2, 3]);
       translate([5, 0, 0]) {
-        sphere(r = 2, $fn = 16);
+        sphere(r = 2, $fn = 32);
       }
     }
     module fancy_cylinder() {

@@ -9,6 +9,6 @@ union() {
     cube([10, 10, 10]);
   }
   color([0, 0, 1]) {
-    sphere(r = 7, $fn = 16);
+    sphere(r = 7, $fn = 32);
   }
 }

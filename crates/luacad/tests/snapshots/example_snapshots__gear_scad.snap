@@ -12,7 +12,7 @@ union() {
           union() {
             union() {
               union() {
-                cylinder(h = 5, r1 = 7, r2 = 7, $fn = 16);
+                cylinder(h = 5, r1 = 7, r2 = 7, $fn = 32);
                 rotate([0, 0, 45]) {
                   translate([6.4, -1, 0]) {
                     cube([3.6, 2, 5]);

@@ -11,8 +11,8 @@ union() {
       cube([1, 2, 3], center = true);
     }
     translate([3, 3, 3]) {
-      sphere(r = 9, $fn = 16);
+      sphere(r = 9, $fn = 32);
     }
   }
-  sphere(r = 16, $fn = 16);
+  sphere(r = 16, $fn = 32);
 }

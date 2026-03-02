@@ -18,37 +18,37 @@ union() {
             }
             translate([-20, -15, 0]) {
               rotate([90, 0, 0]) {
-                cylinder(h = 3, r1 = 8, r2 = 8, $fn = 16, center = true);
+                cylinder(h = 3, r1 = 8, r2 = 8, $fn = 32, center = true);
               }
             }
           }
           translate([-20, 15, 0]) {
             rotate([90, 0, 0]) {
-              cylinder(h = 3, r1 = 8, r2 = 8, $fn = 16, center = true);
+              cylinder(h = 3, r1 = 8, r2 = 8, $fn = 32, center = true);
             }
           }
         }
         translate([20, -15, 0]) {
           rotate([90, 0, 0]) {
-            cylinder(h = 3, r1 = 8, r2 = 8, $fn = 16, center = true);
+            cylinder(h = 3, r1 = 8, r2 = 8, $fn = 32, center = true);
           }
         }
       }
       translate([20, 15, 0]) {
         rotate([90, 0, 0]) {
-          cylinder(h = 3, r1 = 8, r2 = 8, $fn = 16, center = true);
+          cylinder(h = 3, r1 = 8, r2 = 8, $fn = 32, center = true);
         }
       }
     }
     translate([-20, 0, 0]) {
       rotate([90, 0, 0]) {
-        cylinder(h = 30, r1 = 2, r2 = 2, $fn = 16, center = true);
+        cylinder(h = 30, r1 = 2, r2 = 2, $fn = 32, center = true);
       }
     }
   }
   translate([20, 0, 0]) {
     rotate([90, 0, 0]) {
-      cylinder(h = 30, r1 = 2, r2 = 2, $fn = 16, center = true);
+      cylinder(h = 30, r1 = 2, r2 = 2, $fn = 32, center = true);
     }
   }
 }

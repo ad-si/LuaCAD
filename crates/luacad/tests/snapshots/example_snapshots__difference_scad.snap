@@ -6,5 +6,5 @@ expression: scad_output(&geoms)
 
 difference() {
   cube([10, 10, 10], center = true);
-  cylinder(h = 20, r1 = 3, r2 = 3, $fn = 16, center = true);
+  cylinder(h = 20, r1 = 3, r2 = 3, $fn = 32, center = true);
 }
