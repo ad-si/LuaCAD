@@ -24,8 +24,9 @@ fn main() {
   let dst = cmake_config.build();
 
   println!("cargo:rustc-link-search=native={}/lib", dst.display());
-  println!("cargo:rustc-link-lib=static=manifold");
   println!("cargo:rustc-link-lib=static=manifoldc");
+  println!("cargo:rustc-link-lib=static=manifold");
+  println!("cargo:rustc-link-lib=static=Clipper2");
 
   match (target_os.as_str(), target_env.as_str()) {
     ("linux", _) | ("windows", "gnu") | ("android", _) => {
