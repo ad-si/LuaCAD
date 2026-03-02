@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 
 use crate::csg_tree::{CsgGroup, flatten_geometries};
@@ -8,6 +9,30 @@ use luacad::export::ExportFormat;
 use luacad::export::ManifoldFormat;
 use luacad::geometry::CsgGeometry;
 use luacad::linter::LintDiagnostic;
+
+#[derive(Default)]
+pub struct SearchState {
+  /// Whether the search bar is visible
+  pub open: bool,
+  /// Whether the replace row is visible
+  pub show_replace: bool,
+  /// Search query string
+  pub query: String,
+  /// Replace string
+  pub replace: String,
+  /// Case-sensitive search toggle
+  pub case_sensitive: bool,
+  /// All match positions as byte ranges into text_content
+  pub matches: Vec<Range<usize>>,
+  /// Index of the currently focused match (0-based)
+  pub current_match: Option<usize>,
+  /// One-shot flag: focus and select-all in the search field
+  pub focus_search_field: bool,
+  /// One-shot flag: move cursor to the current match
+  pub needs_cursor_update: bool,
+  /// Cache key to avoid recomputing matches: (query, case_sensitive, text)
+  pub last_computed: (String, bool, String),
+}
 
 #[derive(Debug, Clone)]
 pub enum FileAction {
@@ -59,6 +84,8 @@ pub struct AppState {
   pub lint_diagnostics: Vec<LintDiagnostic>,
   /// Snapshot of text_content used to detect changes for re-linting
   pub lint_text_snapshot: String,
+  /// Find/replace search state
+  pub search: SearchState,
 }
 
 impl AppState {
@@ -91,6 +118,7 @@ impl AppState {
       csg_groups: vec![],
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
+      search: SearchState::default(),
     };
     app.execute_lua_code();
     app

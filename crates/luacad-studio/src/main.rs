@@ -136,7 +136,9 @@ fn main() {
       let mut wants_copy = false;
       let mut wants_cut = false;
       let mut consume_tab = false;
+      let mut consume_escape = false;
       let mut consume_ctrl_key: Option<Key> = None;
+      let mut consume_cmd_keys: Vec<Key> = Vec::new();
       for event in frame_input.events.iter() {
         if let Event::KeyPress {
           kind, modifiers, ..
@@ -179,6 +181,35 @@ fn main() {
               Key::S => {
                 app.pending_file_action = Some(FileAction::Save);
               }
+              Key::F => {
+                if app.search.open {
+                  app.search.focus_search_field = true;
+                } else {
+                  app.search.open = true;
+                  app.search.focus_search_field = true;
+                  // Pre-fill query from selection
+                  if app.editor_selection_len > 0 {
+                    let chars: Vec<char> = app.text_content.chars().collect();
+                    let end = app.editor_cursor_pos.min(chars.len());
+                    let start = end.saturating_sub(app.editor_selection_len);
+                    let byte_start: usize =
+                      chars[..start].iter().collect::<String>().len();
+                    let byte_end: usize =
+                      chars[..end].iter().collect::<String>().len();
+                    if byte_end <= app.text_content.len() {
+                      app.search.query =
+                        app.text_content[byte_start..byte_end].to_string();
+                    }
+                  }
+                }
+                consume_cmd_keys.push(Key::F);
+              }
+              Key::H => {
+                app.search.open = true;
+                app.search.show_replace = true;
+                app.search.focus_search_field = true;
+                consume_cmd_keys.push(Key::H);
+              }
               Key::O => {
                 app.pending_file_action = Some(FileAction::Open);
               }
@@ -215,6 +246,12 @@ fn main() {
               }
               _ => {}
             }
+          } else if *kind == Key::Escape && app.search.open {
+            app.search.open = false;
+            app.search.matches.clear();
+            app.search.current_match = None;
+            app.search.last_computed = Default::default();
+            consume_escape = true;
           } else if *kind == Key::Tab {
             if modifiers.shift {
               app.pending_editor_action = Some(EditorAction::Unindent);
@@ -269,6 +306,29 @@ fn main() {
             e,
             Event::KeyPress { kind: Key::Tab, .. }
               | Event::KeyRelease { kind: Key::Tab, .. }
+          )
+        });
+      }
+      if consume_escape {
+        frame_input.events.retain(|e| {
+          !matches!(
+            e,
+            Event::KeyPress {
+              kind: Key::Escape,
+              ..
+            } | Event::KeyRelease {
+              kind: Key::Escape,
+              ..
+            }
+          )
+        });
+      }
+      if !consume_cmd_keys.is_empty() {
+        frame_input.events.retain(|e| {
+          !matches!(
+            e,
+            Event::KeyPress { kind, .. } | Event::KeyRelease { kind, .. }
+              if consume_cmd_keys.contains(kind)
           )
         });
       }

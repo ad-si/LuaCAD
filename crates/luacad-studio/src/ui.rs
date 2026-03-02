@@ -5,7 +5,7 @@ use luacad::export::ManifoldFormat;
 use luacad::linter::LintSeverity;
 use three_d::egui;
 
-use crate::app::{AppState, FileAction};
+use crate::app::{AppState, FileAction, SearchState};
 use crate::editor::apply_editor_action;
 use crate::theme::ThemeMode;
 
@@ -38,6 +38,90 @@ fn paint_dropdown_arrow(ui: &egui::Ui, response: &egui::Response) {
     color,
     egui::Stroke::NONE,
   ));
+}
+
+/// Lucide icon identifiers used in the search bar.
+/// Icon SVG data from lucide.dev (ISC license).
+enum LucideIcon {
+  ChevronUp,
+  ChevronDown,
+  ChevronRight,
+  X,
+}
+
+/// Paint a Lucide icon into a given rect, scaled to fit.
+/// The icons are drawn as strokes in a 24x24 coordinate system.
+fn paint_lucide_icon(
+  painter: &egui::Painter,
+  rect: egui::Rect,
+  icon: LucideIcon,
+  color: egui::Color32,
+) {
+  // Map from 24x24 SVG coords to the target rect
+  let to_pos = |x: f32, y: f32| -> egui::Pos2 {
+    egui::pos2(
+      rect.left() + x / 24.0 * rect.width(),
+      rect.top() + y / 24.0 * rect.height(),
+    )
+  };
+  let stroke = egui::Stroke::new(1.5, color);
+
+  match icon {
+    LucideIcon::X => {
+      // M18 6 L6 18 and M6 6 L12 12 (two diagonal lines)
+      painter.line_segment([to_pos(18.0, 6.0), to_pos(6.0, 18.0)], stroke);
+      painter.line_segment([to_pos(6.0, 6.0), to_pos(18.0, 18.0)], stroke);
+    }
+    LucideIcon::ChevronUp => {
+      // m18 15-6-6-6 6  → polyline (18,15) (12,9) (6,15)
+      let points =
+        vec![to_pos(18.0, 15.0), to_pos(12.0, 9.0), to_pos(6.0, 15.0)];
+      painter.add(egui::Shape::line(points, stroke));
+    }
+    LucideIcon::ChevronDown => {
+      // m6 9 6 6 6-6  → polyline (6,9) (12,15) (18,9)
+      let points =
+        vec![to_pos(6.0, 9.0), to_pos(12.0, 15.0), to_pos(18.0, 9.0)];
+      painter.add(egui::Shape::line(points, stroke));
+    }
+    LucideIcon::ChevronRight => {
+      // m9 18 6-6-6-6  → polyline (9,18) (15,12) (9,6)
+      let points =
+        vec![to_pos(9.0, 18.0), to_pos(15.0, 12.0), to_pos(9.0, 6.0)];
+      painter.add(egui::Shape::line(points, stroke));
+    }
+  }
+}
+
+/// An icon button: a small square button with a Lucide icon painted inside.
+/// Returns the `Response` so callers can chain `.on_hover_text()` / `.clicked()`.
+fn icon_button(ui: &mut egui::Ui, icon: LucideIcon) -> egui::Response {
+  let size = egui::vec2(20.0, 20.0);
+  let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+
+  if ui.is_rect_visible(rect) {
+    let visuals = ui.style().interact(&response);
+    // Draw a subtle rounded background on hover/click
+    if response.hovered() || response.has_focus() {
+      ui.painter().rect_filled(rect, 2.0, visuals.bg_fill);
+    }
+    let icon_rect = rect.shrink(2.0);
+    paint_lucide_icon(ui.painter(), icon_rect, icon, visuals.text_color());
+  }
+
+  response
+}
+
+/// Navigate to the next (+1) or previous (-1) search match, wrapping around.
+fn navigate_match(search: &mut SearchState, direction: i32) {
+  if search.matches.is_empty() {
+    return;
+  }
+  let count = search.matches.len() as i32;
+  let current = search.current_match.unwrap_or(0) as i32;
+  let next = ((current + direction) % count + count) % count;
+  search.current_match = Some(next as usize);
+  search.needs_cursor_update = true;
 }
 
 pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
@@ -126,6 +210,214 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
       });
       ui.add_space(8.0);
 
+      // --- Find / Replace bar ---
+      if app.search.open {
+        // Recompute matches when query, case sensitivity, or text changes
+        if !app.search.query.is_empty() {
+          let key = (
+            app.search.query.clone(),
+            app.search.case_sensitive,
+            app.text_content.clone(),
+          );
+          if key != app.search.last_computed {
+            app.search.matches.clear();
+            let query = &app.search.query;
+            let text = &app.text_content;
+
+            if app.search.case_sensitive {
+              let mut start = 0;
+              while let Some(pos) = text[start..].find(query.as_str()) {
+                let abs = start + pos;
+                app.search.matches.push(abs..abs + query.len());
+                start = abs + query.len().max(1);
+              }
+            } else {
+              let query_lower = query.to_lowercase();
+              let text_lower = text.to_lowercase();
+              let mut start = 0;
+              while let Some(pos) =
+                text_lower[start..].find(query_lower.as_str())
+              {
+                let abs = start + pos;
+                app.search.matches.push(abs..abs + query_lower.len());
+                start = abs + query_lower.len().max(1);
+              }
+            }
+
+            // Set current_match to first match at or after cursor
+            if app.search.matches.is_empty() {
+              app.search.current_match = None;
+            } else {
+              let cursor_byte: usize = app
+                .text_content
+                .chars()
+                .take(app.editor_cursor_pos)
+                .collect::<String>()
+                .len();
+              app.search.current_match = Some(
+                app
+                  .search
+                  .matches
+                  .iter()
+                  .position(|m| m.start >= cursor_byte)
+                  .unwrap_or(0),
+              );
+              app.search.needs_cursor_update = true;
+            }
+            app.search.last_computed = key;
+          }
+        } else {
+          app.search.matches.clear();
+          app.search.current_match = None;
+          app.search.last_computed = Default::default();
+        }
+
+        let search_field_id = egui::Id::new("search_query_field");
+
+        ui.horizontal(|ui| {
+          let response = ui.add(
+            egui::TextEdit::singleline(&mut app.search.query)
+              .id(search_field_id)
+              .desired_width(200.0)
+              .hint_text("Find"),
+          );
+
+          // Focus management
+          if app.search.focus_search_field {
+            response.request_focus();
+            if !app.search.query.is_empty()
+              && let Some(mut state) =
+                egui::TextEdit::load_state(ui.ctx(), search_field_id)
+            {
+              use egui::text::CCursor;
+              use egui::text_selection::CCursorRange;
+              state.cursor.set_char_range(Some(CCursorRange::two(
+                CCursor::new(0),
+                CCursor::new(app.search.query.chars().count()),
+              )));
+              state.store(ui.ctx(), search_field_id);
+            }
+            app.search.focus_search_field = false;
+          }
+
+          // Enter/Shift+Enter in search field → next/prev match
+          if response.lost_focus()
+            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+          {
+            if ui.input(|i| i.modifiers.shift) {
+              navigate_match(&mut app.search, -1);
+            } else {
+              navigate_match(&mut app.search, 1);
+            }
+            response.request_focus();
+          }
+
+          // Match count display
+          if !app.search.query.is_empty() {
+            let count = app.search.matches.len();
+            let display = if count == 0 {
+              "No results".to_string()
+            } else if let Some(idx) = app.search.current_match {
+              format!("{} of {}", idx + 1, count)
+            } else {
+              format!("{} matches", count)
+            };
+            ui.label(&display);
+          }
+
+          if icon_button(ui, LucideIcon::ChevronUp)
+            .on_hover_text("Previous (Shift+Enter)")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            navigate_match(&mut app.search, -1);
+          }
+          if icon_button(ui, LucideIcon::ChevronDown)
+            .on_hover_text("Next (Enter)")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            navigate_match(&mut app.search, 1);
+          }
+
+          let case_label = if app.search.case_sensitive {
+            "Aa ✓"
+          } else {
+            "Aa"
+          };
+          if ui
+            .selectable_label(app.search.case_sensitive, case_label)
+            .on_hover_text("Case sensitive")
+            .clicked()
+          {
+            app.search.case_sensitive = !app.search.case_sensitive;
+            app.search.last_computed = Default::default();
+          }
+
+          let replace_icon = if app.search.show_replace {
+            LucideIcon::ChevronDown
+          } else {
+            LucideIcon::ChevronRight
+          };
+          if icon_button(ui, replace_icon)
+            .on_hover_text("Toggle replace")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.search.show_replace = !app.search.show_replace;
+          }
+
+          if icon_button(ui, LucideIcon::X)
+            .on_hover_text("Close (Esc)")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.search.open = false;
+            app.search.matches.clear();
+            app.search.current_match = None;
+            app.search.last_computed = Default::default();
+          }
+        });
+
+        // Replace row
+        if app.search.show_replace {
+          ui.horizontal(|ui| {
+            ui.add(
+              egui::TextEdit::singleline(&mut app.search.replace)
+                .desired_width(200.0)
+                .hint_text("Replace"),
+            );
+
+            let has_match = app.search.current_match.is_some();
+            if ui
+              .add_enabled(has_match, egui::Button::new("Replace"))
+              .clicked()
+              && let Some(idx) = app.search.current_match
+              && idx < app.search.matches.len()
+            {
+              let range = app.search.matches[idx].clone();
+              let replacement = app.search.replace.clone();
+              app.text_content.replace_range(range, &replacement);
+              app.search.last_computed = Default::default();
+            }
+
+            let has_matches = !app.search.matches.is_empty();
+            if ui
+              .add_enabled(has_matches, egui::Button::new("Replace All"))
+              .clicked()
+            {
+              let replacement = app.search.replace.clone();
+              for range in app.search.matches.iter().rev() {
+                app.text_content.replace_range(range.clone(), &replacement);
+              }
+              app.search.last_computed = Default::default();
+            }
+          });
+        }
+
+        ui.add_space(4.0);
+      }
+
       let mut cursor_line: usize = 1;
       let mut cursor_col: usize = 1;
       let mut selection_len: usize = 0;
@@ -149,47 +441,137 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
         .map(|d| (d.byte_start..d.byte_end, d.severity))
         .collect();
 
+      let search_matches: Vec<std::ops::Range<usize>> = if app.search.open {
+        app.search.matches.clone()
+      } else {
+        vec![]
+      };
+      let current_search_match: Option<usize> = if app.search.open {
+        app.search.current_match
+      } else {
+        None
+      };
+
       egui::ScrollArea::vertical()
         .min_scrolled_height(editor_height)
         .max_height(editor_height)
         .show(ui, |ui| {
           let lint_underlines = &lint_underlines;
-          let mut layouter =
-            |ui: &egui::Ui, string: &dyn egui::TextBuffer, wrap_width: f32| {
-              let string = string.as_str();
-              let theme = if ui.style().visuals.dark_mode {
-                syntax_highlighting::CodeTheme::dark(14.0)
-              } else {
-                syntax_highlighting::CodeTheme::light(14.0)
+          let search_matches = &search_matches;
+          let mut layouter = |ui: &egui::Ui,
+                              string: &dyn egui::TextBuffer,
+                              wrap_width: f32| {
+            let string = string.as_str();
+            let theme = if ui.style().visuals.dark_mode {
+              syntax_highlighting::CodeTheme::dark(14.0)
+            } else {
+              syntax_highlighting::CodeTheme::light(14.0)
+            };
+
+            let mut layout_job = syntax_highlighting::highlight(
+              ui.ctx(),
+              ui.style(),
+              &theme,
+              string,
+              "lua",
+            );
+            layout_job.wrap.max_width = wrap_width;
+
+            // Add underlines for lint diagnostics
+            for (range, severity) in lint_underlines {
+              let color = match severity {
+                LintSeverity::Error => egui::Color32::RED,
+                LintSeverity::Warning => egui::Color32::from_rgb(220, 120, 0),
               };
-
-              let mut layout_job = syntax_highlighting::highlight(
-                ui.ctx(),
-                ui.style(),
-                &theme,
-                string,
-                "lua",
-              );
-              layout_job.wrap.max_width = wrap_width;
-
-              // Add underlines for lint diagnostics
-              for (range, severity) in lint_underlines {
-                let color = match severity {
-                  LintSeverity::Error => egui::Color32::RED,
-                  LintSeverity::Warning => egui::Color32::from_rgb(220, 120, 0),
-                };
-                for section in &mut layout_job.sections {
-                  let s_start = section.byte_range.start;
-                  let s_end = section.byte_range.end;
-                  // If this section overlaps the diagnostic range, underline it
-                  if s_start < range.end && s_end > range.start {
-                    section.format.underline = egui::Stroke::new(1.5, color);
-                  }
+              for section in &mut layout_job.sections {
+                let s_start = section.byte_range.start;
+                let s_end = section.byte_range.end;
+                // If this section overlaps the diagnostic range, underline it
+                if s_start < range.end && s_end > range.start {
+                  section.format.underline = egui::Stroke::new(1.5, color);
                 }
               }
+            }
 
-              ui.fonts(|f| f.layout_job(layout_job))
-            };
+            // Highlight search matches by splitting sections at match boundaries
+            if !search_matches.is_empty() {
+              let match_bg =
+                egui::Color32::from_rgba_premultiplied(255, 255, 0, 60);
+              let current_bg =
+                egui::Color32::from_rgba_premultiplied(255, 165, 0, 100);
+
+              let mut new_sections: Vec<egui::text::LayoutSection> = Vec::new();
+              for section in layout_job.sections.drain(..) {
+                let s_start = section.byte_range.start;
+                let s_end = section.byte_range.end;
+
+                let overlapping: Vec<(usize, &std::ops::Range<usize>)> =
+                  search_matches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| m.start < s_end && m.end > s_start)
+                    .collect();
+
+                if overlapping.is_empty() {
+                  new_sections.push(section);
+                  continue;
+                }
+
+                let mut cursor = s_start;
+                let mut is_first = true;
+                for (match_idx, m) in &overlapping {
+                  let overlap_start = m.start.max(s_start);
+                  let overlap_end = m.end.min(s_end);
+
+                  // Non-match portion before this overlap
+                  if cursor < overlap_start {
+                    new_sections.push(egui::text::LayoutSection {
+                      leading_space: if is_first {
+                        section.leading_space
+                      } else {
+                        0.0
+                      },
+                      byte_range: cursor..overlap_start,
+                      format: section.format.clone(),
+                    });
+                    is_first = false;
+                  }
+
+                  // Match portion with background highlight
+                  let bg = if current_search_match == Some(*match_idx) {
+                    current_bg
+                  } else {
+                    match_bg
+                  };
+                  let mut fmt = section.format.clone();
+                  fmt.background = bg;
+                  new_sections.push(egui::text::LayoutSection {
+                    leading_space: if is_first {
+                      section.leading_space
+                    } else {
+                      0.0
+                    },
+                    byte_range: overlap_start..overlap_end,
+                    format: fmt,
+                  });
+                  is_first = false;
+                  cursor = overlap_end;
+                }
+
+                // Remainder after last overlap
+                if cursor < s_end {
+                  new_sections.push(egui::text::LayoutSection {
+                    leading_space: 0.0,
+                    byte_range: cursor..s_end,
+                    format: section.format.clone(),
+                  });
+                }
+              }
+              layout_job.sections = new_sections;
+            }
+
+            ui.fonts(|f| f.layout_job(layout_job))
+          };
 
           let te_output = egui::TextEdit::multiline(&mut app.text_content)
             .desired_width(ui.available_width())
@@ -249,6 +631,32 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
               CCursor::new(new_end),
             )));
             state.store(ui.ctx(), te_output.response.id);
+          }
+
+          // Navigate cursor to current search match
+          if app.search.open && app.search.needs_cursor_update {
+            app.search.needs_cursor_update = false;
+            if let Some(idx) = app.search.current_match
+              && idx < app.search.matches.len()
+            {
+              let match_range = &app.search.matches[idx];
+              let char_start =
+                app.text_content[..match_range.start].chars().count();
+              let char_end =
+                app.text_content[..match_range.end].chars().count();
+
+              let mut state = te_output.state.clone();
+              use egui::text::CCursor;
+              use egui::text_selection::CCursorRange;
+              state.cursor.set_char_range(Some(CCursorRange::two(
+                CCursor::new(char_start),
+                CCursor::new(char_end),
+              )));
+              state.store(ui.ctx(), te_output.response.id);
+
+              app.editor_cursor_pos = char_end;
+              app.editor_selection_len = char_end - char_start;
+            }
           }
         });
 
@@ -433,6 +841,8 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
               (format!("{m} C"), "Copy"),
               (format!("{m} X"), "Cut"),
               (format!("{m} V"), "Paste"),
+              (format!("{m} F"), "Find"),
+              (format!("{m} H"), "Find and replace"),
               (format!("{m} D"), "Select word / next occurrence"),
               (format!("{m} L"), "Select line"),
               (format!("{m} G"), "Toggle comment"),
