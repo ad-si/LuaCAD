@@ -173,6 +173,9 @@ fn main() {
               Key::G => {
                 app.pending_editor_action = Some(EditorAction::ToggleComment);
               }
+              Key::N => {
+                app.pending_file_action = Some(FileAction::New);
+              }
               Key::S => {
                 app.pending_file_action = Some(FileAction::Save);
               }
@@ -491,6 +494,13 @@ fn main() {
       // Handle file open/save requests
       if let Some(action) = app.pending_file_action.take() {
         match action {
+          FileAction::New => {
+            app.text_content.clear();
+            app.geometries.clear();
+            app.lua_error = None;
+            app.current_file = None;
+            app.scene_dirty = true;
+          }
           FileAction::Open => {
             if let Some(path) = rfd::FileDialog::new()
               .set_title("Open Lua File")

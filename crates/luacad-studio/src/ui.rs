@@ -84,6 +84,13 @@ pub fn render_ui(gui_context: &egui::Context, app: &mut AppState) -> f32 {
 
       ui.horizontal(|ui| {
         if ui
+          .button("New")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .clicked()
+        {
+          app.pending_file_action = Some(FileAction::New);
+        }
+        if ui
           .button("Open")
           .on_hover_cursor(egui::CursorIcon::PointingHand)
           .clicked()

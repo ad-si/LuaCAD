@@ -11,6 +11,7 @@ use luacad::linter::LintDiagnostic;
 
 #[derive(Debug, Clone)]
 pub enum FileAction {
+  New,
   Open,
   Save,
   SaveAs,
