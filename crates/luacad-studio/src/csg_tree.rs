@@ -319,14 +319,11 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
     }
 
     // --- Extrusions / Hull / Minkowski: not directly tessellatable ---
-    // These produce complex geometry that can't be trivially tessellated from
-    // the ScadNode parameters alone. We'd need the csgrs mesh. Since we don't
-    // have direct access to it here, produce an empty group (these will fall
-    // back to the mesh-based path in flatten_geometries).
+    // Materialize via Manifold and render the resulting mesh as a leaf.
     ScadNode::LinearExtrude { .. }
     | ScadNode::RotateExtrude { .. }
     | ScadNode::Hull(_)
-    | ScadNode::Minkowski(_) => vec![],
+    | ScadNode::Minkowski(_) => manifold_preview(node, ctx, op, 1),
 
     // --- BOSL2 shapes with preview parameters ---
     ScadNode::BoslCall { preview, .. } => match preview {
