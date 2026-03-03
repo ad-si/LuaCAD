@@ -189,6 +189,30 @@ fn flatten_node(
   flatten_inner(node, &ctx, INTERSECTION)
 }
 
+/// Returns true if `node` itself (not descendants) is a non-tessellatable
+/// primitive that requires Manifold materialization. Used to decide whether a
+/// boolean's immediate children need the whole boolean computed via Manifold
+/// rather than OpenCSG, avoiding depth-buffer precision artifacts.
+fn is_manifold_primitive(node: &ScadNode) -> bool {
+  match node {
+    ScadNode::Minkowski(_)
+    | ScadNode::Hull(_)
+    | ScadNode::LinearExtrude { .. }
+    | ScadNode::RotateExtrude { .. } => true,
+    // Look through transforms to the underlying shape
+    ScadNode::Translate { child, .. }
+    | ScadNode::Rotate { child, .. }
+    | ScadNode::Scale { child, .. }
+    | ScadNode::Mirror { child, .. }
+    | ScadNode::Multmatrix { child, .. }
+    | ScadNode::Resize { child, .. }
+    | ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Modifier { child, .. } => is_manifold_primitive(child),
+    _ => false,
+  }
+}
+
 fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
   match node {
     // --- CSG booleans ---
@@ -203,6 +227,11 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
       groups
     }
     ScadNode::Difference(children) if !children.is_empty() => {
+      // If any child requires Manifold (Minkowski, Hull, extrusions), compute
+      // the entire boolean via Manifold to avoid OpenCSG depth-buffer artifacts.
+      if children.iter().any(is_manifold_primitive) {
+        return manifold_preview(node, ctx, op, 1);
+      }
       // First child = Intersection, rest = Subtraction, all in one group.
       let mut leaves = Vec::new();
       for (i, child) in children.iter().enumerate() {
@@ -219,6 +248,10 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
       }
     }
     ScadNode::Intersection(children) => {
+      // If any child requires Manifold, compute via Manifold.
+      if children.iter().any(is_manifold_primitive) {
+        return manifold_preview(node, ctx, op, 1);
+      }
       // All children are Intersection, in one group.
       let mut leaves = Vec::new();
       for child in children {

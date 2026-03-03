@@ -48,15 +48,9 @@ Manifold Manifold::Impl::Minkowski(const Impl& other, bool inset) const {
     return Manifold(result);
   }
 
-  std::shared_ptr<Impl> aImplCopy = std::make_shared<Impl>(*aImpl);
-  Manifold a(aImplCopy);
-  std::vector<Manifold> composedHulls;
-  // Reserve space: 1 for base + batches for non-convex cases
-  size_t numBatches = (aImpl->NumTri() + BATCH_SIZE - 1) / BATCH_SIZE;
-  composedHulls.reserve(1 + numBatches);
-  composedHulls.push_back(a);
-
   // Convex-Convex Minkowski: Very Fast
+  // Return the hull directly — no boolean needed since the hull is the exact
+  // Minkowski sum for two convex inputs.
   if (!inset && aConvex && bConvex) {
     const VecView<vec3> verts = bImpl->vertPos_;
     std::vector<vec3> simpleHull;
@@ -66,9 +60,19 @@ Manifold Manifold::Impl::Minkowski(const Impl& other, bool inset) const {
       simpleHull.insert(simpleHull.end(), TransformIterator(verts.begin(), t),
                         TransformIterator(verts.end(), t));
     }
-    composedHulls.push_back(Manifold::Hull(simpleHull));
-    // Convex - Non-Convex Minkowski: Slower
-  } else if ((inset || !aConvex) && bConvex) {
+    return Manifold::Hull(simpleHull).AsOriginal();
+  }
+
+  std::shared_ptr<Impl> aImplCopy = std::make_shared<Impl>(*aImpl);
+  Manifold a(aImplCopy);
+  std::vector<Manifold> composedHulls;
+  // Reserve space: 1 for base + batches for non-convex cases
+  size_t numBatches = (aImpl->NumTri() + BATCH_SIZE - 1) / BATCH_SIZE;
+  composedHulls.reserve(1 + numBatches);
+  composedHulls.push_back(a);
+
+  // Convex - Non-Convex Minkowski: Slower
+  if ((inset || !aConvex) && bConvex) {
     const size_t numTri = aImpl->NumTri();
     const VecView<vec3> verts = bImpl->vertPos_;
 
