@@ -293,6 +293,7 @@ fn egui_key(key: &Key) -> egui::Key {
     Key::X => egui::Key::X,
     Key::Y => egui::Key::Y,
     Key::Z => egui::Key::Z,
+    Key::Slash => egui::Key::Slash,
   }
 }
 

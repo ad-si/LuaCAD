@@ -2,7 +2,7 @@
 pub enum EditorAction {
   SelectNextOccurrence,   // Cmd+D
   SelectLine,             // Cmd+L
-  ToggleComment,          // Cmd+G (Cmd+/ blocked by three-d#571)
+  ToggleComment,          // Cmd+/
   InsertTab,              // Tab — insert 2 spaces or indent selected lines
   Unindent,               // Shift+Tab — unindent selected lines
   PasteLineAbove(String), // Paste whole-line clipboard above the current line

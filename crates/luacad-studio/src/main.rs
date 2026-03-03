@@ -178,7 +178,7 @@ fn main() {
               Key::L => {
                 app.pending_editor_action = Some(EditorAction::SelectLine);
               }
-              Key::G => {
+              Key::Slash => {
                 app.pending_editor_action = Some(EditorAction::ToggleComment);
               }
               Key::N => {

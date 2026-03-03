@@ -160,7 +160,7 @@ fn render_settings_shortcuts(ui: &mut egui::Ui) {
         (format!("{m} H"), "Find and replace"),
         (format!("{m} D"), "Select word / next occurrence"),
         (format!("{m} L"), "Select line"),
-        (format!("{m} G"), "Toggle comment"),
+        (format!("{m} /"), "Toggle comment"),
         ("⌃ D".into(), "Delete character right"),
         ("⌃ W".into(), "Delete word left"),
         ("( [ {".into(), "Wrap selection"),
@@ -839,7 +839,7 @@ pub fn render_ui(
           }
         }
 
-        // Apply pending editor action (Cmd+D, Cmd+L, Cmd+G)
+        // Apply pending editor action (Cmd+D, Cmd+L, Cmd+/)
         if let Some(action) = app.pending_editor_action.take() {
           let (cursor_start, cursor_end) =
             if let Some(range) = te_output.cursor_range {

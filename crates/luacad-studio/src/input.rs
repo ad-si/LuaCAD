@@ -77,6 +77,7 @@ pub enum Key {
   X,
   Y,
   Z,
+  Slash,
 }
 
 #[derive(Clone, Debug)]
@@ -518,6 +519,7 @@ fn translate_virtual_key_code(
     X => Key::X,
     Y => Key::Y,
     Z => Key::Z,
+    Slash => Key::Slash,
     _ => return None,
   })
 }
