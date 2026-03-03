@@ -13,13 +13,13 @@ use luacad::export::ExportFormat;
 #[cfg(feature = "csgrs")]
 use luacad::scad_export;
 use scene::{
-  build_camera, camera_projection_matrix, camera_view_matrix,
+  SceneFbo, build_camera, camera_projection_matrix, camera_view_matrix,
   compute_camera_vectors, compute_fit_distance, gl_clear_screen,
   gl_set_viewport, render_axes, render_opencsg_scene,
 };
 use theme::ThemeMode;
 use three_d::*;
-use ui::render_ui;
+use ui::{PanelLayout, render_ui};
 
 /// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_model.3mf`.
 fn timestamped_filename(ext: &str) -> String {
@@ -93,6 +93,8 @@ fn main() {
   let mut camera = build_camera(initial_viewport, &app);
   let mut last_theme_check = 0.0_f64;
 
+  let mut scene_fbo =
+    SceneFbo::new(initial_viewport.width, initial_viewport.height);
   let mut dragging_scene = false;
   let mut clipboard = arboard::Clipboard::new().ok();
   let mut frame_input_generator =
@@ -333,37 +335,12 @@ fn main() {
         });
       }
 
-      // Project axis label positions (using camera from previous frame)
       let dpr = frame_input.device_pixel_ratio;
-      let axis_labels: [(egui::Pos2, &str, egui::Color32); 3] = {
-        let tips_gl = [
-          vec3(0.0, 0.0, 5.2), // CAD +X → GL +Z (depth)
-          vec3(5.2, 0.0, 0.0), // CAD +Y → GL +X (right)
-          vec3(0.0, 5.2, 0.0), // CAD +Z → GL +Y (up)
-        ];
-        let labels = ["X", "Y", "Z"];
-        let colors = [
-          egui::Color32::RED,
-          egui::Color32::GREEN,
-          egui::Color32::from_rgb(80, 80, 255),
-        ];
-        let mut result = [
-          (egui::Pos2::ZERO, "X", egui::Color32::RED),
-          (egui::Pos2::ZERO, "Y", egui::Color32::GREEN),
-          (egui::Pos2::ZERO, "Z", egui::Color32::from_rgb(80, 80, 255)),
-        ];
-        for i in 0..3 {
-          let px = camera.pixel_at_position(tips_gl[i]);
-          let vp = camera.viewport();
-          let ex = px.x as f32 / dpr;
-          let ey = (vp.height as f32 - px.y as f32) / dpr;
-          result[i] = (egui::Pos2::new(ex, ey), labels[i], colors[i]);
-        }
-        result
-      };
 
       // Process GUI (consumes events over egui panels)
-      let mut panel_width = 0.0_f32;
+      let mut panel_layout = PanelLayout {
+        scene_rect: egui::Rect::NOTHING,
+      };
       let mut egui_cursor = egui::CursorIcon::Default;
       let mut copied_text = String::new();
       gui.update(
@@ -404,23 +381,42 @@ fn main() {
             gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
           }
 
-          panel_width = render_ui(gui_context, &mut app);
+          panel_layout = render_ui(gui_context, &mut app);
 
-          // Draw axis labels as overlay
-          let screen_width = gui_context.screen_rect().width();
-          let scene_right = screen_width - panel_width;
+          // Draw axis labels as overlay within the 3D scene area.
+          // Camera viewport is at origin (0,0), so pixel_at_position returns
+          // coordinates relative to the scene area. Offset by scene_rect.
+          let scene_rect = panel_layout.scene_rect;
+          let tips_gl = [
+            vec3(0.0, 0.0, 5.2), // CAD +X → GL +Z
+            vec3(5.2, 0.0, 0.0), // CAD +Y → GL +X
+            vec3(0.0, 5.2, 0.0), // CAD +Z → GL +Y
+          ];
+          let labels = ["X", "Y", "Z"];
+          let colors = [
+            egui::Color32::RED,
+            egui::Color32::GREEN,
+            egui::Color32::from_rgb(80, 80, 255),
+          ];
           let painter = gui_context.layer_painter(egui::LayerId::new(
             egui::Order::Foreground,
             egui::Id::new("axis_labels"),
           ));
-          for (pos, label, color) in &axis_labels {
-            if pos.x < scene_right {
+          let vp = camera.viewport();
+          for i in 0..3 {
+            let px = camera.pixel_at_position(tips_gl[i]);
+            // pixel_at_position returns physical pixels relative to origin viewport.
+            // Convert to logical and offset by scene_rect position.
+            let ex = px.x as f32 / dpr + scene_rect.left();
+            let ey = (vp.height as f32 - px.y as f32) / dpr + scene_rect.top();
+            let pos = egui::Pos2::new(ex, ey);
+            if scene_rect.contains(pos) {
               painter.text(
-                *pos,
+                pos,
                 egui::Align2::CENTER_CENTER,
-                label,
+                labels[i],
                 egui::FontId::proportional(14.0),
-                *color,
+                colors[i],
               );
             }
           }
@@ -657,21 +653,30 @@ fn main() {
         }
       }
 
-      // Compute 3D viewport: left area excluding right panel
+      // Compute scene area in physical pixels from the logical scene_rect
       let full = frame_input.viewport;
-      let panel_px =
-        (panel_width * frame_input.device_pixel_ratio).round() as u32;
-      let scene_width = full.width.saturating_sub(panel_px);
-      let scene_viewport = Viewport {
-        x: full.x,
-        y: full.y,
-        width: scene_width,
-        height: full.height,
-      };
+      let dpr = frame_input.device_pixel_ratio;
+      let sr = panel_layout.scene_rect;
+      let scene_w = (sr.width() * dpr).round() as u32;
+      let scene_h = (sr.height() * dpr).round() as u32;
+
+      // Camera viewport is at origin — matches the FBO we'll render into
+      let scene_viewport = Viewport::new_at_origo(scene_w, scene_h);
       camera.set_viewport(scene_viewport);
 
-      // Handle camera input from remaining events (not consumed by GUI)
-      let scene_max_x = scene_width as f32;
+      // Scene rect in physical pixels (for mouse hit-testing).
+      // Note: three_d PhysicalPoint has top-left origin, same as egui.
+      let scene_phys_x = sr.left() * dpr;
+      let scene_phys_y = sr.top() * dpr;
+      let scene_phys_r = scene_phys_x + scene_w as f32;
+      let scene_phys_b = scene_phys_y + scene_h as f32;
+
+      let in_scene = |pos: &PhysicalPoint| -> bool {
+        pos.x >= scene_phys_x
+          && pos.x < scene_phys_r
+          && pos.y >= scene_phys_y
+          && pos.y < scene_phys_b
+      };
       for event in frame_input.events.iter() {
         match event {
           Event::MousePress {
@@ -679,7 +684,7 @@ fn main() {
             position,
             handled,
             ..
-          } if !handled && position.x < scene_max_x => {
+          } if !handled && in_scene(position) => {
             dragging_scene = true;
           }
           Event::MouseRelease {
@@ -702,7 +707,7 @@ fn main() {
             handled,
             position,
             ..
-          } if !handled && position.x < scene_max_x => {
+          } if !handled && in_scene(position) => {
             let zoom_factor = (-delta.1 * 0.01).exp();
             app.camera_distance =
               (app.camera_distance * zoom_factor).clamp(0.001, 10_000.0);
@@ -752,27 +757,29 @@ fn main() {
       // --- Render ---
       let (bg_r, bg_g, bg_b) = app.theme_colors.bg;
 
-      // Set GL viewport to 3D scene area and clear
-      gl_set_viewport(
-        scene_viewport.x,
-        scene_viewport.y,
-        scene_viewport.width as i32,
-        scene_viewport.height as i32,
-      );
+      // Resize the offscreen FBO if the scene area changed
+      scene_fbo.ensure_size(scene_w, scene_h);
+
+      // Render the 3D scene into the offscreen FBO at (0,0).
+      // OpenCSG's internal FBO/blit logic requires viewport at origin.
+      scene_fbo.bind();
       gl_clear_screen(bg_r, bg_g, bg_b);
 
-      // Extract camera matrices for legacy GL
       let proj = camera_projection_matrix(&camera);
       let view = camera_view_matrix(&camera);
-
-      // Render CSG scene via OpenCSG + fixed-function shading
       render_opencsg_scene(&app.csg_groups, &proj, &view);
-
-      // Render 3D axes
       render_axes();
 
-      // Restore full viewport for GUI overlay
+      scene_fbo.unbind();
+
+      // Clear the default framebuffer, then blit the FBO to the scene area.
+      // GL blit coordinates use bottom-left origin, so convert from top-left.
       gl_set_viewport(full.x, full.y, full.width as i32, full.height as i32);
+      gl_clear_screen(bg_r, bg_g, bg_b);
+
+      let dst_x = (sr.left() * dpr).round() as i32;
+      let dst_y = (full.height as f32 - sr.bottom() * dpr).round() as i32;
+      scene_fbo.blit_to_screen(dst_x, dst_y, scene_w, scene_h);
 
       // Render egui overlay
       let screen = frame_input.screen();

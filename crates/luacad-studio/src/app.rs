@@ -4,6 +4,33 @@ use std::path::PathBuf;
 use crate::csg_tree::{CsgGroup, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
+
+/// Where the code editor panel is placed relative to the 3D viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorPosition {
+  Right,
+  Left,
+  Top,
+  Bottom,
+}
+
+impl EditorPosition {
+  pub const ALL: &'static [EditorPosition] = &[
+    EditorPosition::Right,
+    EditorPosition::Left,
+    EditorPosition::Top,
+    EditorPosition::Bottom,
+  ];
+
+  pub fn label(self) -> &'static str {
+    match self {
+      Self::Right => "Right",
+      Self::Left => "Left",
+      Self::Top => "Top",
+      Self::Bottom => "Bottom",
+    }
+  }
+}
 #[cfg(feature = "csgrs")]
 use luacad::export::ExportFormat;
 use luacad::export::ManifoldFormat;
@@ -70,8 +97,12 @@ pub struct AppState {
   pub pending_manifold_export: Option<ManifoldFormat>,
   /// Auto-zoom to fit on next scene rebuild (initial load / file open)
   pub needs_fit_to_view: bool,
-  /// Whether the keyboard shortcuts modal is open
-  pub show_shortcuts: bool,
+  /// Whether the settings dialog is open
+  pub show_settings: bool,
+  /// Which tab is active in the settings dialog (0=General, 1=Shortcuts)
+  pub settings_tab: usize,
+  /// Editor panel position relative to viewport
+  pub editor_position: EditorPosition,
   /// Editor cursor character offset (updated each frame by UI)
   pub editor_cursor_pos: usize,
   /// Editor selection length in characters (updated each frame by UI)
@@ -111,7 +142,9 @@ impl AppState {
       pending_file_action: None,
       pending_manifold_export: None,
       needs_fit_to_view: true,
-      show_shortcuts: false,
+      show_settings: false,
+      settings_tab: 0,
+      editor_position: EditorPosition::Right,
       editor_cursor_pos: 0,
       editor_selection_len: 0,
       clipboard_is_line: false,

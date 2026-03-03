@@ -567,6 +567,44 @@ unsafe extern "C" {
   fn gl_DisableClientState(array: u32);
   #[link_name = "glDrawArrays"]
   fn gl_DrawArrays(mode: u32, first: i32, count: i32);
+
+  // FBO functions (EXT on macOS GL 2.1 Legacy)
+  #[link_name = "glGenFramebuffersEXT"]
+  fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32);
+  #[link_name = "glDeleteFramebuffersEXT"]
+  fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32);
+  #[link_name = "glBindFramebufferEXT"]
+  fn gl_BindFramebuffer(target: u32, framebuffer: u32);
+  #[link_name = "glGenRenderbuffersEXT"]
+  fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32);
+  #[link_name = "glDeleteRenderbuffersEXT"]
+  fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32);
+  #[link_name = "glBindRenderbufferEXT"]
+  fn gl_BindRenderbuffer(target: u32, renderbuffer: u32);
+  #[link_name = "glRenderbufferStorageEXT"]
+  fn gl_RenderbufferStorage(target: u32, format: u32, width: i32, height: i32);
+  #[link_name = "glFramebufferRenderbufferEXT"]
+  fn gl_FramebufferRenderbuffer(
+    target: u32,
+    attachment: u32,
+    renderbuffer_target: u32,
+    renderbuffer: u32,
+  );
+  #[link_name = "glCheckFramebufferStatusEXT"]
+  fn gl_CheckFramebufferStatus(target: u32) -> u32;
+  #[link_name = "glBlitFramebufferEXT"]
+  fn gl_BlitFramebuffer(
+    src_x0: i32,
+    src_y0: i32,
+    src_x1: i32,
+    src_y1: i32,
+    dst_x0: i32,
+    dst_y0: i32,
+    dst_x1: i32,
+    dst_y1: i32,
+    mask: u32,
+    filter: u32,
+  );
 }
 
 // macOS uses GL 2.1 Legacy which has no VAOs; provide a no-op.
@@ -657,6 +695,44 @@ unsafe extern "C" {
   fn gl_DisableClientState(array: u32);
   #[link_name = "glDrawArrays"]
   fn gl_DrawArrays(mode: u32, first: i32, count: i32);
+
+  // FBO functions (core in GL 3.0+, available on Linux)
+  #[link_name = "glGenFramebuffers"]
+  fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32);
+  #[link_name = "glDeleteFramebuffers"]
+  fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32);
+  #[link_name = "glBindFramebuffer"]
+  fn gl_BindFramebuffer(target: u32, framebuffer: u32);
+  #[link_name = "glGenRenderbuffers"]
+  fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32);
+  #[link_name = "glDeleteRenderbuffers"]
+  fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32);
+  #[link_name = "glBindRenderbuffer"]
+  fn gl_BindRenderbuffer(target: u32, renderbuffer: u32);
+  #[link_name = "glRenderbufferStorage"]
+  fn gl_RenderbufferStorage(target: u32, format: u32, width: i32, height: i32);
+  #[link_name = "glFramebufferRenderbuffer"]
+  fn gl_FramebufferRenderbuffer(
+    target: u32,
+    attachment: u32,
+    renderbuffer_target: u32,
+    renderbuffer: u32,
+  );
+  #[link_name = "glCheckFramebufferStatus"]
+  fn gl_CheckFramebufferStatus(target: u32) -> u32;
+  #[link_name = "glBlitFramebuffer"]
+  fn gl_BlitFramebuffer(
+    src_x0: i32,
+    src_y0: i32,
+    src_x1: i32,
+    src_y1: i32,
+    dst_x0: i32,
+    dst_y0: i32,
+    dst_x1: i32,
+    dst_y1: i32,
+    mask: u32,
+    filter: u32,
+  );
 }
 
 #[cfg(target_os = "windows")]
@@ -810,6 +886,58 @@ mod win_gl_buffers {
     c"glBufferData",
     unsafe extern "C" fn(u32, isize, *const c_void, u32)
   );
+
+  // FBO functions (GL 3.0+)
+  load_gl_fn!(
+    gen_framebuffers,
+    c"glGenFramebuffers",
+    unsafe extern "C" fn(i32, *mut u32)
+  );
+  load_gl_fn!(
+    delete_framebuffers,
+    c"glDeleteFramebuffers",
+    unsafe extern "C" fn(i32, *const u32)
+  );
+  load_gl_fn!(
+    bind_framebuffer,
+    c"glBindFramebuffer",
+    unsafe extern "C" fn(u32, u32)
+  );
+  load_gl_fn!(
+    gen_renderbuffers,
+    c"glGenRenderbuffers",
+    unsafe extern "C" fn(i32, *mut u32)
+  );
+  load_gl_fn!(
+    delete_renderbuffers,
+    c"glDeleteRenderbuffers",
+    unsafe extern "C" fn(i32, *const u32)
+  );
+  load_gl_fn!(
+    bind_renderbuffer,
+    c"glBindRenderbuffer",
+    unsafe extern "C" fn(u32, u32)
+  );
+  load_gl_fn!(
+    renderbuffer_storage,
+    c"glRenderbufferStorage",
+    unsafe extern "C" fn(u32, u32, i32, i32)
+  );
+  load_gl_fn!(
+    framebuffer_renderbuffer,
+    c"glFramebufferRenderbuffer",
+    unsafe extern "C" fn(u32, u32, u32, u32)
+  );
+  load_gl_fn!(
+    check_framebuffer_status,
+    c"glCheckFramebufferStatus",
+    unsafe extern "C" fn(u32) -> u32
+  );
+  load_gl_fn!(
+    blit_framebuffer,
+    c"glBlitFramebuffer",
+    unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32)
+  );
 }
 
 #[cfg(target_os = "windows")]
@@ -832,6 +960,81 @@ unsafe fn gl_BufferData(
   usage: u32,
 ) {
   unsafe { (win_gl_buffers::buffer_data())(target, size, data, usage) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32) {
+  unsafe { (win_gl_buffers::gen_framebuffers())(n, framebuffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32) {
+  unsafe { (win_gl_buffers::delete_framebuffers())(n, framebuffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_BindFramebuffer(target: u32, framebuffer: u32) {
+  unsafe { (win_gl_buffers::bind_framebuffer())(target, framebuffer) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32) {
+  unsafe { (win_gl_buffers::gen_renderbuffers())(n, renderbuffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32) {
+  unsafe { (win_gl_buffers::delete_renderbuffers())(n, renderbuffers) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_BindRenderbuffer(target: u32, renderbuffer: u32) {
+  unsafe { (win_gl_buffers::bind_renderbuffer())(target, renderbuffer) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_RenderbufferStorage(
+  target: u32,
+  format: u32,
+  width: i32,
+  height: i32,
+) {
+  unsafe {
+    (win_gl_buffers::renderbuffer_storage())(target, format, width, height)
+  }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_FramebufferRenderbuffer(
+  target: u32,
+  attachment: u32,
+  renderbuffer_target: u32,
+  renderbuffer: u32,
+) {
+  unsafe {
+    (win_gl_buffers::framebuffer_renderbuffer())(
+      target,
+      attachment,
+      renderbuffer_target,
+      renderbuffer,
+    )
+  }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_CheckFramebufferStatus(target: u32) -> u32 {
+  unsafe { (win_gl_buffers::check_framebuffer_status())(target) }
+}
+#[cfg(target_os = "windows")]
+unsafe fn gl_BlitFramebuffer(
+  src_x0: i32,
+  src_y0: i32,
+  src_x1: i32,
+  src_y1: i32,
+  dst_x0: i32,
+  dst_y0: i32,
+  dst_x1: i32,
+  dst_y1: i32,
+  mask: u32,
+  filter: u32,
+) {
+  unsafe {
+    (win_gl_buffers::blit_framebuffer())(
+      src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask,
+      filter,
+    )
+  }
 }
 
 // GL constants
@@ -867,6 +1070,167 @@ const GL_STATIC_DRAW: u32 = 0x88E4;
 const GL_FLOAT: u32 = 0x1406;
 const GL_VERTEX_ARRAY: u32 = 0x8074;
 const GL_NORMAL_ARRAY: u32 = 0x8075;
+
+// FBO constants
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
+const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+const GL_RENDERBUFFER: u32 = 0x8D41;
+const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
+const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
+const GL_RGBA8: u32 = 0x8058;
+const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+const GL_NEAREST: u32 = 0x2600;
+
+/// Offscreen framebuffer for rendering the 3D scene.
+///
+/// OpenCSG's internal FBO/blit logic assumes the GL viewport starts at (0,0).
+/// By rendering into this offscreen FBO at (0,0) with the scene dimensions,
+/// then blitting to the correct screen position, we avoid that constraint.
+pub struct SceneFbo {
+  fbo: u32,
+  color_rb: u32,
+  depth_stencil_rb: u32,
+  width: u32,
+  height: u32,
+}
+
+impl SceneFbo {
+  /// Create a new offscreen FBO with the given dimensions.
+  pub fn new(width: u32, height: u32) -> Self {
+    let w = width.max(1);
+    let h = height.max(1);
+    let mut fbo = 0u32;
+    let mut rbs = [0u32; 2];
+    unsafe {
+      gl_GenFramebuffers(1, &mut fbo);
+      gl_GenRenderbuffers(2, rbs.as_mut_ptr());
+
+      gl_BindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+      // Color attachment
+      gl_BindRenderbuffer(GL_RENDERBUFFER, rbs[0]);
+      gl_RenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w as i32, h as i32);
+      gl_FramebufferRenderbuffer(
+        GL_FRAMEBUFFER,
+        GL_COLOR_ATTACHMENT0,
+        GL_RENDERBUFFER,
+        rbs[0],
+      );
+
+      // Depth+stencil attachment
+      gl_BindRenderbuffer(GL_RENDERBUFFER, rbs[1]);
+      gl_RenderbufferStorage(
+        GL_RENDERBUFFER,
+        GL_DEPTH24_STENCIL8,
+        w as i32,
+        h as i32,
+      );
+      gl_FramebufferRenderbuffer(
+        GL_FRAMEBUFFER,
+        GL_DEPTH_STENCIL_ATTACHMENT,
+        GL_RENDERBUFFER,
+        rbs[1],
+      );
+
+      let status = gl_CheckFramebufferStatus(GL_FRAMEBUFFER);
+      assert_eq!(
+        status, GL_FRAMEBUFFER_COMPLETE,
+        "FBO incomplete: {status:#x}"
+      );
+
+      gl_BindRenderbuffer(GL_RENDERBUFFER, 0);
+      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    Self {
+      fbo,
+      color_rb: rbs[0],
+      depth_stencil_rb: rbs[1],
+      width: w,
+      height: h,
+    }
+  }
+
+  /// Resize the FBO if dimensions changed. Returns true if resized.
+  pub fn ensure_size(&mut self, width: u32, height: u32) -> bool {
+    let w = width.max(1);
+    let h = height.max(1);
+    if w == self.width && h == self.height {
+      return false;
+    }
+    unsafe {
+      gl_BindFramebuffer(GL_FRAMEBUFFER, self.fbo);
+
+      gl_BindRenderbuffer(GL_RENDERBUFFER, self.color_rb);
+      gl_RenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w as i32, h as i32);
+
+      gl_BindRenderbuffer(GL_RENDERBUFFER, self.depth_stencil_rb);
+      gl_RenderbufferStorage(
+        GL_RENDERBUFFER,
+        GL_DEPTH24_STENCIL8,
+        w as i32,
+        h as i32,
+      );
+
+      gl_BindRenderbuffer(GL_RENDERBUFFER, 0);
+      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    self.width = w;
+    self.height = h;
+    true
+  }
+
+  /// Bind this FBO for rendering. Sets viewport to (0, 0, w, h).
+  pub fn bind(&self) {
+    unsafe {
+      gl_BindFramebuffer(GL_FRAMEBUFFER, self.fbo);
+      gl_Viewport(0, 0, self.width as i32, self.height as i32);
+    }
+  }
+
+  /// Unbind (switch back to default framebuffer).
+  pub fn unbind(&self) {
+    unsafe {
+      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+  }
+
+  /// Blit the FBO contents to a region of the default framebuffer.
+  /// `dst_x`, `dst_y` are in GL coordinates (bottom-left origin, physical pixels).
+  pub fn blit_to_screen(&self, dst_x: i32, dst_y: i32, dst_w: u32, dst_h: u32) {
+    unsafe {
+      gl_BindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo);
+      gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+      gl_BlitFramebuffer(
+        0,
+        0,
+        self.width as i32,
+        self.height as i32,
+        dst_x,
+        dst_y,
+        dst_x + dst_w as i32,
+        dst_y + dst_h as i32,
+        GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+        GL_NEAREST,
+      );
+      gl_BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    }
+  }
+}
+
+impl Drop for SceneFbo {
+  fn drop(&mut self) {
+    unsafe {
+      gl_DeleteRenderbuffers(
+        2,
+        [self.color_rb, self.depth_stencil_rb].as_ptr(),
+      );
+      gl_DeleteFramebuffers(1, &self.fbo);
+    }
+  }
+}
 
 /// Clear the framebuffer with a background color and reset depth + stencil.
 pub fn gl_clear_screen(r: f32, g: f32, b: f32) {
