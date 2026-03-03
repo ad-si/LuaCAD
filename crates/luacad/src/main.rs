@@ -19,6 +19,7 @@ fn print_help() {
   println!(
     "  luacad convert <input.lua> <output.stl>   Convert to a mesh format with csgrs"
   );
+  println!("  luacad render <input.lua> [output.png]    Render to a PNG image");
   println!(
     "  luacad watch <input.lua> <output.stl>     Rebuild on file changes"
   );
@@ -36,6 +37,11 @@ fn print_help() {
   );
   println!(
     "  --via-manifold   Use Manifold to generate the output (3mf, stl, obj, ply, off, amf)"
+  );
+  println!();
+  println!("Render options:");
+  println!(
+    "  --smooth         Smooth shading (default: flat, showing tessellation)"
   );
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
@@ -469,6 +475,73 @@ where
   }
 }
 
+fn cmd_render(args: &[String]) -> ExitCode {
+  let mut smooth = false;
+  let mut positional = Vec::new();
+
+  for arg in args {
+    match arg.as_str() {
+      "--smooth" => smooth = true,
+      _ if arg.starts_with('-') => {
+        eprintln!("Unknown option: {arg}");
+        return ExitCode::FAILURE;
+      }
+      _ => positional.push(arg.clone()),
+    }
+  }
+
+  if positional.is_empty() {
+    eprintln!(
+      "Missing input file. Usage: luacad render <file.lua> [output.png] [--smooth]"
+    );
+    return ExitCode::FAILURE;
+  }
+
+  let input = &positional[0];
+  let output = if positional.len() > 1 {
+    positional[1].clone()
+  } else {
+    Path::new(input)
+      .with_extension("png")
+      .to_string_lossy()
+      .to_string()
+  };
+
+  let code = match std::fs::read_to_string(input) {
+    Ok(c) => c,
+    Err(e) => {
+      eprintln!("Error reading {input}: {e}");
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let geometries = match luacad::lua_engine::execute_lua(&code) {
+    Ok(g) => g,
+    Err(e) => {
+      eprintln!("{e}");
+      return ExitCode::FAILURE;
+    }
+  };
+
+  let output_path = Path::new(&output);
+  match luacad::render::render_to_png(&geometries, output_path, smooth) {
+    Ok(()) => {
+      let label = if geometries.len() == 1 {
+        "object"
+      } else {
+        "objects"
+      };
+      println!("OK: {} {label}", geometries.len());
+      println!("Rendered to {}", output_path.display());
+      ExitCode::SUCCESS
+    }
+    Err(e) => {
+      eprintln!("{e}");
+      ExitCode::FAILURE
+    }
+  }
+}
+
 fn cmd_convert(args: &[String]) -> ExitCode {
   let (input, output_str, format_override, via_openscad, via_manifold) =
     match parse_convert_args(args) {
@@ -593,6 +666,7 @@ fn main() -> ExitCode {
     "info" => cmd_info(&args[1..]),
     "lint" => cmd_lint(&args[1..]),
     "convert" => cmd_convert(&args[1..]),
+    "render" => cmd_render(&args[1..]),
     "watch" => cmd_watch(&args[1..]),
     _ => cmd_run(&args),
   }

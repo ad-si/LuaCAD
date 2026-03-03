@@ -20,6 +20,7 @@ full_moon = { version = "2", features = ["lua54"] }
 toml = "0.7"
 serde_yaml = "0.9"
 manifold-sys = { path = "../manifold-sys" }
+png = "0.18"
 
 [dev-dependencies]
 insta = "1"

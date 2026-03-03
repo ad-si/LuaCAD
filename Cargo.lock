@@ -1874,6 +1874,7 @@ dependencies = [
  "manifold-sys",
  "mlua",
  "nalgebra",
+ "png 0.18.0",
  "selene-lib",
  "serde_yaml",
  "threemf",
