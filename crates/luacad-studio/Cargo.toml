@@ -12,8 +12,10 @@ csgrs = ["dep:csgrs", "luacad/csgrs"]
 
 [dependencies]
 luacad = { version = "0.1.0", path = "../luacad" }
-three-d = { git = "https://github.com/asny/three-d", features = ["window", "egui-gui"] }
+egui = "0.32"
+egui_glow = "0.32"
 egui_extras = { version = "0.32", features = ["default", "syntect"] }
+cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
 opencsg-sys = { version = "0.1.0", path = "../opencsg-sys" }
 arboard = "3"

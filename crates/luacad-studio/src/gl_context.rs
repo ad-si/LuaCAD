@@ -1,18 +1,16 @@
 //! Custom OpenGL context creation that requests Compatibility/Legacy profile.
 //!
-//! three-d's `WindowedContext::from_winit_window` always creates a Core Profile
-//! context on macOS (GL 4.1). OpenCSG requires legacy GL functions (glBegin,
-//! glMatrixMode, etc.) which are only available in the Compatibility/Legacy
-//! profile.
+//! OpenCSG requires legacy GL functions (glBegin, glMatrixMode, etc.) which
+//! are only available in the Compatibility/Legacy profile.
 //!
 //! On macOS, we use CGL directly to create an NSOpenGLPixelFormat with the
 //! Legacy profile, then construct the context from that.
 //!
-//! On Linux, we use glutin with `GlProfile::Compatibility`.
+//! On Linux/Windows, we use glutin with `GlProfile::Compatibility`.
 
 /// Our custom windowed GL context that provides Compatibility/Legacy profile.
 pub struct GlWindowContext {
-  pub context: three_d::Context,
+  pub gl: std::sync::Arc<glow::Context>,
   #[cfg(target_os = "macos")]
   inner: macos::MacGlContext,
   #[cfg(target_os = "linux")]
@@ -24,13 +22,13 @@ pub struct GlWindowContext {
 impl GlWindowContext {
   pub fn new(window: &winit::window::Window, stencil_bits: u8) -> Self {
     #[cfg(target_os = "macos")]
-    let (context, inner) = macos::create_context(window, stencil_bits);
+    let (gl, inner) = macos::create_context(window, stencil_bits);
     #[cfg(target_os = "linux")]
-    let (context, inner) = linux::create_context(window, stencil_bits);
+    let (gl, inner) = linux::create_context(window, stencil_bits);
     #[cfg(target_os = "windows")]
-    let (context, inner) = windows::create_context(window, stencil_bits);
+    let (gl, inner) = windows::create_context(window, stencil_bits);
 
-    Self { context, inner }
+    Self { gl, inner }
   }
 
   pub fn swap_buffers(&self) {
@@ -43,10 +41,10 @@ impl GlWindowContext {
 }
 
 impl std::ops::Deref for GlWindowContext {
-  type Target = three_d::Context;
+  type Target = std::sync::Arc<glow::Context>;
 
   fn deref(&self) -> &Self::Target {
-    &self.context
+    &self.gl
   }
 }
 
@@ -162,7 +160,7 @@ mod macos {
   }
 
   // Stub VAO functions for GL 2.1 Legacy where VAOs don't exist.
-  // three-d creates one global VAO; on GL 2.1 vertex state is already global.
+  // egui_glow's Painter creates VAOs; on GL 2.1 vertex state is already global.
   unsafe extern "C" fn stub_gen_vertex_arrays(n: i32, arrays: *mut u32) {
     for i in 0..n {
       unsafe {
@@ -180,7 +178,7 @@ mod macos {
   pub fn create_context(
     window: &winit::window::Window,
     stencil_bits: u8,
-  ) -> (three_d::Context, MacGlContext) {
+  ) -> (Arc<glow::Context>, MacGlContext) {
     unsafe {
       let alloc_sel = sel_registerName(c"alloc".as_ptr());
 
@@ -256,13 +254,9 @@ mod macos {
       // Create glow context.
       //
       // GL 2.1 Legacy doesn't have VAO functions (glGenVertexArrays etc.) which
-      // are GL 3.0+. three-d::Context::from_gl_context() unconditionally creates
-      // one VAO. We provide stub implementations that return a fake VAO name.
-      // This works because:
-      // - three-d creates exactly one VAO and binds it globally
-      // - On GL 2.1 without VAOs, vertex attribute state is already global
-      // - Our OpenCSG rendering uses raw GL calls that don't need VAOs
-      // - egui_glow has its own VAO emulation fallback
+      // are GL 3.0+. egui_glow's Painter creates VAOs internally. We provide
+      // stub implementations that return a fake VAO name. This works because
+      // on GL 2.1 without VAOs, vertex attribute state is already global.
       let gl_handle_copy = gl_handle;
       let glow_context = glow::Context::from_loader_function(|name| {
         // Provide stub VAO functions for GL 2.1 Legacy
@@ -296,15 +290,13 @@ mod macos {
         std::ptr::null()
       });
 
-      let three_d_context =
-        three_d::Context::from_gl_context(Arc::new(glow_context))
-          .expect("failed to create three-d Context");
+      let gl = Arc::new(glow_context);
 
       let mac_ctx = MacGlContext {
         ns_context: context,
       };
 
-      (three_d_context, mac_ctx)
+      (gl, mac_ctx)
     }
   }
 }
@@ -349,7 +341,7 @@ mod linux {
   pub fn create_context(
     window: &winit::window::Window,
     stencil_bits: u8,
-  ) -> (three_d::Context, LinuxGlContext) {
+  ) -> (Arc<glow::Context>, LinuxGlContext) {
     let raw_display_handle = window.raw_display_handle();
     let raw_window_handle = window.raw_window_handle();
 
@@ -418,16 +410,14 @@ mod linux {
       })
     };
 
-    let three_d_context =
-      three_d::Context::from_gl_context(Arc::new(glow_context))
-        .expect("failed to create three-d Context");
+    let gl = Arc::new(glow_context);
 
     let inner = LinuxGlContext {
       glutin_context: gl_context,
       surface: gl_surface,
     };
 
-    (three_d_context, inner)
+    (gl, inner)
   }
 }
 
@@ -471,7 +461,7 @@ mod windows {
   pub fn create_context(
     window: &winit::window::Window,
     stencil_bits: u8,
-  ) -> (three_d::Context, WindowsGlContext) {
+  ) -> (Arc<glow::Context>, WindowsGlContext) {
     let raw_display_handle = window.raw_display_handle();
     let raw_window_handle = window.raw_window_handle();
 
@@ -540,15 +530,13 @@ mod windows {
       })
     };
 
-    let three_d_context =
-      three_d::Context::from_gl_context(Arc::new(glow_context))
-        .expect("failed to create three-d Context");
+    let gl = Arc::new(glow_context);
 
     let inner = WindowsGlContext {
       glutin_context: gl_context,
       surface: gl_surface,
     };
 
-    (three_d_context, inner)
+    (gl, inner)
   }
 }

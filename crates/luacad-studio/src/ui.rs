@@ -3,7 +3,6 @@ use egui_extras::syntax_highlighting;
 use luacad::export::ExportFormat;
 use luacad::export::ManifoldFormat;
 use luacad::linter::LintSeverity;
-use three_d::egui;
 
 use crate::app::{AppState, EditorPosition, FileAction, SearchState};
 use crate::editor::apply_editor_action;

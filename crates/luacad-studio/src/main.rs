@@ -1,13 +1,19 @@
 mod app;
+mod camera;
 mod csg_tree;
 mod editor;
+mod egui_integration;
 mod gl_context;
+mod input;
 mod scene;
 mod theme;
 mod ui;
 
 use app::{AppState, FileAction};
+use camera::{Viewport, degrees, vec3};
 use editor::EditorAction;
+use egui_integration::EguiIntegration;
+use input::{Event, FrameInputGenerator, Key, MouseButton, PhysicalPoint};
 #[cfg(feature = "csgrs")]
 use luacad::export::ExportFormat;
 #[cfg(feature = "csgrs")]
@@ -18,7 +24,6 @@ use scene::{
   gl_set_viewport, render_axes, render_opencsg_scene,
 };
 use theme::ThemeMode;
-use three_d::*;
 use ui::{PanelLayout, render_ui};
 
 /// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_model.3mf`.
@@ -71,8 +76,7 @@ fn main() {
 
   // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
   let gl = gl_context::GlWindowContext::new(&winit_window, 8);
-  let context: Context = (*gl).clone();
-  let mut gui = three_d::GUI::new(&context);
+  let mut gui = EguiIntegration::new(gl.gl.clone());
   let mut app = AppState::new();
 
   // Initialize OpenCSG's GLAD loader
@@ -115,7 +119,7 @@ fn main() {
       };
       winit_window.set_title(&window_title);
 
-      let mut frame_input = frame_input_generator.generate(&gl);
+      let mut frame_input = frame_input_generator.generate();
 
       // Clear export status on any user interaction
       if app.export_status.is_some() {
@@ -133,7 +137,7 @@ fn main() {
         }
       }
 
-      // Detect clipboard key combos (Cmd+V/C/X) that three-d doesn't forward to egui
+      // Detect clipboard key combos (Cmd+V/C/X) before egui processes them
       let mut paste_text: Option<String> = None;
       let mut wants_copy = false;
       let mut wants_cut = false;
@@ -665,17 +669,19 @@ fn main() {
       camera.set_viewport(scene_viewport);
 
       // Scene rect in physical pixels (for mouse hit-testing).
-      // Note: three_d PhysicalPoint has top-left origin, same as egui.
+      // PhysicalPoint has y=0 at bottom (GL convention), so convert
+      // the egui top-left scene_rect to bottom-left coordinates.
       let scene_phys_x = sr.left() * dpr;
-      let scene_phys_y = sr.top() * dpr;
       let scene_phys_r = scene_phys_x + scene_w as f32;
-      let scene_phys_b = scene_phys_y + scene_h as f32;
+      // Bottom edge in GL coords (y=0 at bottom of window)
+      let scene_phys_bottom = full.height as f32 - sr.bottom() * dpr;
+      let scene_phys_top = scene_phys_bottom + scene_h as f32;
 
       let in_scene = |pos: &PhysicalPoint| -> bool {
         pos.x >= scene_phys_x
           && pos.x < scene_phys_r
-          && pos.y >= scene_phys_y
-          && pos.y < scene_phys_b
+          && pos.y >= scene_phys_bottom
+          && pos.y < scene_phys_top
       };
       for event in frame_input.events.iter() {
         match event {
@@ -782,8 +788,7 @@ fn main() {
       scene_fbo.blit_to_screen(dst_x, dst_y, scene_w, scene_h);
 
       // Render egui overlay
-      let screen = frame_input.screen();
-      screen.write(|| gui.render()).unwrap();
+      gui.render();
 
       winit_window.set_cursor_icon(egui_to_winit_cursor(egui_cursor));
       gl.swap_buffers();
