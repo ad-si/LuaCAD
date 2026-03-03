@@ -270,6 +270,15 @@ impl FrameInputGenerator {
           }
         }
       }
+      WindowEvent::Focused(false) => {
+        // Reset all modifier state when the window loses focus.
+        // Without this, holding Cmd and switching apps (Cmd+Tab) causes
+        // the Cmd key to appear permanently pressed.
+        self.modifiers = Modifiers::default();
+        self.events.push(Event::ModifiersChange {
+          modifiers: self.modifiers,
+        });
+      }
       WindowEvent::MouseWheel { delta, .. } => {
         if let Some(position) = self.cursor_pos {
           match delta {
