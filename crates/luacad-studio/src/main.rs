@@ -26,6 +26,38 @@ use scene::{
 use theme::ThemeMode;
 use ui::{PanelLayout, render_ui};
 
+use std::path::{Path, PathBuf};
+
+/// Return the path to the state file (`~/.config/luacad/state.json`).
+fn state_file_path() -> Option<PathBuf> {
+  dirs::config_dir().map(|d| d.join("luacad").join("state.json"))
+}
+
+/// Persist the last opened file path (or clear it).
+fn save_last_file(path: Option<&Path>) {
+  let Some(state_path) = state_file_path() else {
+    return;
+  };
+  if let Some(parent) = state_path.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  let json = match path {
+    Some(p) => serde_json::json!({ "last_file": p }),
+    None => serde_json::json!({}),
+  };
+  let _ = std::fs::write(&state_path, json.to_string());
+}
+
+/// Load the last opened file path from state, if the file still exists.
+fn load_last_file() -> Option<PathBuf> {
+  let state_path = state_file_path()?;
+  let data = std::fs::read_to_string(state_path).ok()?;
+  let obj: serde_json::Value = serde_json::from_str(&data).ok()?;
+  let path_str = obj.get("last_file")?.as_str()?;
+  let path = PathBuf::from(path_str);
+  if path.exists() { Some(path) } else { None }
+}
+
 /// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_model.3mf`.
 fn timestamped_filename(ext: &str) -> String {
   let now = time::OffsetDateTime::now_local()
@@ -66,6 +98,16 @@ fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
 }
 
 fn main() {
+  // Resolve initial file: CLI argument takes priority, then last opened file.
+  let initial_file = std::env::args()
+    .nth(1)
+    .map(|arg| {
+      let path = PathBuf::from(&arg);
+      // Canonicalize relative paths so the state file stores absolute paths
+      std::fs::canonicalize(&path).unwrap_or(path)
+    })
+    .or_else(load_last_file);
+
   let event_loop = winit::event_loop::EventLoop::new();
   let winit_window = winit::window::WindowBuilder::new()
     .with_title("LuaCAD Studio")
@@ -77,7 +119,12 @@ fn main() {
   // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
   let gl = gl_context::GlWindowContext::new(&winit_window, 8);
   let mut gui = EguiIntegration::new(gl.gl.clone());
-  let mut app = AppState::new();
+  let mut app = AppState::new(initial_file);
+
+  // Persist the initial file if it was loaded successfully
+  if let Some(ref path) = app.current_file {
+    save_last_file(Some(path));
+  }
 
   // Initialize OpenCSG's GLAD loader
   opencsg_sys::init_gl();
@@ -560,6 +607,7 @@ fn main() {
             app.lua_error = None;
             app.current_file = None;
             app.scene_dirty = true;
+            save_last_file(None);
           }
           FileAction::Open => {
             if let Some(path) = rfd::FileDialog::new()
@@ -570,10 +618,11 @@ fn main() {
               match std::fs::read_to_string(&path) {
                 Ok(contents) => {
                   app.text_content = contents;
-                  app.current_file = Some(path);
+                  app.current_file = Some(path.clone());
                   app.execute_lua_code();
                   app.scene_dirty = true;
                   app.needs_fit_to_view = true;
+                  save_last_file(Some(&path));
                 }
                 Err(e) => {
                   app.export_status =
@@ -613,6 +662,7 @@ fn main() {
                   app.export_status =
                     Some((format!("Saved to {}", path.display()), false));
                   app.execute_lua_code();
+                  save_last_file(Some(&path));
                 }
                 Err(e) => {
                   app.export_status =
@@ -646,6 +696,7 @@ fn main() {
                   app.export_status =
                     Some((format!("Saved to {}", path.display()), false));
                   app.execute_lua_code();
+                  save_last_file(Some(&path));
                 }
                 Err(e) => {
                   app.export_status =
@@ -817,6 +868,7 @@ fn main() {
                 app.execute_lua_code();
                 app.scene_dirty = true;
                 app.needs_fit_to_view = true;
+                save_last_file(Some(path));
               }
               Err(e) => {
                 app.export_status = Some((format!("Failed to open: {e}"), true))

@@ -120,10 +120,20 @@ pub struct AppState {
 }
 
 impl AppState {
-  pub fn new() -> Self {
+  pub fn new(initial_file: Option<PathBuf>) -> Self {
     let is_dark = system_is_dark_mode();
+
+    let (text_content, current_file) = if let Some(ref path) = initial_file {
+      match std::fs::read_to_string(path) {
+        Ok(contents) => (contents, Some(path.clone())),
+        Err(_) => (Self::welcome_text().to_string(), None),
+      }
+    } else {
+      (Self::welcome_text().to_string(), None)
+    };
+
     let mut app = Self {
-      text_content: "-- Welcome to LuaCAD Studio\n-- Use + for union, - for difference, * for intersection\n\nlocal body = cube { 4, 2, 1, center = true }\nlocal hole = cylinder { h = 3, r = 0.5, center = true }\n\nrender(body - hole)".to_string(),
+      text_content,
       geometries: vec![],
       lua_error: None,
       camera_azimuth: -30.0,
@@ -132,13 +142,17 @@ impl AppState {
       orthogonal_view: true,
       scene_dirty: true,
       theme_mode: ThemeMode::System,
-      theme_colors: if is_dark { ThemeColors::dark() } else { ThemeColors::light() },
+      theme_colors: if is_dark {
+        ThemeColors::dark()
+      } else {
+        ThemeColors::light()
+      },
       pending_editor_action: None,
       export_status: None,
       #[cfg(feature = "csgrs")]
       pending_export: None,
       pending_scad_export: false,
-      current_file: None,
+      current_file,
       pending_file_action: None,
       pending_manifold_export: None,
       needs_fit_to_view: true,
@@ -155,6 +169,10 @@ impl AppState {
     };
     app.execute_lua_code();
     app
+  }
+
+  fn welcome_text() -> &'static str {
+    "-- Welcome to LuaCAD Studio\n-- Use + for union, - for difference, * for intersection\n\nlocal body = cube { 4, 2, 1, center = true }\nlocal hole = cylinder { h = 3, r = 0.5, center = true }\n\nrender(body - hole)"
   }
 
   pub fn resolve_theme(&self) -> ThemeColors {

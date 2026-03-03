@@ -25,3 +25,5 @@ glutin = "0.30"
 glow = "0.16"
 raw-window-handle = "0.5"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
+dirs = "6"
+serde_json = "1"
