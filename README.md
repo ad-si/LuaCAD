@@ -160,8 +160,12 @@ Lua is a better fit:
 
 Other CAD software with programmatic model creation:
 
+- [3DScad] - Visual editor for OpenSCAD-style modeling
+- [bevy_editor_cam] - Camera controller for 2D/3D editors and CAD in Bevy
 - [BlocksCAD] - Blockly-based CAD
+- [CadQuery] - Python module for parametric 3D CAD models
 - [Flowscad] - Rust interface to OpenSCAD
+- [ForgeCAD] - AI-native CAD for products, manufacturing, and robotics
 - [FreeCAD] - Python scripting
 - [HelloTriangle] - 3D modeling with Python
 - [ImplicitCAD] - Haskell-based CAD
@@ -175,10 +179,15 @@ Other CAD software with programmatic model creation:
 - [scad_tree] - Rust solid modeling via OpenSCAD
 - [ScalaCad] - CSG in Scala
 - [SolidRS] - Rust OpenSCAD model generation
+- [SpaceCAD] - Model rocket design and simulation software
 - [SynapsCAD] - AI-powered 3D CAD IDE
 
+[3DScad]: https://github.com/42ne/3dscad
+[bevy_editor_cam]: https://github.com/aevyrie/bevy_editor_cam
 [BlocksCAD]: https://www.blockscad3d.com/editor/
+[CadQuery]: https://github.com/CadQuery/cadquery
 [Flowscad]: https://github.com/SmoothDragon/flowscad
+[ForgeCAD]: https://forgecad.io/
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
 [HelloTriangle]: https://www.hellotriangle.io/
 [ImplicitCAD]: https://implicitcad.org/
@@ -190,6 +199,7 @@ Other CAD software with programmatic model creation:
 [scad_tree]: https://github.com/mrclean71774/scad_tree
 [ScalaCad]: https://github.com/joewing/ScalaCad
 [SolidRS]: https://github.com/MnlPhlp/solidrs
+[SpaceCAD]: https://www.spacecad.de/
 [SynapsCAD]: https://github.com/ierror/synaps-cad
 
 
