@@ -351,20 +351,14 @@ pub fn render_ui(
         app.camera_azimuth, app.camera_elevation, app.camera_distance
       ));
       if !app.geometries.is_empty() {
-        let total_polys: usize = {
-          #[cfg(feature = "csgrs")]
-          {
-            app
-              .geometries
-              .iter()
-              .map(|g| g.mesh.as_ref().map_or(0, |m| m.polygons.len()))
-              .sum()
-          }
-          #[cfg(not(feature = "csgrs"))]
-          {
-            0
-          }
-        };
+        // Count what the viewport actually renders: the triangles of all
+        // flattened CSG leaves (3 vertices per triangle).
+        let total_tris: usize = app
+          .csg_groups
+          .iter()
+          .flat_map(|g| &g.primitives)
+          .map(|p| p.vertices.len() / 3)
+          .sum();
         ui.separator();
         let num_objects = app.geometries.len();
         ui.label(format!(
@@ -375,11 +369,11 @@ pub fn render_ui(
           } else {
             "Objects"
           },
-          total_polys,
-          if total_polys == 1 {
-            "Polygon"
+          total_tris,
+          if total_tris == 1 {
+            "Triangle"
           } else {
-            "Polygons"
+            "Triangles"
           },
         ));
       }
