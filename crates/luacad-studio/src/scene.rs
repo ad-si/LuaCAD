@@ -200,38 +200,49 @@ fn render_csg_group(
     });
   }
 
-  // Create OpenCSG primitives with callbacks pointing to our render data.
-  for (i, leaf) in active_leaves.iter().enumerate() {
-    let prim = unsafe {
-      opencsg_sys::primitive_new(
-        leaf.operation,
-        leaf.convexity,
-        render_leaf_callback,
-        &render_datas[i] as *const LeafRenderData as *mut c_void,
-      )
-    };
-    ocsg_prims.push(prim);
+  // A group with a single intersected primitive is just a plain mesh:
+  // OpenCSG contributes nothing, and its convexity-bounded depth pass
+  // drops surfaces of concave meshes (e.g. a materialized Minkowski
+  // minus a cube), leaving background-colored holes. Render such groups
+  // directly with ordinary depth testing instead.
+  let plain_mesh = active_leaves.len() == 1
+    && active_leaves[0].operation == opencsg_sys::INTERSECTION;
+
+  if !plain_mesh {
+    // Create OpenCSG primitives with callbacks pointing to our render data.
+    for (i, leaf) in active_leaves.iter().enumerate() {
+      let prim = unsafe {
+        opencsg_sys::primitive_new(
+          leaf.operation,
+          leaf.convexity,
+          render_leaf_callback,
+          &render_datas[i] as *const LeafRenderData as *mut c_void,
+        )
+      };
+      ocsg_prims.push(prim);
+    }
+
+    if ocsg_prims.is_empty() {
+      return;
+    }
+
+    // --- OpenCSG depth pass ---
+    unsafe {
+      opencsg_sys::render(&mut ocsg_prims);
+    }
   }
 
-  if ocsg_prims.is_empty() {
-    return;
-  }
-
-  // --- OpenCSG depth pass ---
-  unsafe {
-    opencsg_sys::render(&mut ocsg_prims);
-  }
-
-  // --- Shading pass with GL_EQUAL ---
+  // --- Shading pass ---
   // OpenCSG's glPopAttrib restores pre-render GL state. Re-render the same
-  // geometry with GL_EQUAL to shade only CSG-visible surfaces.
+  // geometry with GL_EQUAL to shade only CSG-visible surfaces. Plain meshes
+  // skipped the depth pass, so they shade with ordinary GL_LEQUAL testing.
   unsafe {
     gl_UseProgram(0);
     gl_MatrixMode(GL_PROJECTION);
     gl_LoadMatrixf(projection.as_ptr());
     gl_MatrixMode(GL_MODELVIEW);
     gl_LoadMatrixf(view.as_ptr());
-    gl_DepthFunc(GL_EQUAL);
+    gl_DepthFunc(if plain_mesh { GL_LEQUAL } else { GL_EQUAL });
     gl_Enable(GL_LIGHTING);
     gl_Enable(GL_LIGHT0);
     gl_Enable(GL_LIGHT1);
