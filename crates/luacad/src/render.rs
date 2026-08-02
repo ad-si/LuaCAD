@@ -449,6 +449,9 @@ fn apply_wrappers(mut node: ScadNode, wrappers: &[WrapFn]) -> ScadNode {
   node
 }
 
+/// Map from quantized vertex position to the normals of adjacent faces.
+type VertexNormalMap = HashMap<[i32; 3], Vec<[f32; 3]>>;
+
 /// Materialize a Manifold's mesh into SmoothTriangles.
 fn materialize_mesh(
   out: &mut Vec<SmoothTriangle>,
@@ -470,14 +473,14 @@ fn materialize_mesh(
     })
     .collect();
 
-  // Build vertex→face map only when smooth shading is requested
-  let vert_faces: Option<HashMap<[i32; 3], Vec<(usize, [f32; 3])>>> = if smooth
-  {
-    let mut map: HashMap<[i32; 3], Vec<(usize, [f32; 3])>> = HashMap::new();
+  // Build vertex→adjacent-face-normals map only when smooth shading is
+  // requested
+  let vert_faces: Option<VertexNormalMap> = if smooth {
+    let mut map = VertexNormalMap::new();
     for (fi, tri) in mesh.triangles.iter().enumerate() {
       for &vi in tri {
         let key = quantize(mesh.vertices[vi as usize]);
-        map.entry(key).or_default().push((fi, face_normals[fi]));
+        map.entry(key).or_default().push(face_normals[fi]);
       }
     }
     Some(map)
@@ -499,7 +502,7 @@ fn materialize_mesh(
         let key = quantize(*vert);
         let neighbors = &vf[&key];
         let mut accum = [0.0f32; 3];
-        for &(_nfi, neighbor_normal) in neighbors {
+        for &neighbor_normal in neighbors {
           if dot(my_normal, neighbor_normal) >= SMOOTH_ANGLE_COS {
             accum[0] += neighbor_normal[0];
             accum[1] += neighbor_normal[1];
