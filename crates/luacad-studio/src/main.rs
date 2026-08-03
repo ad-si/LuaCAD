@@ -76,8 +76,13 @@ fn load_last_file() -> Option<PathBuf> {
   if path.exists() { Some(path) } else { None }
 }
 
-/// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_model.3mf`.
-fn timestamped_filename(ext: &str) -> String {
+/// Generate a timestamped default filename for export, e.g. `2026-03-01t2051_gear.3mf`.
+/// Uses the stem of the currently open file, or `model` if none.
+fn timestamped_filename(current_file: Option<&Path>, ext: &str) -> String {
+  let stem = current_file
+    .and_then(|p| p.file_stem())
+    .and_then(|s| s.to_str())
+    .unwrap_or("model");
   let now = time::OffsetDateTime::now_local()
     .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
   let format = time::format_description::parse_borrowed::<2>(
@@ -85,7 +90,7 @@ fn timestamped_filename(ext: &str) -> String {
   )
   .expect("valid format description");
   let stamp = now.format(&format).expect("format timestamp");
-  format!("{stamp}_model.{ext}")
+  format!("{stamp}_{stem}.{ext}")
 }
 
 /// Convert an egui CursorIcon to a winit CursorIcon.
@@ -526,7 +531,7 @@ fn main() {
         if let Some(path) = rfd::FileDialog::new()
           .set_title(title)
           .add_filter(filter_name, &[ext])
-          .set_file_name(timestamped_filename(ext))
+          .set_file_name(timestamped_filename(app.current_file.as_deref(), ext))
           .save_file()
         {
           let result = match fmt {
@@ -569,7 +574,10 @@ fn main() {
         if let Some(path) = rfd::FileDialog::new()
           .set_title("Export OpenSCAD")
           .add_filter("OpenSCAD Files", &["scad"])
-          .set_file_name(timestamped_filename("scad"))
+          .set_file_name(timestamped_filename(
+            app.current_file.as_deref(),
+            "scad",
+          ))
           .save_file()
         {
           let nodes: Vec<_> = app
@@ -596,7 +604,10 @@ fn main() {
         } else if let Some(path) = rfd::FileDialog::new()
           .set_title(format!("Export via Manifold — {}", fmt.label()))
           .add_filter(fmt.filter_name(), &[fmt.extension()])
-          .set_file_name(timestamped_filename(fmt.extension()))
+          .set_file_name(timestamped_filename(
+            app.current_file.as_deref(),
+            fmt.extension(),
+          ))
           .save_file()
         {
           let result = luacad::export::export_manifold(
