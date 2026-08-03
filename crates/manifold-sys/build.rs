@@ -2,6 +2,13 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 fn main() {
+  // bindgen's CargoCallbacks emits rerun-if-changed for the parsed headers,
+  // which disables cargo's default rerun-on-any-package-change heuristic —
+  // so the vendored C++ sources must be watched explicitly.
+  println!("cargo:rerun-if-changed=vendor/manifold/src");
+  println!("cargo:rerun-if-changed=vendor/manifold/include");
+  println!("cargo:rerun-if-changed=vendor/manifold/bindings/c");
+
   let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
   let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
   let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
