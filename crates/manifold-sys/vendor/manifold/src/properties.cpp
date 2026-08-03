@@ -248,7 +248,8 @@ bool Manifold::Impl::IsConvex() const {
   // Coplanar faces of f32-sourced meshes carry normal noise up to ~1e-6
   // rad, which a strict > 0 test misreads as concave; genuinely concave
   // features, even finely tessellated ones, bend orders of magnitude more.
-  constexpr double kConvexTol = 1e-5;
+  // static so the lambda below can use it without capturing (MSVC C3493)
+  static constexpr double kConvexTol = 1e-5;
 
   // Iterate across all edges; return false if any edges are concave
   const size_t nbEdges = halfedge_.size();
