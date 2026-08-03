@@ -244,6 +244,12 @@ bool Manifold::Impl::IsConvex() const {
   int genus = 1 - chi / 2;
   if (genus != 0) return false;
 
+  // Angular slack (radians) below which a dihedral is treated as flat.
+  // Coplanar faces of f32-sourced meshes carry normal noise up to ~1e-6
+  // rad, which a strict > 0 test misreads as concave; genuinely concave
+  // features, even finely tessellated ones, bend orders of magnitude more.
+  constexpr double kConvexTol = 1e-5;
+
   // Iterate across all edges; return false if any edges are concave
   const size_t nbEdges = halfedge_.size();
   return all_of(countAt(0_uz), countAt(nbEdges), [this](size_t idx) {
@@ -256,8 +262,13 @@ bool Manifold::Impl::IsConvex() const {
     if (linalg::all(linalg::equal(normal0, normal1))) return true;
 
     const vec3 edgeVec = vertPos_[edge.endVert] - vertPos_[edge.startVert];
+    const double edgeLen = linalg::length(edgeVec);
+    if (edgeLen == 0.0) return true;
+
+    // dot(ê, n0×n1) ≈ -sin(concave dihedral deviation)
     const bool convex =
-        linalg::dot(edgeVec, linalg::cross(normal0, normal1)) > 0;
+        linalg::dot(edgeVec / edgeLen, linalg::cross(normal0, normal1)) >
+        -kConvexTol;
     return convex;
   });
 }

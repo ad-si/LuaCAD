@@ -824,19 +824,105 @@ bool QuickHull::addPointToFace(typename MeshBuilder::Face& f,
   return false;
 }
 
+namespace {
+// SplitMix64 hash mapped to [-1, 1): deterministic per-coordinate joggle.
+inline double joggleUnit(uint64_t x) {
+  x += 0x9E3779B97F4A7C15ULL;
+  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+  x = x ^ (x >> 31);
+  return static_cast<double>(x >> 11) * (2.0 / 9007199254740992.0) - 1.0;
+}
+}  // namespace
+
 // Wrapper to call the QuickHull algorithm with the given vertex data to build
 // the Impl
 void Manifold::Impl::Hull(VecView<const vec3> vertPos) {
   size_t numVert = vertPos.size();
   // empty hull
   if (vertPos.empty()) return;
-  QuickHull qh(vertPos);
-  std::tie(halfedge_, vertPos_) = qh.buildMesh();
-  CalculateBBox();
-  SetEpsilon();
-  InitializeOriginal();
-  SortGeometry();
-  SetNormalsAndCoplanar();
+
+  double scale = 0.0;
+  for (const vec3& v : vertPos)
+    scale = std::max({scale, std::abs(v.x), std::abs(v.y), std::abs(v.z)});
+
+  // Point clouds with large coplanar clusters (e.g. Minkowski sums of
+  // tessellated solids) push QuickHull's epsilon logic into two failure
+  // modes: exactly degenerate collinear-vertex triangles (T-vertices on the
+  // edges of coplanar neighbors), and — more rarely — genuinely folded or
+  // inverted faces. Degenerates are removed like the Impl constructor does;
+  // folds are detected by the convexity check below and resolved by
+  // retrying with a tiny deterministic joggle of the input (qhull's QJ
+  // strategy), escalating the amplitude each attempt.
+  constexpr int kMaxAttempts = 8;
+  double amp = 0.0;
+  Vec<vec3> joggled;
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    if (attempt > 0) {
+      amp = attempt == 1 ? scale * 1e-7 : amp * 4.0;
+      joggled = Vec<vec3>(vertPos);
+      const uint64_t salt = static_cast<uint64_t>(attempt) << 32;
+      for (size_t i = 0; i < joggled.size(); ++i) {
+        joggled[i].x += amp * joggleUnit(salt ^ (i * 3 + 0));
+        joggled[i].y += amp * joggleUnit(salt ^ (i * 3 + 1));
+        joggled[i].z += amp * joggleUnit(salt ^ (i * 3 + 2));
+      }
+    }
+
+    QuickHull qh(attempt == 0 ? vertPos : VecView<const vec3>(joggled));
+    std::tie(halfedge_, vertPos_) = qh.buildMesh();
+    CalculateBBox();
+    SetEpsilon();
+    InitializeOriginal();
+    SetNormalsAndCoplanar();
+    RemoveDegenerates();
+    RemoveUnreferencedVerts();
+    SortGeometry();
+
+    if (attempt == kMaxAttempts - 1) break;
+
+    // Convexity check. Neighbor vertices are tested against every face
+    // plane; a face whose neighbor normals disagree strongly is verified
+    // globally against all hull vertices, since folded faces lie coplanar
+    // with their neighbors and evade a purely local test.
+    const double tol = std::max(scale * 1e-9, 8.0 * amp);
+    const size_t numTri = halfedge_.size() / 3;
+    auto faceNormal = [this](size_t tri) {
+      const vec3 a = vertPos_[halfedge_[3 * tri].startVert];
+      const vec3 b = vertPos_[halfedge_[3 * tri + 1].startVert];
+      const vec3 c = vertPos_[halfedge_[3 * tri + 2].startVert];
+      const vec3 n = la::cross(b - a, c - a);
+      const double len = la::length(n);
+      return len > 0 ? n / len : vec3(0.0);
+    };
+    bool convex = true;
+    for (size_t tri = 0; tri < numTri && convex; ++tri) {
+      const vec3 n = faceNormal(tri);
+      if (n == vec3(0.0)) continue;
+      const vec3 base = vertPos_[halfedge_[3 * tri].startVert];
+      double minDot = 1.0;
+      for (int j = 0; j < 3 && convex; ++j) {
+        const int pairFace = halfedge_[3 * tri + j].pairedHalfedge / 3;
+        minDot = std::min(minDot, la::dot(n, faceNormal(pairFace)));
+        for (int k = 0; k < 3; ++k) {
+          const vec3 v = vertPos_[halfedge_[3 * pairFace + k].startVert];
+          if (la::dot(v - base, n) > tol) {
+            convex = false;
+            break;
+          }
+        }
+      }
+      if (convex && minDot < 0.5) {
+        for (const vec3& v : vertPos_) {
+          if (la::dot(v - base, n) > tol) {
+            convex = false;
+            break;
+          }
+        }
+      }
+    }
+    if (convex) return;
+  }
 }
 
 }  // namespace manifold
