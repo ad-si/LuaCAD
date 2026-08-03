@@ -757,12 +757,120 @@ impl Manifold {
   pub fn num_tri(&self) -> usize {
     unsafe { manifold_sys::manifold_num_tri(self.0) as usize }
   }
+
+  /// Return the enclosed volume.
+  pub fn volume(&self) -> f64 {
+    unsafe { manifold_sys::manifold_volume(self.0) }
+  }
 }
 
 impl Drop for Manifold {
   fn drop(&mut self) {
     if !self.0.is_null() {
       unsafe { manifold_sys::manifold_delete_manifold(self.0) };
+    }
+  }
+}
+
+/// RAII wrapper around a ManifoldPolygons pointer — the contour list that
+/// `manifold_extrude` and `manifold_revolve` consume.
+struct Polygons(*mut manifold_sys::ManifoldPolygons);
+
+impl Polygons {
+  fn ptr(&self) -> *mut manifold_sys::ManifoldPolygons {
+    self.0
+  }
+}
+
+impl Drop for Polygons {
+  fn drop(&mut self) {
+    if !self.0.is_null() {
+      unsafe { manifold_sys::manifold_delete_polygons(self.0) };
+    }
+  }
+}
+
+/// RAII wrapper around a ManifoldCrossSection pointer — Manifold's 2D
+/// counterpart to `Manifold`, used for `circle`/`square`/`polygon` and the
+/// booleans and transforms applied to them before extrusion.
+pub struct CrossSection(*mut manifold_sys::ManifoldCrossSection);
+
+impl CrossSection {
+  fn alloc() -> *mut std::os::raw::c_void {
+    unsafe {
+      manifold_sys::manifold_alloc_cross_section() as *mut std::os::raw::c_void
+    }
+  }
+
+  fn empty() -> Self {
+    Self(unsafe { manifold_sys::manifold_cross_section_empty(Self::alloc()) })
+  }
+
+  fn ptr(&self) -> *mut manifold_sys::ManifoldCrossSection {
+    self.0
+  }
+
+  pub fn is_empty(&self) -> bool {
+    unsafe { manifold_sys::manifold_cross_section_is_empty(self.0) != 0 }
+  }
+
+  /// Build a cross-section from a single closed contour.
+  fn from_points(points: &[[f32; 2]]) -> Self {
+    if points.len() < 3 {
+      return Self::empty();
+    }
+    let mut verts: Vec<manifold_sys::ManifoldVec2> = points
+      .iter()
+      .map(|p| manifold_sys::ManifoldVec2 {
+        x: p[0] as f64,
+        y: p[1] as f64,
+      })
+      .collect();
+    unsafe {
+      // manifold_simple_polygon copies the points, so the temporary
+      // contour is ours to free again.
+      let simple = manifold_sys::manifold_simple_polygon(
+        manifold_sys::manifold_alloc_simple_polygon()
+          as *mut std::os::raw::c_void,
+        verts.as_mut_ptr(),
+        verts.len(),
+      );
+      let cs = Self(manifold_sys::manifold_cross_section_of_simple_polygon(
+        Self::alloc(),
+        simple,
+        manifold_sys::ManifoldFillRule_MANIFOLD_FILL_RULE_NON_ZERO,
+      ));
+      manifold_sys::manifold_delete_simple_polygon(simple);
+      cs
+    }
+  }
+
+  /// Build a cross-section from a contour list, e.g. the result of
+  /// projecting or slicing a 3D manifold.
+  fn from_polygons(polygons: &Polygons) -> Self {
+    Self(unsafe {
+      manifold_sys::manifold_cross_section_of_polygons(
+        Self::alloc(),
+        polygons.ptr(),
+        manifold_sys::ManifoldFillRule_MANIFOLD_FILL_RULE_NON_ZERO,
+      )
+    })
+  }
+
+  fn to_polygons(&self) -> Polygons {
+    Polygons(unsafe {
+      manifold_sys::manifold_cross_section_to_polygons(
+        manifold_sys::manifold_alloc_polygons() as *mut std::os::raw::c_void,
+        self.0,
+      )
+    })
+  }
+}
+
+impl Drop for CrossSection {
+  fn drop(&mut self) {
+    if !self.0.is_null() {
+      unsafe { manifold_sys::manifold_delete_cross_section(self.0) };
     }
   }
 }
@@ -1098,13 +1206,284 @@ pub fn materialize_scad_manifold(
       }
     }
 
+    // --- Extrusions: 2D cross-section lifted into 3D ---
+    ScadNode::LinearExtrude {
+      height,
+      center,
+      twist,
+      slices,
+      scale,
+      child,
+    } => {
+      let cs = materialize_scad_cross_section(child);
+      if cs.is_empty() {
+        return Manifold::empty();
+      }
+      // OpenSCAD leaves `slices` at 0 to mean "pick a sensible number";
+      // without intermediate slices a twist would just shear the sides.
+      let divisions = if *slices > 0 {
+        *slices as i32
+      } else if *twist != 0.0 {
+        (twist.abs() / 2.0).ceil().max(1.0) as i32
+      } else {
+        0
+      };
+      let polygons = cs.to_polygons();
+      let m = Manifold(unsafe {
+        manifold_extrude(
+          Manifold::alloc(),
+          polygons.ptr(),
+          *height as f64,
+          divisions,
+          // OpenSCAD twists the top clockwise, Manifold counter-clockwise
+          -*twist as f64,
+          *scale as f64,
+          *scale as f64,
+        )
+      });
+      if *center {
+        Manifold(unsafe {
+          manifold_translate(
+            Manifold::alloc(),
+            m.ptr(),
+            0.0,
+            0.0,
+            -*height as f64 / 2.0,
+          )
+        })
+      } else {
+        m
+      }
+    }
+
+    ScadNode::RotateExtrude {
+      angle,
+      segments,
+      child,
+    } => {
+      let cs = materialize_scad_cross_section(child);
+      if cs.is_empty() {
+        return Manifold::empty();
+      }
+      let polygons = cs.to_polygons();
+      Manifold(unsafe {
+        manifold_revolve(
+          Manifold::alloc(),
+          polygons.ptr(),
+          *segments as i32,
+          *angle as f64,
+        )
+      })
+    }
+
     // --- Color / modifiers / render: pass through ---
     ScadNode::Color { child, .. }
     | ScadNode::Render { child, .. }
     | ScadNode::Modifier { child, .. } => materialize_scad_manifold(child),
 
-    // --- Extrusions / 2D / text / file ops: not yet supported ---
+    // --- 2D shapes (only meaningful under an extrusion), text
+    // and file ops: not yet supported ---
     _ => Manifold::empty(),
+  }
+}
+
+/// Recursively evaluate the 2D part of a ScadNode tree into a Manifold
+/// CrossSection, mirroring [`materialize_scad_manifold`] for sketches.
+/// Nodes that aren't 2D — or aren't supported yet, such as `text()` —
+/// yield an empty cross-section.
+pub fn materialize_scad_cross_section(
+  node: &crate::scad_export::ScadNode,
+) -> CrossSection {
+  use crate::scad_export::ScadNode;
+  use manifold_sys::*;
+
+  match node {
+    // --- Leaf 2D primitives ---
+    ScadNode::Circle { r, segments } => CrossSection(unsafe {
+      manifold_cross_section_circle(
+        CrossSection::alloc(),
+        *r as f64,
+        *segments as i32,
+      )
+    }),
+
+    ScadNode::Square { w, h, center } => CrossSection(unsafe {
+      manifold_cross_section_square(
+        CrossSection::alloc(),
+        *w as f64,
+        *h as f64,
+        *center as i32,
+      )
+    }),
+
+    ScadNode::Polygon { points } => CrossSection::from_points(points),
+
+    // --- CSG booleans ---
+    ScadNode::Union(children) => {
+      let mut iter = children.iter();
+      let first = iter
+        .next()
+        .map(materialize_scad_cross_section)
+        .unwrap_or_else(CrossSection::empty);
+      iter.fold(first, |acc, child| {
+        let next = materialize_scad_cross_section(child);
+        CrossSection(unsafe {
+          manifold_cross_section_union(
+            CrossSection::alloc(),
+            acc.ptr(),
+            next.ptr(),
+          )
+        })
+      })
+    }
+
+    ScadNode::Difference(children) => {
+      let mut iter = children.iter();
+      let first = iter
+        .next()
+        .map(materialize_scad_cross_section)
+        .unwrap_or_else(CrossSection::empty);
+      iter.fold(first, |acc, child| {
+        let next = materialize_scad_cross_section(child);
+        CrossSection(unsafe {
+          manifold_cross_section_difference(
+            CrossSection::alloc(),
+            acc.ptr(),
+            next.ptr(),
+          )
+        })
+      })
+    }
+
+    ScadNode::Intersection(children) => {
+      let mut iter = children.iter();
+      let first = iter
+        .next()
+        .map(materialize_scad_cross_section)
+        .unwrap_or_else(CrossSection::empty);
+      iter.fold(first, |acc, child| {
+        let next = materialize_scad_cross_section(child);
+        CrossSection(unsafe {
+          manifold_cross_section_intersection(
+            CrossSection::alloc(),
+            acc.ptr(),
+            next.ptr(),
+          )
+        })
+      })
+    }
+
+    ScadNode::Hull(child) => {
+      let cs = materialize_scad_cross_section(child);
+      CrossSection(unsafe {
+        manifold_cross_section_hull(CrossSection::alloc(), cs.ptr())
+      })
+    }
+
+    // --- Transforms (the Z component is meaningless in 2D) ---
+    ScadNode::Translate { x, y, child, .. } => {
+      let cs = materialize_scad_cross_section(child);
+      CrossSection(unsafe {
+        manifold_cross_section_translate(
+          CrossSection::alloc(),
+          cs.ptr(),
+          *x as f64,
+          *y as f64,
+        )
+      })
+    }
+
+    ScadNode::Rotate { z, child, .. } => {
+      let cs = materialize_scad_cross_section(child);
+      CrossSection(unsafe {
+        manifold_cross_section_rotate(
+          CrossSection::alloc(),
+          cs.ptr(),
+          *z as f64,
+        )
+      })
+    }
+
+    ScadNode::Scale { x, y, child, .. } => {
+      let cs = materialize_scad_cross_section(child);
+      CrossSection(unsafe {
+        manifold_cross_section_scale(
+          CrossSection::alloc(),
+          cs.ptr(),
+          *x as f64,
+          *y as f64,
+        )
+      })
+    }
+
+    ScadNode::Mirror { x, y, child, .. } => {
+      let cs = materialize_scad_cross_section(child);
+      CrossSection(unsafe {
+        manifold_cross_section_mirror(
+          CrossSection::alloc(),
+          cs.ptr(),
+          *x as f64,
+          *y as f64,
+        )
+      })
+    }
+
+    ScadNode::Offset {
+      delta,
+      r,
+      chamfer,
+      child,
+    } => {
+      let cs = materialize_scad_cross_section(child);
+      // `r` rounds the corners, `chamfer` cuts them off, and plain `delta`
+      // extends the edges until they meet.
+      let (dist, join) = if let Some(r) = r {
+        (*r, ManifoldJoinType_MANIFOLD_JOIN_TYPE_ROUND)
+      } else if let Some(d) = delta {
+        if *chamfer {
+          (*d, ManifoldJoinType_MANIFOLD_JOIN_TYPE_SQUARE)
+        } else {
+          (*d, ManifoldJoinType_MANIFOLD_JOIN_TYPE_MITER)
+        }
+      } else {
+        return cs;
+      };
+      CrossSection(unsafe {
+        manifold_cross_section_offset(
+          CrossSection::alloc(),
+          cs.ptr(),
+          dist as f64,
+          join,
+          2.0,
+          0,
+        )
+      })
+    }
+
+    // --- 3D → 2D ---
+    ScadNode::Projection { cut, child } => {
+      let m = materialize_scad_manifold(child);
+      if m.is_empty() {
+        return CrossSection::empty();
+      }
+      let polygons = Polygons(unsafe {
+        let mem = manifold_alloc_polygons() as *mut std::os::raw::c_void;
+        if *cut {
+          manifold_slice(mem, m.ptr(), 0.0)
+        } else {
+          manifold_project(mem, m.ptr())
+        }
+      });
+      CrossSection::from_polygons(&polygons)
+    }
+
+    // --- Color / modifiers / render: pass through ---
+    ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Modifier { child, .. } => materialize_scad_cross_section(child),
+
+    // --- 3D shapes, text and file ops: nothing to extrude ---
+    _ => CrossSection::empty(),
   }
 }
 
@@ -2171,5 +2550,242 @@ mod manifold_tests {
       (max_x - 42.0).abs() < 0.01,
       "max x should be ~42, got {max_x}"
     );
+  }
+}
+
+/// Tests for the 2D → 3D part of the Manifold path. Unlike the module
+/// above these don't touch csgrs, so they run with default features.
+#[cfg(test)]
+mod cross_section_tests {
+  use super::*;
+  use crate::scad_export::ScadNode;
+
+  fn square(w: f32, h: f32, center: bool) -> ScadNode {
+    ScadNode::Square { w, h, center }
+  }
+
+  fn extrude(child: ScadNode, height: f32) -> ScadNode {
+    ScadNode::LinearExtrude {
+      height,
+      center: false,
+      twist: 0.0,
+      slices: 0,
+      scale: 1.0,
+      child: Box::new(child),
+    }
+  }
+
+  fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
+    assert!(
+      (actual - expected).abs() < tol,
+      "{what}: expected ~{expected}, got {actual}"
+    );
+  }
+
+  #[test]
+  fn linear_extrude_square() {
+    let m = materialize_scad_manifold(&extrude(square(10.0, 4.0, false), 3.0));
+    assert!(m.num_tri() > 0, "extruded square should produce triangles");
+    assert_close(m.volume(), 120.0, 1e-6, "volume");
+    let (min, max) = m.bounding_box();
+    assert_eq!(min, [0.0, 0.0, 0.0]);
+    assert_eq!(max, [10.0, 4.0, 3.0]);
+  }
+
+  #[test]
+  fn linear_extrude_centered_straddles_z_zero() {
+    let scad = ScadNode::LinearExtrude {
+      height: 8.0,
+      center: true,
+      twist: 0.0,
+      slices: 0,
+      scale: 1.0,
+      child: Box::new(square(2.0, 2.0, false)),
+    };
+    let (min, max) = materialize_scad_manifold(&scad).bounding_box();
+    assert_close(min[2] as f64, -4.0, 1e-5, "min z");
+    assert_close(max[2] as f64, 4.0, 1e-5, "max z");
+  }
+
+  #[test]
+  fn linear_extrude_scale_makes_frustum() {
+    let scad = ScadNode::LinearExtrude {
+      height: 3.0,
+      center: false,
+      twist: 0.0,
+      slices: 0,
+      scale: 0.5,
+      child: Box::new(square(10.0, 4.0, false)),
+    };
+    // Frustum volume = h/3 * (A_bottom + A_top + sqrt(A_bottom * A_top))
+    let m = materialize_scad_manifold(&scad);
+    assert_close(m.volume(), 70.0, 1e-4, "frustum volume");
+  }
+
+  #[test]
+  fn linear_extrude_twists_clockwise_like_openscad() {
+    let scad = ScadNode::LinearExtrude {
+      height: 5.0,
+      center: false,
+      twist: 90.0,
+      slices: 8,
+      scale: 1.0,
+      child: Box::new(square(2.0, 2.0, false)),
+    };
+    let (min, max) = materialize_scad_manifold(&scad).bounding_box();
+    // Seen from +Z the top face rotates from x ∈ [0, 2], y ∈ [0, 2]
+    // into x ∈ [0, 2], y ∈ [-2, 0]. A counter-clockwise twist would
+    // instead push x negative and leave y positive.
+    assert_close(min[1] as f64, -2.0, 1e-4, "min y");
+    assert_close(min[0] as f64, 0.0, 1e-4, "min x");
+    assert!(max[0] > 2.0, "swept corners should exceed x = 2");
+  }
+
+  #[test]
+  fn rotate_extrude_square_makes_torus() {
+    let scad = ScadNode::RotateExtrude {
+      angle: 360.0,
+      segments: 128,
+      child: Box::new(ScadNode::Translate {
+        x: 5.0,
+        y: 0.0,
+        z: 0.0,
+        child: Box::new(square(1.0, 1.0, false)),
+      }),
+    };
+    let m = materialize_scad_manifold(&scad);
+    assert!(m.num_tri() > 0, "revolved square should produce triangles");
+    // Pappus: V = 2π · centroid radius · area = 2π · 5.5 · 1
+    assert_close(m.volume(), 2.0 * std::f64::consts::PI * 5.5, 0.02, "volume");
+    let (min, max) = m.bounding_box();
+    assert_close(min[0] as f64, -6.0, 0.01, "min x");
+    assert_close(max[2] as f64, 1.0, 1e-5, "max z");
+  }
+
+  #[test]
+  fn polygon_extrude() {
+    let scad = extrude(
+      ScadNode::Polygon {
+        points: vec![[0.0, 0.0], [4.0, 0.0], [4.0, 3.0]],
+      },
+      2.0,
+    );
+    let m = materialize_scad_manifold(&scad);
+    // Right triangle of area 6, extruded 2 high
+    assert_close(m.volume(), 12.0, 1e-5, "volume");
+  }
+
+  #[test]
+  fn degenerate_polygon_yields_empty() {
+    let scad = extrude(
+      ScadNode::Polygon {
+        points: vec![[0.0, 0.0], [1.0, 0.0]],
+      },
+      2.0,
+    );
+    assert_eq!(materialize_scad_manifold(&scad).num_tri(), 0);
+  }
+
+  #[test]
+  fn hull_of_circles_extrudes_to_rounded_box() {
+    // The examples/rounded_rectangle.lua shape: four corner circles,
+    // hulled into a stadium outline, then extruded.
+    let (w, h, r) = (20.0f32, 10.0f32, 2.0f32);
+    let corner = |x: f32, y: f32| ScadNode::Translate {
+      x,
+      y,
+      z: 0.0,
+      child: Box::new(ScadNode::Circle { r, segments: 32 }),
+    };
+    let scad = extrude(
+      ScadNode::Hull(Box::new(ScadNode::Union(vec![
+        corner(r, r),
+        corner(w - r, r),
+        corner(r, h - r),
+        corner(w - r, h - r),
+      ]))),
+      5.0,
+    );
+    let m = materialize_scad_manifold(&scad);
+    assert!(m.num_tri() > 0, "hulled sketch should produce triangles");
+    let (min, max) = m.bounding_box();
+    assert_eq!(min, [0.0, 0.0, 0.0]);
+    assert_close(max[0] as f64, w as f64, 1e-4, "max x");
+    assert_close(max[1] as f64, h as f64, 1e-4, "max y");
+    assert_close(max[2] as f64, 5.0, 1e-5, "max z");
+  }
+
+  #[test]
+  fn difference_of_sketches() {
+    let scad = extrude(
+      ScadNode::Difference(vec![
+        square(10.0, 10.0, false),
+        ScadNode::Translate {
+          x: 2.0,
+          y: 2.0,
+          z: 0.0,
+          child: Box::new(square(6.0, 6.0, false)),
+        },
+      ]),
+      1.0,
+    );
+    // 100 - 36, extruded 1 high
+    assert_close(
+      materialize_scad_manifold(&scad).volume(),
+      64.0,
+      1e-5,
+      "volume",
+    );
+  }
+
+  #[test]
+  fn offset_grows_the_outline() {
+    let scad = extrude(
+      ScadNode::Offset {
+        delta: None,
+        r: Some(2.0),
+        chamfer: false,
+        child: Box::new(square(10.0, 10.0, false)),
+      },
+      1.0,
+    );
+    let (min, max) = materialize_scad_manifold(&scad).bounding_box();
+    assert_close(min[0] as f64, -2.0, 0.01, "min x");
+    assert_close(max[0] as f64, 12.0, 0.01, "max x");
+  }
+
+  #[test]
+  fn projection_flattens_a_solid() {
+    let scad = extrude(
+      ScadNode::Projection {
+        cut: false,
+        child: Box::new(ScadNode::Sphere {
+          r: 5.0,
+          segments: 64,
+        }),
+      },
+      1.0,
+    );
+    let m = materialize_scad_manifold(&scad);
+    assert!(m.num_tri() > 0, "projection should produce triangles");
+    let (min, max) = m.bounding_box();
+    assert_close(min[0] as f64, -5.0, 0.05, "min x");
+    assert_close(max[0] as f64, 5.0, 0.05, "max x");
+    assert_close(max[2] as f64, 1.0, 1e-5, "max z");
+  }
+
+  #[test]
+  fn unsupported_sketch_yields_empty_solid() {
+    let scad = extrude(
+      ScadNode::Text {
+        text: "hi".to_string(),
+        size: 10.0,
+        font: String::new(),
+        halign: "left".to_string(),
+        valign: "baseline".to_string(),
+      },
+      1.0,
+    );
+    assert_eq!(materialize_scad_manifold(&scad).num_tri(), 0);
   }
 }
