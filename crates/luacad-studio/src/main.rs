@@ -11,6 +11,7 @@ mod ui;
 
 use app::{AppState, FileAction};
 use camera::{Viewport, degrees, vec3};
+use cgmath::InnerSpace;
 use editor::EditorAction;
 use egui_integration::EguiIntegration;
 use input::{Event, FrameInputGenerator, Key, MouseButton, PhysicalPoint};
@@ -148,6 +149,7 @@ fn main() {
   let mut scene_fbo =
     SceneFbo::new(initial_viewport.width, initial_viewport.height);
   let mut dragging_scene = false;
+  let mut panning_scene = false;
   let mut clipboard = arboard::Clipboard::new().ok();
   let mut frame_input_generator =
     FrameInputGenerator::from_winit_window(&winit_window);
@@ -297,6 +299,7 @@ fn main() {
               Key::Num0 => {
                 app.camera_azimuth = -30.0;
                 app.camera_elevation = 30.0;
+                app.camera_target = [0.0; 3];
               }
               _ => {}
             }
@@ -751,6 +754,20 @@ fn main() {
           } => {
             dragging_scene = false;
           }
+          Event::MousePress {
+            button: MouseButton::Middle,
+            position,
+            handled,
+            ..
+          } if !handled && in_scene(position) => {
+            panning_scene = true;
+          }
+          Event::MouseRelease {
+            button: MouseButton::Middle,
+            ..
+          } => {
+            panning_scene = false;
+          }
           Event::MouseMotion {
             delta,
             button: Some(MouseButton::Left),
@@ -759,6 +776,32 @@ fn main() {
             app.camera_azimuth -= delta.0 * 0.5;
             app.camera_elevation =
               (app.camera_elevation + delta.1 * 0.5).clamp(-85.0, 85.0);
+          }
+          Event::MouseMotion {
+            delta,
+            button: Some(MouseButton::Middle),
+            ..
+          } if panning_scene => {
+            // World-space size of one logical pixel at the camera target,
+            // so the model tracks the cursor while panning.
+            let visible_height = if app.orthogonal_view {
+              2.0 * app.camera_distance
+            } else {
+              2.0 * app.camera_distance * 22.5_f32.to_radians().tan()
+            };
+            let world_per_pixel = visible_height * dpr / scene_h as f32;
+            let az = app.camera_azimuth.to_radians();
+            let el = app.camera_elevation.to_radians();
+            // Unit vector from the target toward the camera
+            let to_camera =
+              vec3(el.cos() * az.sin(), el.sin(), el.cos() * az.cos());
+            let right = (-to_camera).cross(vec3(0.0, 1.0, 0.0)).normalize();
+            let up = right.cross(-to_camera);
+            let shift = right * (-delta.0 * world_per_pixel)
+              + up * (delta.1 * world_per_pixel);
+            app.camera_target[0] += shift.x;
+            app.camera_target[1] += shift.y;
+            app.camera_target[2] += shift.z;
           }
           Event::MouseWheel {
             delta,
@@ -781,6 +824,7 @@ fn main() {
             compute_fit_distance(&app.geometries, app.orthogonal_view)
           {
             app.camera_distance = dist;
+            app.camera_target = [0.0; 3];
           }
           app.needs_fit_to_view = false;
         }

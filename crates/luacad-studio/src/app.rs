@@ -76,6 +76,8 @@ pub struct AppState {
   pub camera_azimuth: f32,
   pub camera_elevation: f32,
   pub camera_distance: f32,
+  /// World-space point the camera orbits around (moved by panning)
+  pub camera_target: [f32; 3],
   pub orthogonal_view: bool,
   pub scene_dirty: bool,
   pub theme_mode: ThemeMode,
@@ -139,6 +141,7 @@ impl AppState {
       camera_azimuth: -30.0,
       camera_elevation: 30.0,
       camera_distance: 5.0,
+      camera_target: [0.0; 3],
       orthogonal_view: true,
       scene_dirty: true,
       theme_mode: ThemeMode::System,

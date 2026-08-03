@@ -262,6 +262,7 @@ pub fn render_ui(
       {
         app.camera_azimuth = -30.0;
         app.camera_elevation = 30.0;
+        app.camera_target = [0.0; 3];
       }
       if ui
         .selectable_label(is(-90.0, 89.0), "Top")

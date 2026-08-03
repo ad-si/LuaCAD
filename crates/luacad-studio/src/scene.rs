@@ -449,8 +449,9 @@ pub fn compute_camera_vectors(app: &AppState) -> (Vec3, Vec3, Vec3) {
   let y = d * el.sin();
   let z = d * el.cos() * az.cos();
 
-  let position = vec3(x, y, z);
-  let target = vec3(0.0, 0.0, 0.0);
+  let [tx, ty, tz] = app.camera_target;
+  let target = vec3(tx, ty, tz);
+  let position = target + vec3(x, y, z);
   let up = vec3(0.0, 1.0, 0.0);
 
   (position, target, up)
