@@ -67,6 +67,144 @@ fn threemf_output(geometries: &[luacad::geometry::CsgGeometry]) -> String {
   xml
 }
 
+/// Path to the stored snapshot file for a mesh-format test.
+#[cfg(feature = "csgrs")]
+fn snapshot_path(name: &str) -> std::path::PathBuf {
+  std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    .join("tests/snapshots")
+    .join(format!("example_snapshots__{name}.snap"))
+}
+
+/// Split a line into numeric and literal tokens so numbers can be compared
+/// with a tolerance while everything else must match exactly.
+#[cfg(feature = "csgrs")]
+fn tokens(line: &str) -> Vec<(bool, &str)> {
+  let bytes = line.as_bytes();
+  let mut out = Vec::new();
+  let mut seg_start = 0;
+  let mut i = 0;
+  while i < bytes.len() {
+    let b = bytes[i];
+    let starts_number = b.is_ascii_digit()
+      || ((b == b'-' || b == b'+' || b == b'.')
+        && bytes.get(i + 1).is_some_and(|c| c.is_ascii_digit()));
+    if !starts_number {
+      i += 1;
+      continue;
+    }
+    if seg_start < i {
+      out.push((false, &line[seg_start..i]));
+    }
+    let start = i;
+    if b == b'-' || b == b'+' {
+      i += 1;
+    }
+    while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+      i += 1;
+    }
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+      let mut j = i + 1;
+      if j < bytes.len() && (bytes[j] == b'-' || bytes[j] == b'+') {
+        j += 1;
+      }
+      if j < bytes.len() && bytes[j].is_ascii_digit() {
+        i = j;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+          i += 1;
+        }
+      }
+    }
+    out.push((true, &line[start..i]));
+    seg_start = i;
+  }
+  if seg_start < bytes.len() {
+    out.push((false, &line[seg_start..]));
+  }
+  out
+}
+
+/// Whether two numeric tokens are equal within cross-platform float noise.
+/// Integer tokens (counts, indices) must match exactly.
+#[cfg(feature = "csgrs")]
+fn nums_match(a: &str, b: &str) -> bool {
+  if a == b {
+    return true;
+  }
+  let is_int = |s: &str| !s.contains(['.', 'e', 'E']);
+  if is_int(a) && is_int(b) {
+    return false;
+  }
+  let (Ok(x), Ok(y)) = (a.parse::<f64>(), b.parse::<f64>()) else {
+    return false;
+  };
+  (x - y).abs() <= 1e-5 + 1e-4 * x.abs().max(y.abs())
+}
+
+/// Assert `actual` matches the stored snapshot, allowing tiny numeric drift.
+/// Mesh exports print f32 coordinates whose last digits differ between
+/// platforms (libm/ulp noise), so exact insta comparison cannot be used.
+/// Set `UPDATE_SNAPSHOTS=1` to rewrite the stored snapshots.
+#[cfg(feature = "csgrs")]
+fn assert_mesh_snapshot(name: &str, actual: &str) {
+  let path = snapshot_path(name);
+  if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+    let header = std::fs::read_to_string(&path)
+      .ok()
+      .and_then(|s| {
+        s.split("---\n").nth(1).map(|m| format!("---\n{m}---\n"))
+      })
+      .unwrap_or_else(|| {
+        format!(
+          "---\nsource: crates/luacad/tests/example_snapshots.rs\nexpression: {name}\n---\n"
+        )
+      });
+    std::fs::write(&path, format!("{header}{}\n", actual.trim_end()))
+      .unwrap();
+    return;
+  }
+  let stored = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+    panic!(
+      "{name}: cannot read {} ({e}); run with UPDATE_SNAPSHOTS=1 to create it",
+      path.display()
+    )
+  });
+  let reference = stored
+    .splitn(3, "---\n")
+    .nth(2)
+    .unwrap_or_else(|| panic!("{name}: malformed snapshot header"));
+  let ref_lines: Vec<&str> = reference.trim_end().lines().collect();
+  let act_lines: Vec<&str> = actual.trim_end().lines().collect();
+  assert_eq!(
+    ref_lines.len(),
+    act_lines.len(),
+    "{name}: line count differs (snapshot {} vs actual {}); \
+     run with UPDATE_SNAPSHOTS=1 to update",
+    ref_lines.len(),
+    act_lines.len()
+  );
+  for (i, (r, a)) in ref_lines.iter().zip(&act_lines).enumerate() {
+    if r == a {
+      continue;
+    }
+    let rt = tokens(r);
+    let at = tokens(a);
+    let matches = rt.len() == at.len()
+      && rt.iter().zip(&at).all(|(&(rn, rs), &(an, av))| {
+        if rn && an {
+          nums_match(rs, av)
+        } else {
+          rn == an && rs == av
+        }
+      });
+    assert!(
+      matches,
+      "{name}: line {} differs beyond tolerance:\n-{r}\n+{a}\n\
+       run with UPDATE_SNAPSHOTS=1 to update",
+      i + 1
+    );
+  }
+}
+
 // ── simple.lua ───────────────────────────────────────────────────────
 
 #[test]
@@ -79,28 +217,28 @@ fn simple_scad() {
 #[test]
 fn simple_obj() {
   let geoms = run_lua("simple.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("simple_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_ply() {
   let geoms = run_lua("simple.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("simple_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_stl() {
   let geoms = run_lua("simple.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("simple_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_3mf() {
   let geoms = run_lua("simple.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("simple_3mf", &threemf_output(&geoms));
 }
 
 // ── box.lua ──────────────────────────────────────────────────────────
@@ -115,28 +253,28 @@ fn box_scad() {
 #[test]
 fn box_obj() {
   let geoms = run_lua("box.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("box_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn box_ply() {
   let geoms = run_lua("box.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("box_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn box_stl() {
   let geoms = run_lua("box.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("box_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn box_3mf() {
   let geoms = run_lua("box.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("box_3mf", &threemf_output(&geoms));
 }
 
 // ── gear.lua ─────────────────────────────────────────────────────────
@@ -151,28 +289,28 @@ fn gear_scad() {
 #[test]
 fn gear_obj() {
   let geoms = run_lua("gear.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("gear_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn gear_ply() {
   let geoms = run_lua("gear.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("gear_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn gear_stl() {
   let geoms = run_lua("gear.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("gear_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn gear_3mf() {
   let geoms = run_lua("gear.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("gear_3mf", &threemf_output(&geoms));
 }
 
 // ── simple_car.lua ───────────────────────────────────────────────────
@@ -187,28 +325,28 @@ fn simple_car_scad() {
 #[test]
 fn simple_car_obj() {
   let geoms = run_lua("simple_car.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("simple_car_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_ply() {
   let geoms = run_lua("simple_car.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("simple_car_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_stl() {
   let geoms = run_lua("simple_car.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("simple_car_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn simple_car_3mf() {
   let geoms = run_lua("simple_car.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("simple_car_3mf", &threemf_output(&geoms));
 }
 
 // ── difference.lua ───────────────────────────────────────────────────
@@ -223,28 +361,28 @@ fn difference_scad() {
 #[test]
 fn difference_obj() {
   let geoms = run_lua("difference.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("difference_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn difference_ply() {
   let geoms = run_lua("difference.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("difference_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn difference_stl() {
   let geoms = run_lua("difference.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("difference_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn difference_3mf() {
   let geoms = run_lua("difference.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("difference_3mf", &threemf_output(&geoms));
 }
 
 // ── rounded_rectangle.lua ────────────────────────────────────────────
@@ -259,28 +397,28 @@ fn rounded_rectangle_scad() {
 #[test]
 fn rounded_rectangle_obj() {
   let geoms = run_lua("rounded_rectangle.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("rounded_rectangle_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_ply() {
   let geoms = run_lua("rounded_rectangle.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("rounded_rectangle_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_stl() {
   let geoms = run_lua("rounded_rectangle.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("rounded_rectangle_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn rounded_rectangle_3mf() {
   let geoms = run_lua("rounded_rectangle.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("rounded_rectangle_3mf", &threemf_output(&geoms));
 }
 
 // ── customizer.lua ───────────────────────────────────────────────────
@@ -295,28 +433,28 @@ fn customizer_scad() {
 #[test]
 fn customizer_obj() {
   let geoms = run_lua("customizer.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("customizer_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn customizer_ply() {
   let geoms = run_lua("customizer.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("customizer_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn customizer_stl() {
   let geoms = run_lua("customizer.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("customizer_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn customizer_3mf() {
   let geoms = run_lua("customizer.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("customizer_3mf", &threemf_output(&geoms));
 }
 
 // ── literal_openscad.lua ─────────────────────────────────────────────
@@ -331,28 +469,28 @@ fn literal_openscad_scad() {
 #[test]
 fn literal_openscad_obj() {
   let geoms = run_lua("literal_openscad.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("literal_openscad_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_ply() {
   let geoms = run_lua("literal_openscad.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("literal_openscad_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_stl() {
   let geoms = run_lua("literal_openscad.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("literal_openscad_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn literal_openscad_3mf() {
   let geoms = run_lua("literal_openscad.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("literal_openscad_3mf", &threemf_output(&geoms));
 }
 
 // ── tostring_demo.lua ────────────────────────────────────────────────
@@ -367,26 +505,26 @@ fn tostring_demo_scad() {
 #[test]
 fn tostring_demo_obj() {
   let geoms = run_lua("tostring_demo.lua");
-  insta::assert_snapshot!(obj_output(&geoms));
+  assert_mesh_snapshot("tostring_demo_obj", &obj_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_ply() {
   let geoms = run_lua("tostring_demo.lua");
-  insta::assert_snapshot!(ply_output(&geoms));
+  assert_mesh_snapshot("tostring_demo_ply", &ply_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_stl() {
   let geoms = run_lua("tostring_demo.lua");
-  insta::assert_snapshot!(stl_output(&geoms));
+  assert_mesh_snapshot("tostring_demo_stl", &stl_output(&geoms));
 }
 
 #[cfg(feature = "csgrs")]
 #[test]
 fn tostring_demo_3mf() {
   let geoms = run_lua("tostring_demo.lua");
-  insta::assert_snapshot!(threemf_output(&geoms));
+  assert_mesh_snapshot("tostring_demo_3mf", &threemf_output(&geoms));
 }
