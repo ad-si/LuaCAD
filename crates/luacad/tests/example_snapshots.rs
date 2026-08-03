@@ -158,8 +158,7 @@ fn assert_mesh_snapshot(name: &str, actual: &str) {
           "---\nsource: crates/luacad/tests/example_snapshots.rs\nexpression: {name}\n---\n"
         )
       });
-    std::fs::write(&path, format!("{header}{}\n", actual.trim_end()))
-      .unwrap();
+    std::fs::write(&path, format!("{header}{}\n", actual.trim_end())).unwrap();
     return;
   }
   let stored = std::fs::read_to_string(&path).unwrap_or_else(|e| {
