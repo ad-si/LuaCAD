@@ -1414,6 +1414,18 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
 
     crate::bosl::register_bosl(&lua)?;
 
+    // ==================================================================
+    // `require("luacad")` COMPATIBILITY
+    // ==================================================================
+
+    // The whole API is already injected as globals, so requiring the
+    // module is a no-op that hands back the global table.
+    let preload: mlua::Table = lua
+      .globals()
+      .get::<mlua::Table>("package")?
+      .get("preload")?;
+    preload.set("luacad", lua.create_function(|lua, ()| Ok(lua.globals()))?)?;
+
     lua.load(code).eval::<mlua::MultiValue>()
   })();
 
@@ -1810,6 +1822,20 @@ mod tests {
     let scad = generate_scad(&nodes);
     assert!(scad.contains("cube([5, 10, 15]"));
     assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn require_luacad_is_a_noop() {
+    let nodes = run_lua_scad("require('luacad')\nreturn cube(5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([5, 5, 5]"));
+  }
+
+  #[test]
+  fn require_luacad_returns_api_table() {
+    let nodes = run_lua_scad("local L = require('luacad')\nreturn L.cube(5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([5, 5, 5]"));
   }
 
   #[test]
