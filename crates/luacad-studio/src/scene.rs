@@ -2,7 +2,7 @@ use crate::camera::*;
 use cgmath::InnerSpace;
 
 use crate::app::AppState;
-use crate::csg_tree::CsgGroup;
+use crate::csg_tree::{CsgGroup, OverlayMesh};
 use luacad::geometry::CsgGeometry;
 use opencsg_sys::OcsgPrimitive;
 use std::ffi::c_void;
@@ -43,9 +43,11 @@ unsafe extern "C" fn render_leaf_callback(user_data: *mut c_void) {
 /// Render the full CSG scene using OpenCSG.
 ///
 /// This performs OpenCSG's z-buffer CSG for each group, then a shading pass
-/// with fixed-function lighting and `GL_EQUAL` depth test.
+/// with fixed-function lighting and `GL_EQUAL` depth test. Translucent
+/// modifier overlays (`#` and `%`) are blended on top at the end.
 pub fn render_opencsg_scene(
   groups: &[CsgGroup],
+  overlays: &[OverlayMesh],
   projection: &[f32; 16],
   view: &[f32; 16],
 ) {
@@ -128,6 +130,8 @@ pub fn render_opencsg_scene(
     render_csg_group(group, projection, view);
   }
 
+  render_overlay_meshes(overlays, projection, view);
+
   unsafe {
     // Clean up lighting state
     gl_Disable(GL_LIGHTING);
@@ -136,6 +140,99 @@ pub fn render_opencsg_scene(
     gl_Disable(GL_LIGHT2);
     gl_Disable(GL_NORMALIZE);
     gl_Disable(GL_COLOR_MATERIAL);
+  }
+}
+
+/// Draw translucent modifier meshes (`#` highlight, `%` background) over the
+/// opaque CSG result: lit, alpha-blended, depth-tested but not depth-written
+/// so they never occlude regular geometry or each other.
+fn render_overlay_meshes(
+  overlays: &[OverlayMesh],
+  projection: &[f32; 16],
+  view: &[f32; 16],
+) {
+  if overlays.is_empty() {
+    return;
+  }
+  unsafe {
+    gl_UseProgram(0);
+    gl_MatrixMode(GL_PROJECTION);
+    gl_LoadMatrixf(projection.as_ptr());
+    gl_MatrixMode(GL_MODELVIEW);
+    gl_LoadMatrixf(view.as_ptr());
+
+    gl_Enable(GL_LIGHTING);
+    gl_Enable(GL_LIGHT0);
+    gl_Enable(GL_LIGHT1);
+    gl_Enable(GL_LIGHT2);
+    gl_Enable(GL_NORMALIZE);
+    gl_Enable(GL_COLOR_MATERIAL);
+    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    gl_ShadeModel(GL_SMOOTH);
+
+    gl_DepthFunc(GL_LEQUAL);
+    gl_DepthMask(0);
+    gl_Enable(GL_BLEND);
+    gl_BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Only draw the surface facing the viewer: without depth writes, back
+    // faces would blend through the front ones and show the far side's
+    // tessellation as darker bands.
+    gl_Enable(GL_CULL_FACE);
+    gl_CullFace(GL_BACK);
+
+    for overlay in overlays {
+      let normals = compute_face_normals(&overlay.vertices);
+
+      let mut vbos = [0u32; 2];
+      gl_GenBuffers(2, vbos.as_mut_ptr());
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (overlay.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        overlay.vertices.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        normals.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+
+      gl_Color4f(
+        overlay.color[0],
+        overlay.color[1],
+        overlay.color[2],
+        overlay.color[3],
+      );
+
+      gl_PushMatrix();
+      gl_MultMatrixf(cad_to_gl_transform(&overlay.transform).as_ptr());
+
+      gl_EnableClientState(GL_VERTEX_ARRAY);
+      gl_EnableClientState(GL_NORMAL_ARRAY);
+
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
+      gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
+      gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
+
+      gl_DrawArrays(GL_TRIANGLES, 0, overlay.vertices.len() as i32);
+
+      gl_DisableClientState(GL_NORMAL_ARRAY);
+      gl_DisableClientState(GL_VERTEX_ARRAY);
+      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
+
+      gl_PopMatrix();
+      gl_DeleteBuffers(2, vbos.as_ptr());
+    }
+
+    gl_Disable(GL_CULL_FACE);
+    gl_Disable(GL_BLEND);
+    gl_DepthMask(1);
+    gl_DepthFunc(GL_LEQUAL);
+    gl_Disable(GL_LIGHTING);
   }
 }
 
@@ -543,6 +640,14 @@ unsafe extern "C" {
 
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
+  #[link_name = "glColor4f"]
+  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
+  #[link_name = "glBlendFunc"]
+  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
+  #[link_name = "glDepthMask"]
+  fn gl_DepthMask(flag: u8);
+  #[link_name = "glCullFace"]
+  fn gl_CullFace(mode: u32);
   #[link_name = "glLineWidth"]
   fn gl_LineWidth(width: f32);
   #[link_name = "glClear"]
@@ -687,6 +792,14 @@ unsafe extern "C" {
   fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
   #[link_name = "glMaterialf"]
   fn gl_Materialf(face: u32, pname: u32, param: f32);
+  #[link_name = "glColor4f"]
+  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
+  #[link_name = "glBlendFunc"]
+  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
+  #[link_name = "glDepthMask"]
+  fn gl_DepthMask(flag: u8);
+  #[link_name = "glCullFace"]
+  fn gl_CullFace(mode: u32);
   #[link_name = "glUseProgram"]
   fn gl_UseProgram(program: u32);
   #[link_name = "glBindVertexArray"]
@@ -812,6 +925,14 @@ unsafe extern "C" {
   fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
   #[link_name = "glMaterialf"]
   fn gl_Materialf(face: u32, pname: u32, param: f32);
+  #[link_name = "glColor4f"]
+  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
+  #[link_name = "glBlendFunc"]
+  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
+  #[link_name = "glDepthMask"]
+  fn gl_DepthMask(flag: u8);
+  #[link_name = "glCullFace"]
+  fn gl_CullFace(mode: u32);
   #[link_name = "glVertexPointer"]
   fn gl_VertexPointer(
     size: i32,
@@ -1086,6 +1207,11 @@ const GL_DEPTH_BUFFER_BIT: u32 = 0x00000100;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x00000400;
 const GL_DEPTH_TEST: u32 = 0x0B71;
+const GL_BLEND: u32 = 0x0BE2;
+const GL_SRC_ALPHA: u32 = 0x0302;
+const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
+const GL_CULL_FACE: u32 = 0x0B44;
+const GL_BACK: u32 = 0x0405;
 const GL_ARRAY_BUFFER: u32 = 0x8892;
 const GL_STATIC_DRAW: u32 = 0x88E4;
 const GL_FLOAT: u32 = 0x1406;

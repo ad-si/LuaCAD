@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::csg_tree::{CsgGroup, flatten_geometries};
+use crate::csg_tree::{CsgGroup, OverlayMesh, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 
@@ -127,6 +127,8 @@ pub struct AppState {
   pub clipboard_is_line: bool,
   /// Flattened CSG groups for OpenCSG preview rendering
   pub csg_groups: Vec<CsgGroup>,
+  /// Translucent modifier overlays (`#` highlight, `%` background)
+  pub overlay_meshes: Vec<OverlayMesh>,
   /// Lint diagnostics for the current editor content
   pub lint_diagnostics: Vec<LintDiagnostic>,
   /// Snapshot of text_content used to detect changes for re-linting
@@ -183,6 +185,7 @@ impl AppState {
       editor_selection_len: 0,
       clipboard_is_line: false,
       csg_groups: vec![],
+      overlay_meshes: vec![],
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
       search: SearchState::default(),
@@ -228,7 +231,9 @@ impl AppState {
       }
     }
 
-    self.csg_groups = flatten_geometries(&self.geometries);
+    let scene = flatten_geometries(&self.geometries);
+    self.csg_groups = scene.groups;
+    self.overlay_meshes = scene.overlays;
     self.scene_dirty = true;
   }
 

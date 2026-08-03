@@ -6,7 +6,7 @@
 
 use luacad::export::{extract_manifold_mesh, materialize_scad_manifold};
 use luacad::geometry::CsgGeometry;
-use luacad::scad_export::{BoslPreviewParams, CylAxis, ScadNode};
+use luacad::scad_export::{BoslPreviewParams, CylAxis, ModifierKind, ScadNode};
 use opencsg_sys::{INTERSECTION, SUBTRACTION};
 use std::f32::consts::PI;
 use std::os::raw::c_int;
@@ -30,19 +30,53 @@ pub struct CsgGroup {
   pub primitives: Vec<CsgLeaf>,
 }
 
+/// A translucent mesh drawn over the CSG result in a blended pass:
+/// `#` (debug highlight) and `%` (background) modifier geometry.
+pub struct OverlayMesh {
+  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up).
+  pub vertices: Vec<[f32; 3]>,
+  /// Accumulated model-to-world transform (column-major 4x4, CAD space).
+  pub transform: [f32; 16],
+  /// RGBA color, 0..1.
+  pub color: [f32; 4],
+}
+
+/// Everything needed to draw the preview: opaque CSG groups plus
+/// translucent modifier overlays.
+#[derive(Default)]
+pub struct CsgScene {
+  pub groups: Vec<CsgGroup>,
+  pub overlays: Vec<OverlayMesh>,
+}
+
+/// Side effects of OpenSCAD modifiers collected while flattening:
+/// `#`/`%` overlays and the first `!` (show-only) subtree.
+#[derive(Default)]
+struct ModifierSink {
+  overlays: Vec<OverlayMesh>,
+  only: Option<CsgScene>,
+}
+
 /// Default color when none is specified.
 const DEFAULT_COLOR: [f32; 3] = [0.192, 0.467, 0.745]; // #3177be
 
+/// Translucent red for `#` (debug/highlight), matching OpenSCAD.
+const HIGHLIGHT_COLOR: [f32; 4] = [1.0, 0.32, 0.32, 0.5];
+
+/// Translucent gray for `%` (background/transparent), matching OpenSCAD.
+const BACKGROUND_COLOR: [f32; 4] = [0.71, 0.71, 0.71, 0.5];
+
 // --- Public API ---
 
-/// Flatten all geometries' ScadNode trees into CsgGroups for OpenCSG.
+/// Flatten all geometries' ScadNode trees into a CsgScene for OpenCSG.
 /// Falls back to using the csgrs mesh when no ScadNode is available.
-pub fn flatten_geometries(geometries: &[CsgGeometry]) -> Vec<CsgGroup> {
+pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
+  let mut sink = ModifierSink::default();
   let mut groups = Vec::new();
   for geom in geometries {
     let color = geom.color.unwrap_or(DEFAULT_COLOR);
     if let Some(ref scad) = geom.scad {
-      groups.extend(flatten_node(scad, &IDENTITY, color));
+      groups.extend(flatten_node(scad, &IDENTITY, color, &mut sink));
     } else {
       #[cfg(feature = "csgrs")]
       if let Some(ref mesh) = geom.mesh {
@@ -64,7 +98,14 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> Vec<CsgGroup> {
       }
     }
   }
-  groups
+  match sink.only {
+    // `!` replaces the whole scene with the marked subtree.
+    Some(only_scene) => only_scene,
+    None => CsgScene {
+      groups,
+      overlays: sink.overlays,
+    },
+  }
 }
 
 // --- Matrix helpers ---
@@ -181,12 +222,13 @@ fn flatten_node(
   node: &ScadNode,
   parent_xform: &[f32; 16],
   color: [f32; 3],
+  sink: &mut ModifierSink,
 ) -> Vec<CsgGroup> {
   let ctx = Ctx {
     transform: *parent_xform,
     color,
   };
-  flatten_inner(node, &ctx, INTERSECTION)
+  flatten_inner(node, &ctx, INTERSECTION, sink)
 }
 
 /// Returns true if `node` itself (not descendants) is a non-tessellatable
@@ -213,7 +255,12 @@ fn is_manifold_primitive(node: &ScadNode) -> bool {
   }
 }
 
-fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
+fn flatten_inner(
+  node: &ScadNode,
+  ctx: &Ctx,
+  op: c_int,
+  sink: &mut ModifierSink,
+) -> Vec<CsgGroup> {
   match node {
     // --- CSG booleans ---
     ScadNode::Union(children) => {
@@ -222,7 +269,7 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
       // subtracted operand), its leaves inherit the SUBTRACTION operation.
       let mut groups = Vec::new();
       for child in children {
-        groups.extend(flatten_inner(child, ctx, op));
+        groups.extend(flatten_inner(child, ctx, op, sink));
       }
       groups
     }
@@ -230,13 +277,22 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
       // If any child requires Manifold (Minkowski, Hull, extrusions), compute
       // the entire boolean via Manifold to avoid OpenCSG depth-buffer artifacts.
       if children.iter().any(is_manifold_primitive) {
+        collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
-      // First child = Intersection, rest = Subtraction, all in one group.
+      // First remaining child = Intersection, rest = Subtraction, all in one
+      // group. `*`/`%` children are removed from the boolean entirely, so
+      // they never become the base (OpenSCAD semantics).
       let mut leaves = Vec::new();
-      for (i, child) in children.iter().enumerate() {
-        let child_op = if i == 0 { INTERSECTION } else { SUBTRACTION };
-        let child_groups = flatten_inner(child, ctx, child_op);
+      let mut base_found = false;
+      for child in children {
+        let child_op = if !base_found && !child.is_csg_dropped() {
+          base_found = true;
+          INTERSECTION
+        } else {
+          SUBTRACTION
+        };
+        let child_groups = flatten_inner(child, ctx, child_op, sink);
         for g in child_groups {
           leaves.extend(g.primitives);
         }
@@ -250,12 +306,13 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
     ScadNode::Intersection(children) => {
       // If any child requires Manifold, compute via Manifold.
       if children.iter().any(is_manifold_primitive) {
+        collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
       // All children are Intersection, in one group.
       let mut leaves = Vec::new();
       for child in children {
-        let child_groups = flatten_inner(child, ctx, INTERSECTION);
+        let child_groups = flatten_inner(child, ctx, INTERSECTION, sink);
         for g in child_groups {
           leaves.extend(g.primitives);
         }
@@ -274,7 +331,7 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         transform: m,
         color: ctx.color,
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
     ScadNode::Rotate { x, y, z, child } => {
       // OpenSCAD rotation order: Z then Y then X
@@ -285,7 +342,7 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         transform: m,
         color: ctx.color,
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
     ScadNode::Scale { x, y, z, child } => {
       let m = mat4_mul(&ctx.transform, &mat4_scale(*x, *y, *z));
@@ -293,7 +350,7 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         transform: m,
         color: ctx.color,
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
     ScadNode::Mirror { x, y, z, child } => {
       let m = mat4_mul(&ctx.transform, &mat4_mirror(*x, *y, *z));
@@ -301,7 +358,7 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         transform: m,
         color: ctx.color,
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
     ScadNode::Multmatrix { matrix, child } => {
       // ScadNode stores row-major; OpenGL wants column-major. Transpose.
@@ -311,21 +368,58 @@ fn flatten_inner(node: &ScadNode, ctx: &Ctx, op: c_int) -> Vec<CsgGroup> {
         transform: m,
         color: ctx.color,
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
     ScadNode::Resize { child, .. } => {
       // Resize is hard to decompose — just pass through with current transform.
-      flatten_inner(child, ctx, op)
+      flatten_inner(child, ctx, op, sink)
     }
     ScadNode::Color { r, g, b, child, .. } => {
       let child_ctx = Ctx {
         transform: ctx.transform,
         color: [*r, *g, *b],
       };
-      flatten_inner(child, &child_ctx, op)
+      flatten_inner(child, &child_ctx, op, sink)
     }
-    ScadNode::Render { child, .. } => flatten_inner(child, ctx, op),
-    ScadNode::Modifier { child, .. } => flatten_inner(child, ctx, op),
+    ScadNode::Render { child, .. } => flatten_inner(child, ctx, op, sink),
+
+    // --- OpenSCAD modifier characters ---
+    ScadNode::Modifier { kind, child } => match kind {
+      // `*`: subtree is not rendered at all.
+      ModifierKind::Skip => vec![],
+      // `!`: capture the subtree (with ancestor transforms/color applied)
+      // as the new scene root; everything else is discarded at the end of
+      // flatten_geometries. First `!` wins, innermost on nesting.
+      ModifierKind::Only => {
+        if sink.only.is_none() {
+          let mut sub = ModifierSink::default();
+          let groups = flatten_inner(child, ctx, INTERSECTION, &mut sub);
+          sink.only = Some(match sub.only {
+            Some(inner) => inner,
+            None => CsgScene {
+              groups,
+              overlays: sub.overlays,
+            },
+          });
+        }
+        vec![]
+      }
+      // `#`: participates in CSG normally, plus a translucent highlight
+      // of the subtree's own shape (visible even where it is subtracted).
+      ModifierKind::Debug => {
+        if let Some(overlay) = overlay_mesh(child, ctx, HIGHLIGHT_COLOR) {
+          sink.overlays.push(overlay);
+        }
+        flatten_inner(child, ctx, op, sink)
+      }
+      // `%`: removed from CSG, drawn as a translucent background object.
+      ModifierKind::Transparent => {
+        if let Some(overlay) = overlay_mesh(child, ctx, BACKGROUND_COLOR) {
+          sink.overlays.push(overlay);
+        }
+        vec![]
+      }
+    },
 
     // --- Leaf 3D primitives ---
     ScadNode::Cube { w, d, h, center } => {
@@ -749,6 +843,128 @@ fn tessellate_polyhedron(
 // Manifold-based preview helpers for BOSL2 shapes
 // ---------------------------------------------------------------------------
 
+/// Materialize a modifier subtree via Manifold into a single translucent
+/// overlay mesh. Returns None when the subtree yields no geometry (e.g.
+/// BOSL shapes, which Manifold materialization doesn't cover yet).
+fn overlay_mesh(
+  node: &ScadNode,
+  ctx: &Ctx,
+  color: [f32; 4],
+) -> Option<OverlayMesh> {
+  let manifold = materialize_scad_manifold(node);
+  let mesh = extract_manifold_mesh(&manifold);
+  if mesh.triangles.is_empty() {
+    return None;
+  }
+  let mut verts = Vec::with_capacity(mesh.triangles.len() * 3);
+  for tri in &mesh.triangles {
+    verts.push(mesh.vertices[tri[0] as usize]);
+    verts.push(mesh.vertices[tri[1] as usize]);
+    verts.push(mesh.vertices[tri[2] as usize]);
+  }
+  Some(OverlayMesh {
+    vertices: cad_to_gl_vertices(verts),
+    transform: ctx.transform,
+    color,
+  })
+}
+
+/// Emit the modifier side effects (`#`/`%` overlays, `!` capture) for a
+/// subtree that is materialized as a whole via Manifold instead of being
+/// recursed into by `flatten_inner`.
+fn collect_modifier_effects(
+  node: &ScadNode,
+  ctx: &Ctx,
+  sink: &mut ModifierSink,
+) {
+  match node {
+    ScadNode::Union(children)
+    | ScadNode::Difference(children)
+    | ScadNode::Intersection(children)
+    | ScadNode::Minkowski(children) => {
+      for child in children {
+        collect_modifier_effects(child, ctx, sink);
+      }
+    }
+    ScadNode::Hull(child) => collect_modifier_effects(child, ctx, sink),
+    ScadNode::Translate { x, y, z, child } => {
+      let m = mat4_mul(&ctx.transform, &mat4_translate(*x, *y, *z));
+      let child_ctx = Ctx {
+        transform: m,
+        color: ctx.color,
+      };
+      collect_modifier_effects(child, &child_ctx, sink);
+    }
+    ScadNode::Rotate { x, y, z, child } => {
+      let m = mat4_mul(&ctx.transform, &mat4_rotate_z(*z));
+      let m = mat4_mul(&m, &mat4_rotate_y(*y));
+      let m = mat4_mul(&m, &mat4_rotate_x(*x));
+      let child_ctx = Ctx {
+        transform: m,
+        color: ctx.color,
+      };
+      collect_modifier_effects(child, &child_ctx, sink);
+    }
+    ScadNode::Scale { x, y, z, child } => {
+      let m = mat4_mul(&ctx.transform, &mat4_scale(*x, *y, *z));
+      let child_ctx = Ctx {
+        transform: m,
+        color: ctx.color,
+      };
+      collect_modifier_effects(child, &child_ctx, sink);
+    }
+    ScadNode::Mirror { x, y, z, child } => {
+      let m = mat4_mul(&ctx.transform, &mat4_mirror(*x, *y, *z));
+      let child_ctx = Ctx {
+        transform: m,
+        color: ctx.color,
+      };
+      collect_modifier_effects(child, &child_ctx, sink);
+    }
+    ScadNode::Multmatrix { matrix, child } => {
+      let m = mat4_mul(&ctx.transform, &row_to_col_major(matrix));
+      let child_ctx = Ctx {
+        transform: m,
+        color: ctx.color,
+      };
+      collect_modifier_effects(child, &child_ctx, sink);
+    }
+    ScadNode::Resize { child, .. }
+    | ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. } => {
+      collect_modifier_effects(child, ctx, sink);
+    }
+    ScadNode::Modifier { kind, child } => match kind {
+      ModifierKind::Skip => {}
+      ModifierKind::Only => {
+        if sink.only.is_none() {
+          let mut sub = ModifierSink::default();
+          let groups = flatten_inner(child, ctx, INTERSECTION, &mut sub);
+          sink.only = Some(match sub.only {
+            Some(inner) => inner,
+            None => CsgScene {
+              groups,
+              overlays: sub.overlays,
+            },
+          });
+        }
+      }
+      ModifierKind::Debug => {
+        if let Some(overlay) = overlay_mesh(child, ctx, HIGHLIGHT_COLOR) {
+          sink.overlays.push(overlay);
+        }
+        collect_modifier_effects(child, ctx, sink);
+      }
+      ModifierKind::Transparent => {
+        if let Some(overlay) = overlay_mesh(child, ctx, BACKGROUND_COLOR) {
+          sink.overlays.push(overlay);
+        }
+      }
+    },
+    _ => {}
+  }
+}
+
 /// Build a ScadNode tree from primitives, materialize it via Manifold, and
 /// return CsgGroups ready for OpenCSG rendering.
 fn manifold_preview(
@@ -998,4 +1214,73 @@ fn mesh_to_triangles(mesh: &csgrs::mesh::Mesh<()>) -> Vec<[f32; 3]> {
     }
   }
   verts
+}
+
+#[cfg(test)]
+mod modifier_tests {
+  use super::*;
+
+  fn flatten_lua(code: &str) -> CsgScene {
+    let geoms = luacad::lua_engine::execute_lua(code).unwrap();
+    flatten_geometries(&geoms)
+  }
+
+  #[test]
+  fn skip_removes_subtree_from_preview() {
+    let scene = flatten_lua("render(s(cube(10)))");
+    assert!(scene.groups.is_empty(), "skipped object must not render");
+    assert!(scene.overlays.is_empty());
+  }
+
+  #[test]
+  fn only_replaces_whole_scene() {
+    let scene = flatten_lua(
+      r#"
+      render(cube({ 20, 20, 10 }))
+      render(o(sphere({ r = 5 }):translate(10, 30, 5)))
+      render(cube({ 8, 8, 8 }):translate(-15, 0, 0))
+      "#,
+    );
+    assert_eq!(scene.groups.len(), 1, "only the `!` subtree must remain");
+    let leaf = &scene.groups[0].primitives[0];
+    assert_eq!(leaf.operation, INTERSECTION);
+    assert_eq!(
+      [leaf.transform[12], leaf.transform[13], leaf.transform[14]],
+      [10.0, 30.0, 5.0],
+      "ancestor transform must be preserved"
+    );
+  }
+
+  #[test]
+  fn debug_keeps_csg_and_adds_highlight_overlay() {
+    let scene = flatten_lua(
+      "render(cube({ 20, 20, 10 }) - d(cylinder({ h = 12, r = 4 })))",
+    );
+    assert_eq!(scene.groups.len(), 1);
+    let ops: Vec<_> = scene.groups[0]
+      .primitives
+      .iter()
+      .map(|p| p.operation)
+      .collect();
+    assert_eq!(
+      ops,
+      vec![INTERSECTION, SUBTRACTION],
+      "`#` must still participate in the difference"
+    );
+    assert_eq!(scene.overlays.len(), 1, "`#` must add a highlight overlay");
+    assert_eq!(scene.overlays[0].color, HIGHLIGHT_COLOR);
+  }
+
+  #[test]
+  fn transparent_is_dropped_from_difference_base() {
+    // `%` first child: the sphere becomes the base instead (OpenSCAD
+    // background semantics), and the cube is drawn as a gray overlay.
+    let scene = flatten_lua("render(t(cube(10)) - sphere({ r = 5 }))");
+    let leaves: Vec<_> =
+      scene.groups.iter().flat_map(|g| &g.primitives).collect();
+    assert_eq!(leaves.len(), 1, "only the sphere must remain in the CSG");
+    assert_eq!(leaves[0].operation, INTERSECTION);
+    assert_eq!(scene.overlays.len(), 1, "`%` must add a background overlay");
+    assert_eq!(scene.overlays[0].color, BACKGROUND_COLOR);
+  }
 }

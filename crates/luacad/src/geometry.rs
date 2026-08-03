@@ -384,10 +384,18 @@ pub fn materialize_scad(node: &ScadNode) -> CsgMesh<()> {
       mesh.scale(sx, sy, sz)
     }
 
-    // --- Color / modifiers / render: pass through ---
-    ScadNode::Color { child, .. }
-    | ScadNode::Render { child, .. }
-    | ScadNode::Modifier { child, .. } => materialize_scad(child),
+    // --- Color / render: pass through ---
+    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
+      materialize_scad(child)
+    }
+
+    // --- Modifiers: `*`/`%` are excluded, `#`/`!` pass through ---
+    ScadNode::Modifier { kind, child } => match kind {
+      crate::scad_export::ModifierKind::Skip
+      | crate::scad_export::ModifierKind::Transparent => empty_mesh(),
+      crate::scad_export::ModifierKind::Debug
+      | crate::scad_export::ModifierKind::Only => materialize_scad(child),
+    },
 
     // --- Extrusions: these produce geometry but need sketch data ---
     // Cannot be reconstructed from ScadNode alone (we don't store the sketch mesh).

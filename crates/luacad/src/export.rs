@@ -1036,7 +1036,9 @@ pub fn materialize_scad_manifold(
     }
 
     ScadNode::Difference(children) => {
-      let mut iter = children.iter();
+      // `*`/`%` children are removed from the boolean entirely, so the
+      // base is the first remaining child (OpenSCAD semantics).
+      let mut iter = children.iter().filter(|c| !c.is_csg_dropped());
       let first = iter
         .next()
         .map(materialize_scad_manifold)
@@ -1051,7 +1053,9 @@ pub fn materialize_scad_manifold(
     }
 
     ScadNode::Intersection(children) => {
-      let mut iter = children.iter();
+      // `*`/`%` children are removed from the boolean entirely; keeping
+      // them would intersect with an empty manifold and erase the result.
+      let mut iter = children.iter().filter(|c| !c.is_csg_dropped());
       let first = iter
         .next()
         .map(materialize_scad_manifold)
@@ -1276,10 +1280,22 @@ pub fn materialize_scad_manifold(
       })
     }
 
-    // --- Color / modifiers / render: pass through ---
-    ScadNode::Color { child, .. }
-    | ScadNode::Render { child, .. }
-    | ScadNode::Modifier { child, .. } => materialize_scad_manifold(child),
+    // --- Color / render: pass through ---
+    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
+      materialize_scad_manifold(child)
+    }
+
+    // --- Modifiers ---
+    // `*` (disable) and `%` (background) are excluded from the CSG result;
+    // `#` (debug) and `!` (root) don't change the geometry itself.
+    ScadNode::Modifier { kind, child } => match kind {
+      crate::scad_export::ModifierKind::Skip
+      | crate::scad_export::ModifierKind::Transparent => Manifold::empty(),
+      crate::scad_export::ModifierKind::Debug
+      | crate::scad_export::ModifierKind::Only => {
+        materialize_scad_manifold(child)
+      }
+    },
 
     // --- 2D shapes (only meaningful under an extrusion), text
     // and file ops: not yet supported ---
@@ -1477,10 +1493,20 @@ pub fn materialize_scad_cross_section(
       CrossSection::from_polygons(&polygons)
     }
 
-    // --- Color / modifiers / render: pass through ---
-    ScadNode::Color { child, .. }
-    | ScadNode::Render { child, .. }
-    | ScadNode::Modifier { child, .. } => materialize_scad_cross_section(child),
+    // --- Color / render: pass through ---
+    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
+      materialize_scad_cross_section(child)
+    }
+
+    // --- Modifiers: `*`/`%` are excluded, `#`/`!` pass through ---
+    ScadNode::Modifier { kind, child } => match kind {
+      crate::scad_export::ModifierKind::Skip
+      | crate::scad_export::ModifierKind::Transparent => CrossSection::empty(),
+      crate::scad_export::ModifierKind::Debug
+      | crate::scad_export::ModifierKind::Only => {
+        materialize_scad_cross_section(child)
+      }
+    },
 
     // --- 3D shapes, text and file ops: nothing to extrude ---
     _ => CrossSection::empty(),

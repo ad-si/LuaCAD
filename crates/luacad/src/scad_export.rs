@@ -280,6 +280,28 @@ fn write_indent(out: &mut String, depth: usize) {
 }
 
 impl ScadNode {
+  /// True if this subtree is removed from CSG evaluation entirely:
+  /// OpenSCAD's `*` (disable) and `%` (background) modifiers. Looks through
+  /// transform/color wrappers, matching OpenSCAD which drops the marked node
+  /// from the CSG tree wherever it sits.
+  pub fn is_csg_dropped(&self) -> bool {
+    match self {
+      ScadNode::Modifier {
+        kind: ModifierKind::Skip | ModifierKind::Transparent,
+        ..
+      } => true,
+      ScadNode::Translate { child, .. }
+      | ScadNode::Rotate { child, .. }
+      | ScadNode::Scale { child, .. }
+      | ScadNode::Mirror { child, .. }
+      | ScadNode::Multmatrix { child, .. }
+      | ScadNode::Resize { child, .. }
+      | ScadNode::Color { child, .. }
+      | ScadNode::Render { child, .. } => child.is_csg_dropped(),
+      _ => false,
+    }
+  }
+
   /// Serialize this node to OpenSCAD source code.
   #[allow(dead_code)]
   pub fn to_scad(&self) -> String {

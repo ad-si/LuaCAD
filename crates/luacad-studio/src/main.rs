@@ -882,7 +882,7 @@ fn main() {
 
       let proj = camera_projection_matrix(&camera);
       let view = camera_view_matrix(&camera);
-      render_opencsg_scene(&app.csg_groups, &proj, &view);
+      render_opencsg_scene(&app.csg_groups, &app.overlay_meshes, &proj, &view);
       render_axes();
 
       scene_fbo.unbind();

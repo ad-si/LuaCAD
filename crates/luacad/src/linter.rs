@@ -154,6 +154,21 @@ globals:
     args:
       - type: "..."
 
+  # Modifier shorthands: s = skip (*), o = only (!), d = debug (#),
+  # t = transparent (%)
+  s:
+    args:
+      - type: "..."
+  o:
+    args:
+      - type: "..."
+  d:
+    args:
+      - type: "..."
+  t:
+    args:
+      - type: "..."
+
   # Utilities
   var:
     args:
@@ -301,6 +316,25 @@ mod tests {
     assert!(
       undefined.is_empty(),
       "LuaCAD globals should not be flagged as undefined: {undefined:?}"
+    );
+  }
+
+  #[test]
+  fn modifier_shorthands_not_flagged() {
+    let code = r#"
+      render(s(cube(1)))
+      render(o(cube(2)))
+      render(d(cube(3)))
+      render(t(cube(4)))
+    "#;
+    let undefined: Vec<_> = lint(code)
+      .unwrap()
+      .into_iter()
+      .filter(|d| d.code == "undefined_variable")
+      .collect();
+    assert!(
+      undefined.is_empty(),
+      "modifier shorthands should not be flagged as undefined: {undefined:?}"
     );
   }
 
