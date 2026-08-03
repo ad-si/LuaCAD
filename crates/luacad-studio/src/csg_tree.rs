@@ -231,17 +231,25 @@ fn flatten_node(
   flatten_inner(node, &ctx, INTERSECTION, sink)
 }
 
-/// Returns true if `node` itself (not descendants) is a non-tessellatable
-/// primitive that requires Manifold materialization. Used to decide whether a
-/// boolean's immediate children need the whole boolean computed via Manifold
-/// rather than OpenCSG, avoiding depth-buffer precision artifacts.
-fn is_manifold_primitive(node: &ScadNode) -> bool {
+/// Returns true if `node`, sitting at `op` position, can be folded into the
+/// single OpenCSG product `I1 ∩ … ∩ In − S1 − … − Sm` that its enclosing
+/// boolean is flattened into.
+///
+/// Only some tree shapes fit. A union is a *sum* of products and a subtracted
+/// difference expands to two products (`X − (A − B) = (X − A) ∪ (X ∩ B)`), so
+/// neither can be appended to the enclosing product's operand list.
+/// Non-tessellatable primitives (hull, Minkowski, extrusions) don't fit either
+/// — they have no leaf tessellation to hand OpenCSG. Whatever doesn't fit is
+/// computed by Manifold instead and rendered as a plain mesh.
+fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
   match node {
+    // Not tessellatable: needs Manifold materialization regardless of shape.
     ScadNode::Minkowski(_)
     | ScadNode::Hull(_)
     | ScadNode::LinearExtrude { .. }
-    | ScadNode::RotateExtrude { .. } => true,
-    // Look through transforms to the underlying shape
+    | ScadNode::RotateExtrude { .. } => false,
+
+    // Transforms and colors are folded into the leaves they wrap.
     ScadNode::Translate { child, .. }
     | ScadNode::Rotate { child, .. }
     | ScadNode::Scale { child, .. }
@@ -249,9 +257,52 @@ fn is_manifold_primitive(node: &ScadNode) -> bool {
     | ScadNode::Multmatrix { child, .. }
     | ScadNode::Resize { child, .. }
     | ScadNode::Color { child, .. }
-    | ScadNode::Render { child, .. }
-    | ScadNode::Modifier { child, .. } => is_manifold_primitive(child),
-    _ => false,
+    | ScadNode::Render { child, .. } => fits_in_product(child, op),
+
+    ScadNode::Modifier { kind, child } => match kind {
+      // Dropped from the CSG entirely, so they never widen the product.
+      ModifierKind::Skip | ModifierKind::Transparent => true,
+      ModifierKind::Debug => fits_in_product(child, op),
+      // `!` replaces the whole scene; let Manifold materialize the boolean
+      // so `collect_modifier_effects` can capture the subtree.
+      ModifierKind::Only => false,
+    },
+
+    // `X − (A ∪ B)` = `X − A − B`, so a union collapses into the product
+    // when every operand is subtracted — but not in an intersected position,
+    // where it would turn into `A ∩ B`.
+    ScadNode::Union(children) => {
+      op == SUBTRACTION
+        && children
+          .iter()
+          .all(|child| fits_in_product(child, SUBTRACTION))
+    }
+
+    // `X ∩ (A − B)` = `X ∩ A − B` keeps one product; subtracting the same
+    // difference would not.
+    ScadNode::Difference(children) => {
+      let base = children.iter().position(|c| !c.is_csg_dropped());
+      op == INTERSECTION
+        && children.iter().enumerate().all(|(i, child)| {
+          let child_op = if Some(i) == base {
+            INTERSECTION
+          } else {
+            SUBTRACTION
+          };
+          fits_in_product(child, child_op)
+        })
+    }
+
+    // Same reasoning: intersections nest into an intersected position only.
+    ScadNode::Intersection(children) => {
+      op == INTERSECTION
+        && children
+          .iter()
+          .all(|child| fits_in_product(child, INTERSECTION))
+    }
+
+    // Everything else is a leaf primitive (or renders nothing at all).
+    _ => true,
   }
 }
 
@@ -274,9 +325,10 @@ fn flatten_inner(
       groups
     }
     ScadNode::Difference(children) if !children.is_empty() => {
-      // If any child requires Manifold (Minkowski, Hull, extrusions), compute
-      // the entire boolean via Manifold to avoid OpenCSG depth-buffer artifacts.
-      if children.iter().any(is_manifold_primitive) {
+      // Shapes that don't fit a single OpenCSG product (nested unions and
+      // differences, hulls, extrusions, …) are computed by Manifold as a
+      // whole, which also avoids OpenCSG depth-buffer artifacts.
+      if !fits_in_product(node, op) {
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
@@ -304,8 +356,8 @@ fn flatten_inner(
       }
     }
     ScadNode::Intersection(children) => {
-      // If any child requires Manifold, compute via Manifold.
-      if children.iter().any(is_manifold_primitive) {
+      // Same fallback as for differences.
+      if !fits_in_product(node, op) {
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
@@ -1282,5 +1334,119 @@ mod modifier_tests {
     assert_eq!(leaves[0].operation, INTERSECTION);
     assert_eq!(scene.overlays.len(), 1, "`%` must add a background overlay");
     assert_eq!(scene.overlays[0].color, BACKGROUND_COLOR);
+  }
+}
+
+#[cfg(test)]
+mod product_tests {
+  use super::*;
+
+  fn flatten_lua(code: &str) -> CsgScene {
+    let geoms = luacad::lua_engine::execute_lua(code).unwrap();
+    flatten_geometries(&geoms)
+  }
+
+  /// A single Manifold-materialized mesh: one group, one intersected leaf.
+  fn assert_single_mesh(scene: &CsgScene, what: &str) {
+    assert_eq!(scene.groups.len(), 1, "{what}: expected one group");
+    let prims = &scene.groups[0].primitives;
+    assert_eq!(prims.len(), 1, "{what}: expected one materialized leaf");
+    assert_eq!(prims[0].operation, INTERSECTION);
+    assert!(
+      !prims[0].vertices.is_empty(),
+      "{what}: leaf must have geometry"
+    );
+  }
+
+  #[test]
+  fn subtracted_difference_is_materialized() {
+    // `X - (A - B)` is not one OpenCSG product: flattening it in place would
+    // render `X ∩ A - B` and drop the island `B` leaves inside the cavity.
+    let scene = flatten_lua(
+      r#"
+      local outer = cube({ 40, 40, 40 })
+      local cavity = cube({ 30, 30, 30 }):translate(5, 5, 5)
+      local island = cube({ 10, 10, 10 }):translate(15, 15, 15)
+      render(outer - (cavity - island))
+      "#,
+    );
+    assert_single_mesh(&scene, "X - (A - B)");
+  }
+
+  #[test]
+  fn subtracted_intersection_is_materialized() {
+    let scene = flatten_lua(
+      r#"
+      local outer = cube({ 40, 40, 40 })
+      local a = cube({ 30, 30, 30 }):translate(5, 5, 5)
+      local b = sphere({ r = 18 }):translate(20, 20, 20)
+      render(outer - (a * b))
+      "#,
+    );
+    assert_single_mesh(&scene, "X - (A ∩ B)");
+  }
+
+  #[test]
+  fn union_base_of_difference_is_materialized() {
+    // `(A ∪ B) - S` is a sum of two products, not one: flattening it in place
+    // would render `A ∩ B - S`.
+    let scene = flatten_lua(
+      r#"
+      local a = cube({ 20, 20, 20 })
+      local b = cube({ 20, 20, 20 }):translate(30, 0, 0)
+      render((a + b) - cylinder({ r = 4, h = 40 }):translate(10, 10, -10))
+      "#,
+    );
+    assert_single_mesh(&scene, "(A ∪ B) - S");
+  }
+
+  #[test]
+  fn union_inside_intersection_is_materialized() {
+    let scene = flatten_lua(
+      r#"
+      local a = cube({ 20, 20, 20 })
+      local b = cube({ 20, 20, 20 }):translate(10, 0, 0)
+      render(cube({ 40, 40, 40 }) * (a + b))
+      "#,
+    );
+    assert_single_mesh(&scene, "X ∩ (A ∪ B)");
+  }
+
+  #[test]
+  fn subtracted_union_still_uses_opencsg() {
+    // `X - (A ∪ B)` = `X - A - B` does fit one product, so it must keep the
+    // cheap OpenCSG path instead of falling back to Manifold.
+    let scene = flatten_lua(
+      r#"
+      local holes = cylinder({ r = 3, h = 30 }):translate(5, 5, -5)
+        + cylinder({ r = 3, h = 30 }):translate(15, 15, -5)
+      render(cube({ 20, 20, 20 }) - holes)
+      "#,
+    );
+    assert_eq!(scene.groups.len(), 1);
+    let ops: Vec<_> = scene.groups[0]
+      .primitives
+      .iter()
+      .map(|p| p.operation)
+      .collect();
+    assert_eq!(ops, vec![INTERSECTION, SUBTRACTION, SUBTRACTION]);
+  }
+
+  #[test]
+  fn intersected_difference_still_uses_opencsg() {
+    // `X ∩ (A - B)` = `X ∩ A - B` fits one product.
+    let scene = flatten_lua(
+      r#"
+      local ring = cube({ 20, 20, 20 }) - cylinder({ r = 4, h = 30 }):translate(10, 10, -5)
+      render(sphere({ r = 14 }) * ring)
+      "#,
+    );
+    assert_eq!(scene.groups.len(), 1);
+    let ops: Vec<_> = scene.groups[0]
+      .primitives
+      .iter()
+      .map(|p| p.operation)
+      .collect();
+    assert_eq!(ops, vec![INTERSECTION, INTERSECTION, SUBTRACTION]);
   }
 }
