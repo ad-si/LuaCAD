@@ -63,7 +63,7 @@ fn paint_lucide_icon(
       rect.top() + y / 24.0 * rect.height(),
     )
   };
-  let stroke = egui::Stroke::new(1.5, color);
+  let stroke = egui::Stroke::new(1.5_f32, color);
 
   match icon {
     LucideIcon::X => {
@@ -716,7 +716,7 @@ pub fn render_ui(
                 let s_end = section.byte_range.end;
                 // If this section overlaps the diagnostic range, underline it
                 if s_start < range.end && s_end > range.start {
-                  section.format.underline = egui::Stroke::new(1.5, color);
+                  section.format.underline = egui::Stroke::new(1.5_f32, color);
                 }
               }
             }
