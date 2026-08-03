@@ -158,12 +158,11 @@ globals:
   var:
     args:
       - type: "..."
+  # cad() and version() take no arguments
   cad:
-    args:
-      - type: "..."
+    args: []
   version:
-    args:
-      - type: "..."
+    args: []
   sign:
     args:
       - type: "..."
@@ -302,6 +301,20 @@ mod tests {
     assert!(
       undefined.is_empty(),
       "LuaCAD globals should not be flagged as undefined: {undefined:?}"
+    );
+  }
+
+  #[test]
+  fn zero_arg_builtins_not_flagged() {
+    let code = "local base = cad()\nprint(base, version())\n";
+    let errors: Vec<_> = lint(code)
+      .unwrap()
+      .into_iter()
+      .filter(|d| d.severity == LintSeverity::Error)
+      .collect();
+    assert!(
+      errors.is_empty(),
+      "cad() and version() take no arguments: {errors:?}"
     );
   }
 
