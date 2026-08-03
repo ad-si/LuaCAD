@@ -234,6 +234,19 @@ pub struct CsgGeometry {
   pub scad: Option<ScadNode>,
 }
 
+impl CsgGeometry {
+  /// Clone of the `mesh` field. cfg-paired so callers stay identical across
+  /// features (with `csgrs` the mesh is not `Copy` and must be cloned).
+  #[cfg(feature = "csgrs")]
+  fn mesh_clone(&self) -> Option<CsgMesh<()>> {
+    self.mesh.clone()
+  }
+  #[cfg(not(feature = "csgrs"))]
+  fn mesh_clone(&self) -> Option<()> {
+    self.mesh
+  }
+}
+
 #[cfg(feature = "csgrs")]
 impl CsgGeometry {
   /// Ensure `self.mesh` is populated by evaluating the ScadNode tree if needed.
@@ -706,7 +719,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: Some(color),
         scad,
       })
@@ -745,7 +758,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: Some(color),
         scad,
       })
@@ -761,7 +774,7 @@ impl UserData for CsgGeometry {
       });
       // Projection produces a 2D result; keep mesh as-is for viewport
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
@@ -776,7 +789,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
@@ -790,7 +803,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
@@ -802,7 +815,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
@@ -814,7 +827,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
@@ -826,7 +839,7 @@ impl UserData for CsgGeometry {
         child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
-        mesh: this.mesh,
+        mesh: this.mesh_clone(),
         color: this.color,
         scad,
       })
