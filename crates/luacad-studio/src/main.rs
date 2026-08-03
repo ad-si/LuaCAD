@@ -9,7 +9,7 @@ mod scene;
 mod theme;
 mod ui;
 
-use app::{AppState, FileAction};
+use app::{AppState, FileAction, file_mtime};
 use camera::{Viewport, degrees, vec3};
 use cgmath::InnerSpace;
 use editor::EditorAction;
@@ -47,6 +47,23 @@ fn save_last_file(path: Option<&Path>) {
     None => serde_json::json!({}),
   };
   let _ = std::fs::write(&state_path, json.to_string());
+}
+
+/// Write the editor content to `path` and update app state accordingly.
+/// Returns true if the write succeeded.
+fn save_to_path(app: &mut AppState, path: &Path) -> bool {
+  match std::fs::write(path, &app.text_content) {
+    Ok(()) => {
+      app.disk_mtime = file_mtime(path);
+      app.export_status = Some((format!("Saved to {}", path.display()), false));
+      app.execute_lua_code();
+      true
+    }
+    Err(e) => {
+      app.export_status = Some((format!("Failed to save: {e}"), true));
+      false
+    }
+  }
 }
 
 /// Load the last opened file path from state, if the file still exists.
@@ -610,6 +627,7 @@ fn main() {
             app.geometries.clear();
             app.lua_error = None;
             app.current_file = None;
+            app.disk_mtime = None;
             app.scene_dirty = true;
             save_last_file(None);
           }
@@ -623,6 +641,7 @@ fn main() {
                 Ok(contents) => {
                   app.text_content = contents;
                   app.current_file = Some(path.clone());
+                  app.disk_mtime = file_mtime(&path);
                   app.execute_lua_code();
                   app.scene_dirty = true;
                   app.needs_fit_to_view = true;
@@ -635,7 +654,7 @@ fn main() {
               }
             }
           }
-          FileAction::Save => {
+          FileAction::Save | FileAction::ForceSave => {
             app.text_content = app
               .text_content
               .lines()
@@ -643,36 +662,23 @@ fn main() {
               .collect::<Vec<_>>()
               .join("\n");
             if let Some(path) = app.current_file.clone() {
-              match std::fs::write(&path, &app.text_content) {
-                Ok(()) => {
-                  app.export_status =
-                    Some((format!("Saved to {}", path.display()), false));
-                  app.execute_lua_code();
-                }
-                Err(e) => {
-                  app.export_status =
-                    Some((format!("Failed to save: {e}"), true))
-                }
+              // Confirm before overwriting a file modified since load/save
+              let changed_on_disk = matches!(action, FileAction::Save)
+                && file_mtime(&path).is_some_and(|m| Some(m) != app.disk_mtime);
+              if changed_on_disk {
+                app.show_overwrite_confirm = true;
+              } else {
+                save_to_path(&mut app, &path);
               }
             } else if let Some(path) = rfd::FileDialog::new()
               .set_title("Save Lua File")
               .add_filter("Lua Files", &["lua"])
               .set_file_name("untitled.lua")
               .save_file()
+              && save_to_path(&mut app, &path)
             {
-              match std::fs::write(&path, &app.text_content) {
-                Ok(()) => {
-                  app.current_file = Some(path.clone());
-                  app.export_status =
-                    Some((format!("Saved to {}", path.display()), false));
-                  app.execute_lua_code();
-                  save_last_file(Some(&path));
-                }
-                Err(e) => {
-                  app.export_status =
-                    Some((format!("Failed to save: {e}"), true))
-                }
-              }
+              app.current_file = Some(path.clone());
+              save_last_file(Some(&path));
             }
           }
           FileAction::SaveAs => {
@@ -693,18 +699,25 @@ fn main() {
               .add_filter("Lua Files", &["lua"])
               .set_file_name(&default_name)
               .save_file()
+              && save_to_path(&mut app, &path)
             {
-              match std::fs::write(&path, &app.text_content) {
-                Ok(()) => {
-                  app.current_file = Some(path.clone());
-                  app.export_status =
-                    Some((format!("Saved to {}", path.display()), false));
+              app.current_file = Some(path.clone());
+              save_last_file(Some(&path));
+            }
+          }
+          FileAction::Reload => {
+            if let Some(path) = app.current_file.clone() {
+              match std::fs::read_to_string(&path) {
+                Ok(contents) => {
+                  app.text_content = contents;
+                  app.disk_mtime = file_mtime(&path);
                   app.execute_lua_code();
-                  save_last_file(Some(&path));
+                  app.export_status =
+                    Some((format!("Reloaded {}", path.display()), false));
                 }
                 Err(e) => {
                   app.export_status =
-                    Some((format!("Failed to save: {e}"), true))
+                    Some((format!("Failed to reload: {e}"), true))
                 }
               }
             }
@@ -910,6 +923,7 @@ fn main() {
               Ok(contents) => {
                 app.text_content = contents;
                 app.current_file = Some(path.clone());
+                app.disk_mtime = file_mtime(path);
                 app.execute_lua_code();
                 app.scene_dirty = true;
                 app.needs_fit_to_view = true;

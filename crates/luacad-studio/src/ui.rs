@@ -426,6 +426,14 @@ pub fn render_ui(
       {
         app.pending_file_action = Some(FileAction::SaveAs);
       }
+      if ui
+        .add_enabled(app.current_file.is_some(), egui::Button::new("Reload"))
+        .on_hover_text("Load the latest version from disk")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
+        app.pending_file_action = Some(FileAction::Reload);
+      }
       ui.separator();
       if ui
         .button("Clear")
@@ -437,6 +445,7 @@ pub fn render_ui(
         app.lua_error = None;
         app.scene_dirty = true;
         app.current_file = None;
+        app.disk_mtime = None;
       }
     });
     ui.add_space(8.0);
@@ -1105,6 +1114,52 @@ pub fn render_ui(
     if !open {
       app.show_settings = false;
     }
+  }
+
+  // Save confirmation when the file was changed on disk by another program
+  if app.show_overwrite_confirm {
+    egui::Window::new("File Changed on Disk")
+      .collapsible(false)
+      .resizable(false)
+      .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+      .show(gui_context, |ui| {
+        ui.label(
+          "The file was modified by another program \
+           since it was opened in the editor.",
+        );
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+          if ui
+            .button("Overwrite")
+            .on_hover_text(
+              "Save the editor content, discarding the changes on disk",
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.pending_file_action = Some(FileAction::ForceSave);
+            app.show_overwrite_confirm = false;
+          }
+          if ui
+            .button("Reload")
+            .on_hover_text(
+              "Load the file from disk, discarding the editor content",
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.pending_file_action = Some(FileAction::Reload);
+            app.show_overwrite_confirm = false;
+          }
+          if ui
+            .button("Cancel")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.show_overwrite_confirm = false;
+          }
+        });
+      });
   }
 
   // The scene rect is the remaining area after all panels.

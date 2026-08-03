@@ -1,5 +1,6 @@
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::csg_tree::{CsgGroup, flatten_geometries};
 use crate::editor::EditorAction;
@@ -66,7 +67,16 @@ pub enum FileAction {
   New,
   Open,
   Save,
+  /// Save without checking whether the file changed on disk
+  ForceSave,
   SaveAs,
+  /// Re-read the current file from disk, discarding editor content
+  Reload,
+}
+
+/// Modification time of a file on disk, if available.
+pub fn file_mtime(path: &Path) -> Option<SystemTime> {
+  std::fs::metadata(path).ok()?.modified().ok()
 }
 
 pub struct AppState {
@@ -91,6 +101,10 @@ pub struct AppState {
   pub pending_export: Option<ExportFormat>,
   /// Currently opened file path
   pub current_file: Option<PathBuf>,
+  /// Disk modification time of current_file when it was last loaded or saved
+  pub disk_mtime: Option<SystemTime>,
+  /// Whether the "file changed on disk" save confirmation dialog is open
+  pub show_overwrite_confirm: bool,
   /// Pending file action (save/open) requested this frame
   pub pending_file_action: Option<FileAction>,
   /// Pending SCAD export requested this frame
@@ -133,6 +147,7 @@ impl AppState {
     } else {
       (Self::welcome_text().to_string(), None)
     };
+    let disk_mtime = current_file.as_deref().and_then(file_mtime);
 
     let mut app = Self {
       text_content,
@@ -156,6 +171,8 @@ impl AppState {
       pending_export: None,
       pending_scad_export: false,
       current_file,
+      disk_mtime,
+      show_overwrite_confirm: false,
       pending_file_action: None,
       pending_manifold_export: None,
       needs_fit_to_view: true,
