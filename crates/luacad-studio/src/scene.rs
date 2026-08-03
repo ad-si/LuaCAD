@@ -322,30 +322,32 @@ fn compute_face_normals(verts: &[[f32; 3]]) -> Vec<[f32; 3]> {
   normals
 }
 
-/// Draw 3D axes at the origin using raw GL.
+/// Draw 3D axes through the origin using raw GL.
 /// CAD convention: Red=X, Green=Y, Blue=Z.
 /// Mapping: CAD (x,y,z) → GL (y,z,x).
+/// Endpoints are homogeneous points at infinity (w=0), so the axes span
+/// the whole view at any zoom level; negative directions are dimmed.
 pub fn render_axes() {
-  let len = 5.0_f32;
+  // (GL direction, color) per CAD axis
+  let axes = [
+    ([0.0_f32, 0.0, 1.0], [1.0_f32, 0.0, 0.0]), // CAD X (red) → GL Z
+    ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),         // CAD Y (green) → GL X
+    ([0.0, 1.0, 0.0], [0.3, 0.3, 1.0]),         // CAD Z (blue) → GL Y
+  ];
   unsafe {
     gl_Disable(GL_LIGHTING);
     gl_LineWidth(2.0);
     gl_Begin(GL_LINES);
 
-    // CAD X axis (red) → GL Z
-    gl_Color3f(1.0, 0.0, 0.0);
-    gl_Vertex3f(0.0, 0.0, 0.0);
-    gl_Vertex3f(0.0, 0.0, len);
+    for ([x, y, z], [r, g, b]) in axes {
+      gl_Color3f(r, g, b);
+      gl_Vertex3f(0.0, 0.0, 0.0);
+      gl_Vertex4f(x, y, z, 0.0);
 
-    // CAD Y axis (green) → GL X
-    gl_Color3f(0.0, 1.0, 0.0);
-    gl_Vertex3f(0.0, 0.0, 0.0);
-    gl_Vertex3f(len, 0.0, 0.0);
-
-    // CAD Z axis (blue) → GL Y
-    gl_Color3f(0.3, 0.3, 1.0);
-    gl_Vertex3f(0.0, 0.0, 0.0);
-    gl_Vertex3f(0.0, len, 0.0);
+      gl_Color3f(0.4 * r, 0.4 * g, 0.4 * b);
+      gl_Vertex3f(0.0, 0.0, 0.0);
+      gl_Vertex4f(-x, -y, -z, 0.0);
+    }
 
     gl_End();
     gl_LineWidth(1.0);
@@ -536,6 +538,8 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glVertex4f"]
+  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
 
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
@@ -662,6 +666,8 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glVertex4f"]
+  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
 
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
@@ -785,6 +791,8 @@ unsafe extern "C" {
   fn gl_End();
   #[link_name = "glVertex3f"]
   fn gl_Vertex3f(x: f32, y: f32, z: f32);
+  #[link_name = "glVertex4f"]
+  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
 
   #[link_name = "glColor3f"]
   fn gl_Color3f(r: f32, g: f32, b: f32);
