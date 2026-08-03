@@ -62,9 +62,10 @@ fn load_last_file() -> Option<PathBuf> {
 fn timestamped_filename(ext: &str) -> String {
   let now = time::OffsetDateTime::now_local()
     .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-  let format =
-    time::format_description::parse("[year]-[month]-[day]t[hour][minute]")
-      .expect("valid format description");
+  let format = time::format_description::parse_borrowed::<2>(
+    "[year]-[month]-[day]t[hour][minute]",
+  )
+  .expect("valid format description");
   let stamp = now.format(&format).expect("format timestamp");
   format!("{stamp}_model.{ext}")
 }
