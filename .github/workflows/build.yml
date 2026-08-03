@@ -62,6 +62,22 @@ jobs:
       - name: Test
         run: cargo test
 
+  # Runs on macOS because the csgrs mesh snapshots are platform-dependent:
+  # boolean ops diverge structurally across libm implementations, and the
+  # snapshots are recorded on macOS.
+  test-csgrs:
+    runs-on: macos-latest
+    name: Test csgrs feature
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Test with csgrs feature
         run: cargo test --package luacad --features csgrs
 
