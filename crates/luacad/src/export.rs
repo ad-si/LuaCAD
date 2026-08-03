@@ -2109,3 +2109,67 @@ mod tests {
     assert!(result.is_err());
   }
 }
+
+/// Manifold-only tests — these run without the `csgrs` feature.
+#[cfg(test)]
+mod manifold_tests {
+  use super::*;
+  use crate::scad_export::ScadNode;
+
+  #[test]
+  fn minkowski_offset_operand() {
+    // Regression: the face-sweep Minkowski decomposition is only valid
+    // when the swept operand contains the origin. With a far-translated
+    // sphere the result must be the translated sum — not a blend that
+    // also spans the first operand's original location.
+    let l_shape = ScadNode::Difference(vec![
+      ScadNode::Cube {
+        w: 10.0,
+        d: 10.0,
+        h: 10.0,
+        center: false,
+      },
+      ScadNode::Translate {
+        x: 5.0,
+        y: 5.0,
+        z: -1.0,
+        child: Box::new(ScadNode::Cube {
+          w: 10.0,
+          d: 10.0,
+          h: 15.0,
+          center: false,
+        }),
+      },
+    ]);
+    let scad = ScadNode::Minkowski(vec![
+      l_shape,
+      ScadNode::Translate {
+        x: 30.0,
+        y: 0.0,
+        z: 0.0,
+        child: Box::new(ScadNode::Sphere {
+          r: 2.0,
+          segments: 16,
+        }),
+      },
+    ]);
+    let mesh = extract_manifold_mesh(&materialize_scad_manifold(&scad));
+    assert!(!mesh.vertices.is_empty());
+    let (min_x, max_x) = mesh
+      .vertices
+      .iter()
+      .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+        (lo.min(v[0]), hi.max(v[0]))
+      });
+    // L-shape spans x ∈ [0, 10], sphere spans x ∈ [28, 32],
+    // so the Minkowski sum must span x ∈ [28, 42].
+    assert!(
+      (min_x - 28.0).abs() < 0.01,
+      "min x should be ~28, got {min_x}"
+    );
+    assert!(
+      (max_x - 42.0).abs() < 0.01,
+      "max x should be ~42, got {max_x}"
+    );
+  }
+}

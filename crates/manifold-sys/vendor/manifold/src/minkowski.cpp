@@ -63,6 +63,15 @@ Manifold Manifold::Impl::Minkowski(const Impl& other, bool inset) const {
     return Manifold::Hull(simpleHull).AsOriginal();
   }
 
+  // The decompositions below rely on A ∪ (∂A ⊕ B) (or its inset analogue),
+  // which only equals the Minkowski sum when B contains the origin.
+  // Minkowski is translation-equivariant, so shift B by one of its vertices
+  // (a vertex is always a point of B) and shift the result back at the end.
+  const vec3 bShift = bImpl->vertPos_[0];
+  std::shared_ptr<Impl> bShifted = std::make_shared<Impl>(*bImpl);
+  for (vec3& v : bShifted->vertPos_) v -= bShift;
+  bImpl = bShifted.get();
+
   std::shared_ptr<Impl> aImplCopy = std::make_shared<Impl>(*aImpl);
   Manifold a(aImplCopy);
   std::vector<Manifold> composedHulls;
@@ -170,9 +179,12 @@ Manifold Manifold::Impl::Minkowski(const Impl& other, bool inset) const {
       composedHulls.push_back(Manifold::BatchBoolean(accumulated, OpType::Add));
     }
   }
+  // Undo the origin shift: A ⊕ (B − s) = (A ⊕ B) − s, and for the inset
+  // (erosion) case A ⊖ (B̌ + s) = (A ⊖ B̌) − s, so both need +s.
   return Manifold::BatchBoolean(composedHulls, inset
                                                    ? manifold::OpType::Subtract
                                                    : manifold::OpType::Add)
+      .Translate(bShift)
       .AsOriginal();
 }
 
