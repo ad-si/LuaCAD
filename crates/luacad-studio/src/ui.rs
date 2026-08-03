@@ -819,6 +819,8 @@ pub fn render_ui(
           .layouter(&mut layouter)
           .show(ui);
 
+        app.editor_focused = te_output.response.has_focus();
+
         // Extract cursor position for status line
         if let Some(range) = te_output.cursor_range {
           let sorted = range.as_sorted_char_range();

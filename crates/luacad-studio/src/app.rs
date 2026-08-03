@@ -123,6 +123,8 @@ pub struct AppState {
   pub editor_cursor_pos: usize,
   /// Editor selection length in characters (updated each frame by UI)
   pub editor_selection_len: usize,
+  /// Whether the code editor had keyboard focus in the last rendered frame
+  pub editor_focused: bool,
   /// True when clipboard contains a whole-line copy (Cmd+C with no selection)
   pub clipboard_is_line: bool,
   /// Flattened CSG groups for OpenCSG preview rendering
@@ -183,6 +185,7 @@ impl AppState {
       editor_position: EditorPosition::Right,
       editor_cursor_pos: 0,
       editor_selection_len: 0,
+      editor_focused: false,
       clipboard_is_line: false,
       csg_groups: vec![],
       overlay_meshes: vec![],

@@ -331,7 +331,7 @@ fn main() {
             app.search.current_match = None;
             app.search.last_computed = Default::default();
             consume_escape = true;
-          } else if *kind == Key::Tab {
+          } else if *kind == Key::Tab && app.editor_focused {
             if modifiers.shift {
               app.pending_editor_action = Some(EditorAction::Unindent);
             } else {
@@ -341,9 +341,14 @@ fn main() {
           }
         }
       }
-      // Wrap selection with brackets when typing (, [, or { while text is selected
+      // Wrap selection with brackets when typing (, [, or { while text is
+      // selected. Only when the editor itself has focus — otherwise typing a
+      // bracket into the find/replace fields would be swallowed here.
       let mut consume_bracket_text: Option<String> = None;
-      if app.editor_selection_len > 0 && app.pending_editor_action.is_none() {
+      if app.editor_focused
+        && app.editor_selection_len > 0
+        && app.pending_editor_action.is_none()
+      {
         for event in frame_input.events.iter() {
           if let Event::Text(s) = event {
             let ch = s.chars().next();
