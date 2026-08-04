@@ -1274,7 +1274,15 @@ impl UserData for CsgSketch {
           (h, center, twist, slices, scale)
         } else {
           let h = args.front().and_then(lua_val_to_f32).unwrap_or(1.0);
-          (h, false, 0.0, 0, 1.0)
+          if let Some(LuaValue::Table(t)) = args.get(1) {
+            let center = table_get_bool(t, "center");
+            let twist = table_get_f32(t, "twist").unwrap_or(0.0);
+            let slices = table_get_u32(t, "slices").unwrap_or(0);
+            let scale = table_get_f32(t, "scale").unwrap_or(1.0);
+            (h, center, twist, slices, scale)
+          } else {
+            (h, false, 0.0, 0, 1.0)
+          }
         };
       let scad = this.scad.as_ref().map(|s| ScadNode::LinearExtrude {
         height,
