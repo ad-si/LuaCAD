@@ -646,6 +646,18 @@ fn cmd_watch(args: &[String]) -> ExitCode {
 }
 
 fn main() -> ExitCode {
+  // CSG evaluation (BSP trees in csgrs) recurses deeply on models with
+  // many nearly-coplanar polygons, so run everything on a big stack
+  const STACK_SIZE: usize = 512 * 1024 * 1024;
+  std::thread::Builder::new()
+    .stack_size(STACK_SIZE)
+    .spawn(main_impl)
+    .expect("Failed to spawn main thread")
+    .join()
+    .expect("Main thread panicked")
+}
+
+fn main_impl() -> ExitCode {
   let args: Vec<String> = std::env::args().skip(1).collect();
 
   if args.is_empty() {

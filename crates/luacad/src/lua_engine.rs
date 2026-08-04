@@ -1252,7 +1252,10 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
-      let scad = Some(ScadNode::Import { file: file.clone(), convexity });
+      let scad = Some(ScadNode::Import {
+        file: file.clone(),
+        convexity,
+      });
 
       // 2D formats yield a sketch so linear_extrude() etc. are available.
       // The file is not tessellated (csgrs cannot parse arbitrary SVG/DXF),
