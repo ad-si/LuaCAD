@@ -241,6 +241,16 @@ impl AppState {
     self.lua_error = None;
     self.geometries.clear();
 
+    // Resolve relative paths (e.g. import("tracings/outline.svg"))
+    // against the opened file's directory, like OpenSCAD does
+    if let Some(dir) = self.current_file.as_ref().and_then(|f| f.parent()) {
+      if dir.as_os_str().is_empty() {
+        // A bare filename like `glasses.lua` has an empty parent
+      } else if let Err(e) = std::env::set_current_dir(dir) {
+        eprintln!("Warning: cannot enter {}: {e}", dir.display());
+      }
+    }
+
     match luacad::lua_engine::execute_lua(&self.text_content) {
       Ok(geometries) => {
         if geometries.is_empty() {

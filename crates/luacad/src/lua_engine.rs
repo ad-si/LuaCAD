@@ -1258,8 +1258,9 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       });
 
       // 2D formats yield a sketch so linear_extrude() etc. are available.
-      // The file is not tessellated (csgrs cannot parse arbitrary SVG/DXF),
-      // so these imports only work via the OpenSCAD backend.
+      // The csgrs sketch stays empty (csgrs cannot parse arbitrary SVG/DXF);
+      // SVG is tessellated by the Manifold backend (svg_import), and the
+      // OpenSCAD backend passes the import through to OpenSCAD.
       if ext == "svg" || ext == "dxf" {
         let sketch = CsgSketch {
           sketch: {

@@ -5,3 +5,4 @@ pub mod linter;
 pub mod lua_engine;
 pub mod render;
 pub mod scad_export;
+pub mod svg_import;

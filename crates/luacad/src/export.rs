@@ -845,6 +845,55 @@ impl CrossSection {
     }
   }
 
+  /// Build a cross-section from multiple closed contours; holes are
+  /// resolved with the non-zero fill rule.
+  fn from_contours(contours: &[Vec<[f32; 2]>]) -> Self {
+    let simples: Vec<*mut manifold_sys::ManifoldSimplePolygon> = contours
+      .iter()
+      .filter(|c| c.len() >= 3)
+      .map(|contour| {
+        let mut verts: Vec<manifold_sys::ManifoldVec2> = contour
+          .iter()
+          .map(|p| manifold_sys::ManifoldVec2 {
+            x: p[0] as f64,
+            y: p[1] as f64,
+          })
+          .collect();
+        unsafe {
+          manifold_sys::manifold_simple_polygon(
+            manifold_sys::manifold_alloc_simple_polygon()
+              as *mut std::os::raw::c_void,
+            verts.as_mut_ptr(),
+            verts.len(),
+          )
+        }
+      })
+      .collect();
+    if simples.is_empty() {
+      return Self::empty();
+    }
+    unsafe {
+      let mut simples = simples;
+      let polys = manifold_sys::manifold_polygons(
+        manifold_sys::manifold_alloc_polygons() as *mut std::os::raw::c_void,
+        simples.as_mut_ptr(),
+        simples.len(),
+      );
+      let cs = Self(manifold_sys::manifold_cross_section_of_polygons(
+        Self::alloc(),
+        polys,
+        manifold_sys::ManifoldFillRule_MANIFOLD_FILL_RULE_NON_ZERO,
+      ));
+      // Like manifold_simple_polygon, manifold_polygons copies its input,
+      // so the temporaries are ours to free again
+      manifold_sys::manifold_delete_polygons(polys);
+      for simple in simples {
+        manifold_sys::manifold_delete_simple_polygon(simple);
+      }
+      cs
+    }
+  }
+
   /// Build a cross-section from a contour list, e.g. the result of
   /// projecting or slicing a 3D manifold.
   fn from_polygons(polygons: &Polygons) -> Self {
@@ -1333,6 +1382,16 @@ pub fn materialize_scad_cross_section(
     }),
 
     ScadNode::Polygon { points } => CrossSection::from_points(points),
+
+    ScadNode::Import { file, .. } if file.to_lowercase().ends_with(".svg") => {
+      match crate::svg_import::svg_to_polygons(file) {
+        Ok(contours) => CrossSection::from_contours(&contours),
+        Err(e) => {
+          eprintln!("Warning: {e}");
+          CrossSection::empty()
+        }
+      }
+    }
 
     // --- CSG booleans ---
     ScadNode::Union(children) => {

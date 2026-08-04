@@ -21,6 +21,8 @@ toml = "0.7"
 serde_yaml = "0.9"
 manifold-sys = { path = "../manifold-sys" }
 png = "0.18"
+usvg = { version = "0.45", default-features = false }
+kurbo = "0.11"
 
 [dev-dependencies]
 insta = "1"
