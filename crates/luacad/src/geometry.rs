@@ -22,6 +22,12 @@ fn empty_mesh() -> CsgMesh<()> {
   }
 }
 
+/// Create an empty csgrs sketch with no geometry.
+#[cfg(feature = "csgrs")]
+pub fn empty_sketch() -> Sketch<()> {
+  Sketch::new()
+}
+
 fn table_get_f32(t: &mlua::Table, key: &str) -> Option<f32> {
   t.get::<mlua::Value>(key)
     .ok()

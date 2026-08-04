@@ -1234,7 +1234,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // ==================================================================
 
     // ---- import() ----
-    let import_fn = lua.create_function(|_, args: mlua::MultiValue| {
+    let import_fn = lua.create_function(|lua, args: mlua::MultiValue| {
       let file = if let Some(LuaValue::String(s)) = args.front() {
         s.to_str().map(|s| s.to_string()).unwrap_or_default()
       } else {
@@ -1247,8 +1247,33 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         .and_then(lua_val_to_f32)
         .map(|v| v as u32)
         .unwrap_or(0);
-      let scad = Some(ScadNode::Import { file, convexity });
-      Ok(CsgGeometry {
+      let ext = std::path::Path::new(&file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+      let scad = Some(ScadNode::Import { file: file.clone(), convexity });
+
+      // 2D formats yield a sketch so linear_extrude() etc. are available.
+      // The file is not tessellated (csgrs cannot parse arbitrary SVG/DXF),
+      // so these imports only work via the OpenSCAD backend.
+      if ext == "svg" || ext == "dxf" {
+        let sketch = CsgSketch {
+          sketch: {
+            #[cfg(feature = "csgrs")]
+            {
+              crate::geometry::empty_sketch()
+            }
+            #[cfg(not(feature = "csgrs"))]
+            {}
+          },
+          color: None,
+          scad,
+        };
+        return Ok(LuaValue::UserData(lua.create_userdata(sketch)?));
+      }
+
+      let geometry = CsgGeometry {
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -1261,7 +1286,8 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         },
         color: None,
         scad,
-      })
+      };
+      Ok(LuaValue::UserData(lua.create_userdata(geometry)?))
     })?;
     lua.globals().set("import", import_fn)?;
 
