@@ -933,30 +933,22 @@ impl UserData for CsgGeometry {
       },
     );
 
-    // --- Hull + Minkowski (must materialize: inherently need mesh) ---
+    // --- Hull + Minkowski (lazy: materialize_scad handles both nodes) ---
 
-    methods.add_method_mut("hull", |_, this, ()| {
+    methods.add_method("hull", |_, this, ()| {
       let scad = this
         .scad
         .as_ref()
         .map(|s| ScadNode::Hull(Box::new(s.clone())));
-      #[cfg(feature = "csgrs")]
-      let mesh = {
-        let m = this.mesh();
-        Some(m.convex_hull())
-      };
-      #[cfg(not(feature = "csgrs"))]
-      let mesh = None;
       Ok(CsgGeometry {
-        mesh,
+        mesh: None,
         color: this.color,
         scad,
       })
     });
 
-    methods.add_method_mut("minkowski", |_, this, other: mlua::AnyUserData| {
-      #[allow(unused_mut)]
-      let mut other_ref = other.borrow_mut::<CsgGeometry>()?;
+    methods.add_method("minkowski", |_, this, other: mlua::AnyUserData| {
+      let other_ref = other.borrow::<CsgGeometry>()?;
       let mut children = Vec::new();
       if let Some(s) = &this.scad {
         children.push(s.clone());
@@ -969,16 +961,8 @@ impl UserData for CsgGeometry {
       } else {
         Some(ScadNode::Minkowski(children))
       };
-      #[cfg(feature = "csgrs")]
-      let mesh = {
-        let this_mesh = this.mesh();
-        let other_mesh = other_ref.mesh();
-        Some(this_mesh.minkowski_sum(other_mesh))
-      };
-      #[cfg(not(feature = "csgrs"))]
-      let mesh = None;
       Ok(CsgGeometry {
-        mesh,
+        mesh: None,
         color: this.color,
         scad,
       })
