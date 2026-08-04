@@ -8,6 +8,9 @@ use crate::app::{AppState, EditorPosition, FileAction, SearchState};
 use crate::editor::apply_editor_action;
 use crate::theme::ThemeMode;
 
+/// Fill color of the Save button while there are unsaved changes.
+const UNSAVED_ORANGE: egui::Color32 = egui::Color32::from_rgb(230, 140, 40);
+
 /// Return the platform modifier key label: ⌘ on macOS, Ctrl elsewhere.
 fn modifier_label() -> &'static str {
   #[cfg(target_os = "macos")]
@@ -412,11 +415,25 @@ pub fn render_ui(
       {
         app.pending_file_action = Some(FileAction::Open);
       }
-      if ui
-        .button("Save")
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
-      {
+      // Unsaved changes are flagged with an asterisk and an orange button
+      let unsaved = app.has_unsaved_changes();
+      let save_button = if unsaved {
+        egui::Button::new(
+          egui::RichText::new("Save *").color(egui::Color32::BLACK),
+        )
+        .fill(UNSAVED_ORANGE)
+      } else {
+        egui::Button::new("Save")
+      };
+      let save_response = ui
+        .add(save_button)
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+      let save_response = if unsaved {
+        save_response.on_hover_text("The file has unsaved changes")
+      } else {
+        save_response
+      };
+      if save_response.clicked() {
         app.pending_file_action = Some(FileAction::Save);
       }
       if ui
@@ -441,6 +458,7 @@ pub fn render_ui(
         .clicked()
       {
         app.text_content.clear();
+        app.mark_saved();
         app.geometries.clear();
         app.lua_error = None;
         app.scene_dirty = true;
@@ -1152,6 +1170,7 @@ pub fn render_ui(
           {
             app.pending_file_action = Some(FileAction::Reload);
             app.show_overwrite_confirm = false;
+            app.quit_after_save = false;
           }
           if ui
             .button("Cancel")
@@ -1159,6 +1178,55 @@ pub fn render_ui(
             .clicked()
           {
             app.show_overwrite_confirm = false;
+            app.quit_after_save = false;
+          }
+        });
+      });
+  }
+
+  // Confirmation when closing the window with unsaved editor changes
+  if app.show_close_confirm {
+    egui::Window::new("Unsaved Changes")
+      .collapsible(false)
+      .resizable(false)
+      .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+      .show(gui_context, |ui| {
+        let file_label = match &app.current_file {
+          Some(path) => path.file_name().unwrap_or_default().to_string_lossy(),
+          None => "The unsaved file".into(),
+        };
+        ui.label(format!("{file_label} has unsaved changes."));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+          if ui
+            .add(
+              egui::Button::new(
+                egui::RichText::new("Save & Quit").color(egui::Color32::BLACK),
+              )
+              .fill(UNSAVED_ORANGE),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.pending_file_action = Some(FileAction::Save);
+            app.quit_after_save = true;
+            app.show_close_confirm = false;
+          }
+          if ui
+            .button("Discard & Quit")
+            .on_hover_text("Quit without saving the changes")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.should_exit = true;
+            app.show_close_confirm = false;
+          }
+          if ui
+            .button("Cancel")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+          {
+            app.show_close_confirm = false;
           }
         });
       });

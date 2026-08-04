@@ -81,6 +81,8 @@ pub fn file_mtime(path: &Path) -> Option<SystemTime> {
 
 pub struct AppState {
   pub text_content: String,
+  /// Snapshot of text_content as it was last loaded from or written to disk
+  pub saved_text: String,
   pub geometries: Vec<CsgGeometry>,
   pub lua_error: Option<String>,
   pub camera_azimuth: f32,
@@ -105,6 +107,12 @@ pub struct AppState {
   pub disk_mtime: Option<SystemTime>,
   /// Whether the "file changed on disk" save confirmation dialog is open
   pub show_overwrite_confirm: bool,
+  /// Whether the "unsaved changes" close confirmation dialog is open
+  pub show_close_confirm: bool,
+  /// Quit as soon as the pending save completes successfully
+  pub quit_after_save: bool,
+  /// Set when the app should exit at the end of the frame
+  pub should_exit: bool,
   /// Pending file action (save/open) requested this frame
   pub pending_file_action: Option<FileAction>,
   /// Pending SCAD export requested this frame
@@ -154,6 +162,7 @@ impl AppState {
     let disk_mtime = current_file.as_deref().and_then(file_mtime);
 
     let mut app = Self {
+      saved_text: text_content.clone(),
       text_content,
       geometries: vec![],
       lua_error: None,
@@ -177,6 +186,9 @@ impl AppState {
       current_file,
       disk_mtime,
       show_overwrite_confirm: false,
+      show_close_confirm: false,
+      quit_after_save: false,
+      should_exit: false,
       pending_file_action: None,
       pending_manifold_export: None,
       needs_fit_to_view: true,
@@ -199,6 +211,16 @@ impl AppState {
 
   fn welcome_text() -> &'static str {
     "-- Welcome to LuaCAD Studio\n-- Use + for union, - for difference, * for intersection\n\nlocal body = cube { 4, 2, 1, center = true }\nlocal hole = cylinder { h = 3, r = 0.5, center = true }\n\nrender(body - hole)"
+  }
+
+  /// Whether the editor content differs from what was last loaded or saved.
+  pub fn has_unsaved_changes(&self) -> bool {
+    self.text_content != self.saved_text
+  }
+
+  /// Record the current editor content as the on-disk state.
+  pub fn mark_saved(&mut self) {
+    self.saved_text = self.text_content.clone();
   }
 
   pub fn resolve_theme(&self) -> ThemeColors {

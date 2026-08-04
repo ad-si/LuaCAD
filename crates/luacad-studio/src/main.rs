@@ -55,6 +55,7 @@ fn save_to_path(app: &mut AppState, path: &Path) -> bool {
   match std::fs::write(path, &app.text_content) {
     Ok(()) => {
       app.disk_mtime = file_mtime(path);
+      app.mark_saved();
       app.export_status = Some((format!("Saved to {}", path.display()), false));
       app.execute_lua_code();
       true
@@ -640,6 +641,7 @@ fn main() {
         match action {
           FileAction::New => {
             app.text_content.clear();
+            app.mark_saved();
             app.geometries.clear();
             app.lua_error = None;
             app.current_file = None;
@@ -656,6 +658,7 @@ fn main() {
               match std::fs::read_to_string(&path) {
                 Ok(contents) => {
                   app.text_content = contents;
+                  app.mark_saved();
                   app.current_file = Some(path.clone());
                   app.disk_mtime = file_mtime(&path);
                   app.execute_lua_code();
@@ -726,6 +729,7 @@ fn main() {
               match std::fs::read_to_string(&path) {
                 Ok(contents) => {
                   app.text_content = contents;
+                  app.mark_saved();
                   app.disk_mtime = file_mtime(&path);
                   app.execute_lua_code();
                   app.export_status =
@@ -739,6 +743,22 @@ fn main() {
             }
           }
         }
+      }
+
+      // Quit once the save requested from the close dialog went through.
+      // If the save was cancelled or failed, stay open and forget the request
+      // (unless the overwrite confirmation is still waiting for an answer).
+      if app.quit_after_save {
+        if !app.has_unsaved_changes() {
+          app.quit_after_save = false;
+          app.should_exit = true;
+        } else if !app.show_overwrite_confirm {
+          app.quit_after_save = false;
+        }
+      }
+      if app.should_exit {
+        *control_flow = winit::event_loop::ControlFlow::Exit;
+        return;
       }
 
       // Compute scene area in physical pixels from the logical scene_rect
@@ -931,13 +951,19 @@ fn main() {
           ..
         } => gl.resize(**new_inner_size),
         winit::event::WindowEvent::CloseRequested => {
-          *control_flow = winit::event_loop::ControlFlow::Exit
+          if app.has_unsaved_changes() {
+            app.show_close_confirm = true;
+            winit_window.request_redraw();
+          } else {
+            *control_flow = winit::event_loop::ControlFlow::Exit
+          }
         }
         winit::event::WindowEvent::DroppedFile(path) => {
           if path.extension().and_then(|e| e.to_str()) == Some("lua") {
             match std::fs::read_to_string(path) {
               Ok(contents) => {
                 app.text_content = contents;
+                app.mark_saved();
                 app.current_file = Some(path.clone());
                 app.disk_mtime = file_mtime(path);
                 app.execute_lua_code();
