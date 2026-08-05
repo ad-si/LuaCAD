@@ -226,6 +226,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       let (w, d, h, center) = parse_cube_args(&args)?;
       let scad = Some(ScadNode::Cube { w, d, h, center });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -255,6 +256,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         segments,
       });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -287,6 +289,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         center,
       });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -405,6 +408,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         Some(scad_base)
       };
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -464,6 +468,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           Some(scad_base)
         };
         Ok(CsgGeometry {
+          name: None,
           mesh: {
             #[cfg(feature = "csgrs")]
             {
@@ -521,6 +526,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
+          name: None,
           mesh: {
             #[cfg(feature = "csgrs")]
             {
@@ -553,6 +559,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
+          name: None,
           mesh: {
             #[cfg(feature = "csgrs")]
             {
@@ -611,6 +618,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -679,6 +687,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         ],
       });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -716,6 +725,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
+          name: None,
           mesh: {
             #[cfg(feature = "csgrs")]
             {
@@ -743,6 +753,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
           }),
         });
         Ok(CsgGeometry {
+          name: None,
           mesh: {
             #[cfg(feature = "csgrs")]
             {
@@ -958,6 +969,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // but a Literal ScadNode so it participates in SCAD export.
     let scad_fn = lua.create_function(|_, code: String| {
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -987,6 +999,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
     // constructor; here it's mainly for API compatibility.
     let cad_fn = lua.create_function(|_, ()| {
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -1213,6 +1226,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       });
       // Minimal mesh placeholder
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -1278,6 +1292,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       }
 
       let geometry = CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {
@@ -1325,6 +1340,7 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
         convexity,
       });
       Ok(CsgGeometry {
+        name: None,
         mesh: {
           #[cfg(feature = "csgrs")]
           {

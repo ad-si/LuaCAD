@@ -149,6 +149,20 @@ Lua is a better fit:
 - [OFF](https://en.wikipedia.org/wiki/OFF_(file_format))
 - [AMF](https://en.wikipedia.org/wiki/Additive_manufacturing_file_format)
 
+Every value your script returns becomes its own 3MF object,
+so slicers like BambuStudio load them as individually movable objects
+without needing "Split to Objects".
+Label them with `:name(…)` to control how they appear in the object list:
+
+```lua
+return
+  cube(10, 10, 10):name("base"),
+  sphere(6):translate(25, 0, 0):name("knob")
+```
+
+The other formats cannot express separate objects,
+so they flatten everything into a single mesh.
+
 
 ## Roadmap
 

@@ -2,8 +2,6 @@ use crate::geometry::CsgGeometry;
 #[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
 #[cfg(feature = "csgrs")]
-use csgrs::traits::CSG;
-#[cfg(feature = "csgrs")]
 use std::collections::HashMap;
 use threemf::Mesh as ThreemfMesh;
 
@@ -112,7 +110,8 @@ fn vkey(x: f32, y: f32, z: f32) -> VKey {
   (quantize(x), quantize(y), quantize(z))
 }
 
-/// Export all geometries to a 3MF file. Uses original CAD coordinates (no GL transform).
+/// Convert a csgrs mesh into an indexed triangle mesh in original CAD
+/// coordinates (no GL transform).
 ///
 /// csgrs boolean operations can produce meshes with non-manifold topology (boundary edges
 /// that don't pair up). To work around this, we use each polygon's plane normal to
@@ -120,18 +119,7 @@ fn vkey(x: f32, y: f32, z: f32) -> VKey {
 /// relying on edge-neighbor consistency. Vertices are deduplicated by quantized position
 /// to produce a proper indexed mesh.
 #[cfg(feature = "csgrs")]
-pub fn export_3mf(
-  geometries: &[CsgGeometry],
-  path: &std::path::Path,
-) -> Result<(), String> {
-  use std::collections::HashMap;
-
-  let merged = merge_geometries(geometries)?;
-
-  if merged.polygons.is_empty() {
-    return Err("No geometry to export".to_string());
-  }
-
+fn mesh_to_indexed(mesh: &CsgMesh<()>) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
   let mut verts: Vec<[f64; 3]> = Vec::new();
   let mut tris: Vec<[usize; 3]> = Vec::new();
   let mut vertex_map: HashMap<VKey, usize> = HashMap::new();
@@ -151,7 +139,7 @@ pub fn export_3mf(
     })
   };
 
-  for polygon in &merged.polygons {
+  for polygon in &mesh.polygons {
     // Get the polygon's authoritative outward normal from its plane
     let plane_normal = polygon.plane.normal();
 
@@ -212,34 +200,91 @@ pub fn export_3mf(
     }
   }
 
-  let vertices: Vec<threemf::model::mesh::Vertex> = verts
-    .iter()
-    .map(|v| threemf::model::mesh::Vertex {
-      x: v[0],
-      y: v[1],
-      z: v[2],
-    })
-    .collect();
+  (verts, tris)
+}
 
-  let triangles: Vec<threemf::model::mesh::Triangle> = tris
-    .iter()
-    .map(|t| threemf::model::mesh::Triangle {
-      v1: t[0],
-      v2: t[1],
-      v3: t[2],
-    })
-    .collect();
-
-  let mesh = ThreemfMesh {
-    vertices: threemf::model::mesh::Vertices { vertex: vertices },
-    triangles: threemf::model::mesh::Triangles {
-      triangle: triangles,
+/// Wrap an indexed triangle mesh in the threemf crate's mesh type.
+fn indexed_to_threemf(verts: &[[f64; 3]], tris: &[[usize; 3]]) -> ThreemfMesh {
+  ThreemfMesh {
+    vertices: threemf::model::mesh::Vertices {
+      vertex: verts
+        .iter()
+        .map(|v| threemf::model::mesh::Vertex {
+          x: v[0],
+          y: v[1],
+          z: v[2],
+        })
+        .collect(),
     },
-  };
+    triangles: threemf::model::mesh::Triangles {
+      triangle: tris
+        .iter()
+        .map(|t| threemf::model::mesh::Triangle {
+          v1: t[0],
+          v2: t[1],
+          v3: t[2],
+        })
+        .collect(),
+    },
+  }
+}
 
+/// Assemble a 3MF model with one `<object>` and one `<build><item>` per
+/// top-level geometry, so slicers load them as individually movable objects
+/// instead of one blob that has to be split by connected component.
+#[cfg(feature = "csgrs")]
+fn build_3mf_model(
+  geometries: &[CsgGeometry],
+) -> Result<threemf::model::Model, String> {
+  use threemf::model::{Build, Item, Model, Object, ObjectData, Resources};
+
+  let mut objects: Vec<Object> = Vec::new();
+  let mut items: Vec<Item> = Vec::new();
+
+  for (mesh, name) in materialize_geometries(geometries) {
+    let (verts, tris) = mesh_to_indexed(&mesh);
+    if tris.is_empty() {
+      continue;
+    }
+    let id = objects.len() + 1;
+    objects.push(Object {
+      id,
+      partnumber: None,
+      name,
+      pid: None,
+      object: ObjectData::Mesh(indexed_to_threemf(&verts, &tris)),
+    });
+    items.push(Item {
+      objectid: id,
+      transform: None,
+      partnumber: None,
+    });
+  }
+
+  if objects.is_empty() {
+    return Err("No geometry to export".to_string());
+  }
+
+  Ok(Model {
+    resources: Resources {
+      object: objects,
+      basematerials: None,
+    },
+    build: Build { item: items },
+    ..Default::default()
+  })
+}
+
+/// Export all geometries to a 3MF file, one object per top-level geometry.
+#[cfg(feature = "csgrs")]
+pub fn export_3mf(
+  geometries: &[CsgGeometry],
+  path: &std::path::Path,
+) -> Result<(), String> {
+  let model = build_3mf_model(geometries)?;
   let file = std::fs::File::create(path)
     .map_err(|e| format!("Failed to create file: {e}"))?;
-  threemf::write(file, mesh)
+  threemf::write(file, model)
     .map_err(|e| format!("Failed to write 3MF: {e}"))?;
   Ok(())
 }
@@ -247,130 +292,25 @@ pub fn export_3mf(
 /// Export all geometries to 3MF bytes in memory.
 #[cfg(feature = "csgrs")]
 pub fn export_3mf_bytes(geometries: &[CsgGeometry]) -> Result<Vec<u8>, String> {
-  use std::collections::HashMap;
   use std::io::Cursor;
 
-  let merged = merge_geometries(geometries)?;
-
-  if merged.polygons.is_empty() {
-    return Err("No geometry to export".to_string());
-  }
-
-  let mut verts: Vec<[f64; 3]> = Vec::new();
-  let mut tris: Vec<[usize; 3]> = Vec::new();
-  let mut vertex_map: HashMap<VKey, usize> = HashMap::new();
-
-  let get_idx = |verts: &mut Vec<[f64; 3]>,
-                 vertex_map: &mut HashMap<VKey, usize>,
-                 x: f32,
-                 y: f32,
-                 z: f32|
-   -> usize {
-    let key = vkey(x, y, z);
-    *vertex_map.entry(key).or_insert_with(|| {
-      let idx = verts.len();
-      verts.push([x as f64, y as f64, z as f64]);
-      idx
-    })
-  };
-
-  for polygon in &merged.polygons {
-    let plane_normal = polygon.plane.normal();
-    let triangulated = polygon.triangulate();
-
-    for tri_verts in &triangulated {
-      let i0 = get_idx(
-        &mut verts,
-        &mut vertex_map,
-        tri_verts[0].pos.x,
-        tri_verts[0].pos.y,
-        tri_verts[0].pos.z,
-      );
-      let i1 = get_idx(
-        &mut verts,
-        &mut vertex_map,
-        tri_verts[1].pos.x,
-        tri_verts[1].pos.y,
-        tri_verts[1].pos.z,
-      );
-      let i2 = get_idx(
-        &mut verts,
-        &mut vertex_map,
-        tri_verts[2].pos.x,
-        tri_verts[2].pos.y,
-        tri_verts[2].pos.z,
-      );
-
-      if i0 == i1 || i1 == i2 || i0 == i2 {
-        continue;
-      }
-
-      let v0 = verts[i0];
-      let v1 = verts[i1];
-      let v2 = verts[i2];
-      let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
-      let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-      let cross = [
-        e1[1] * e2[2] - e1[2] * e2[1],
-        e1[2] * e2[0] - e1[0] * e2[2],
-        e1[0] * e2[1] - e1[1] * e2[0],
-      ];
-
-      let dot = cross[0] * plane_normal.x as f64
-        + cross[1] * plane_normal.y as f64
-        + cross[2] * plane_normal.z as f64;
-
-      if dot >= 0.0 {
-        tris.push([i0, i1, i2]);
-      } else {
-        tris.push([i0, i2, i1]);
-      }
-    }
-  }
-
-  let vertices: Vec<threemf::model::mesh::Vertex> = verts
-    .iter()
-    .map(|v| threemf::model::mesh::Vertex {
-      x: v[0],
-      y: v[1],
-      z: v[2],
-    })
-    .collect();
-
-  let triangles: Vec<threemf::model::mesh::Triangle> = tris
-    .iter()
-    .map(|t| threemf::model::mesh::Triangle {
-      v1: t[0],
-      v2: t[1],
-      v3: t[2],
-    })
-    .collect();
-
-  let mesh = ThreemfMesh {
-    vertices: threemf::model::mesh::Vertices { vertex: vertices },
-    triangles: threemf::model::mesh::Triangles {
-      triangle: triangles,
-    },
-  };
-
+  let model = build_3mf_model(geometries)?;
   let mut buf = Cursor::new(Vec::new());
-  threemf::write(&mut buf, mesh)
+  threemf::write(&mut buf, model)
     .map_err(|e| format!("Failed to write 3MF: {e}"))?;
   Ok(buf.into_inner())
 }
 
-/// Merge all geometries into one csgrs mesh via union.
-/// Materializes lazy meshes from their ScadNode trees as needed.
+/// Materialize every geometry's mesh from its ScadNode if not already done,
+/// dropping the ones that carry no geometry. Returns each mesh with its name.
 #[cfg(feature = "csgrs")]
-fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
-  if geometries.is_empty() {
-    return Err("No geometry to export".to_string());
-  }
-  // Materialize each geometry's mesh from its ScadNode if not already done.
-  let meshes: Vec<CsgMesh<()>> = geometries
+fn materialize_geometries(
+  geometries: &[CsgGeometry],
+) -> Vec<(CsgMesh<()>, Option<String>)> {
+  geometries
     .iter()
     .map(|geom| {
-      if let Some(ref mesh) = geom.mesh {
+      let mesh = if let Some(ref mesh) = geom.mesh {
         mesh.clone()
       } else if let Some(ref scad) = geom.scad {
         crate::geometry::materialize_scad(scad)
@@ -380,16 +320,33 @@ fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
           bounding_box: std::sync::OnceLock::new(),
           metadata: None,
         }
-      }
+      };
+      (mesh, geom.name.clone())
     })
-    .collect();
-  let mut merged = meshes[0].clone();
-  for mesh in &meshes[1..] {
-    if !mesh.polygons.is_empty() {
-      merged = merged.union(mesh);
-    }
+    .filter(|(mesh, _)| !mesh.polygons.is_empty())
+    .collect()
+}
+
+/// Concatenate all geometries into one csgrs mesh.
+///
+/// Formats other than 3MF cannot express separate objects, so every shell ends
+/// up in a single mesh. Overlapping shells are left overlapping rather than
+/// boolean-unioned: slicers resolve that themselves, and skipping the union
+/// avoids the most expensive part of an export.
+#[cfg(feature = "csgrs")]
+fn merge_geometries(geometries: &[CsgGeometry]) -> Result<CsgMesh<()>, String> {
+  if geometries.is_empty() {
+    return Err("No geometry to export".to_string());
   }
-  Ok(merged)
+  let mut polygons = Vec::new();
+  for (mesh, _) in materialize_geometries(geometries) {
+    polygons.extend(mesh.polygons);
+  }
+  Ok(CsgMesh {
+    polygons,
+    bounding_box: std::sync::OnceLock::new(),
+    metadata: None,
+  })
 }
 
 /// Export all geometries to a PLY file using csgrs's built-in PLY export.
@@ -1631,41 +1588,62 @@ pub fn extract_manifold_mesh(manifold: &Manifold) -> ManifoldMesh {
   }
 }
 
-/// Write a ManifoldMesh as a 3MF file.
+/// Write one 3MF `<object>` plus `<build><item>` per named mesh, so slicers
+/// load them as individually movable objects.
 fn write_manifold_3mf(
-  mesh: &ManifoldMesh,
+  parts: &[(ManifoldMesh, Option<String>)],
   path: &std::path::Path,
 ) -> Result<(), String> {
-  let vertices: Vec<threemf::model::mesh::Vertex> = mesh
-    .vertices
-    .iter()
-    .map(|v| threemf::model::mesh::Vertex {
-      x: v[0] as f64,
-      y: v[1] as f64,
-      z: v[2] as f64,
-    })
-    .collect();
+  use threemf::model::{Build, Item, Model, Object, ObjectData, Resources};
 
-  let triangles: Vec<threemf::model::mesh::Triangle> = mesh
-    .triangles
-    .iter()
-    .map(|t| threemf::model::mesh::Triangle {
-      v1: t[0] as usize,
-      v2: t[1] as usize,
-      v3: t[2] as usize,
-    })
-    .collect();
+  let mut objects: Vec<Object> = Vec::new();
+  let mut items: Vec<Item> = Vec::new();
 
-  let threemf_mesh = ThreemfMesh {
-    vertices: threemf::model::mesh::Vertices { vertex: vertices },
-    triangles: threemf::model::mesh::Triangles {
-      triangle: triangles,
+  for (mesh, name) in parts {
+    if mesh.triangles.is_empty() {
+      continue;
+    }
+    let verts: Vec<[f64; 3]> = mesh
+      .vertices
+      .iter()
+      .map(|v| [v[0] as f64, v[1] as f64, v[2] as f64])
+      .collect();
+    let tris: Vec<[usize; 3]> = mesh
+      .triangles
+      .iter()
+      .map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])
+      .collect();
+    let id = objects.len() + 1;
+    objects.push(Object {
+      id,
+      partnumber: None,
+      name: name.clone(),
+      pid: None,
+      object: ObjectData::Mesh(indexed_to_threemf(&verts, &tris)),
+    });
+    items.push(Item {
+      objectid: id,
+      transform: None,
+      partnumber: None,
+    });
+  }
+
+  if objects.is_empty() {
+    return Err("No geometry to export".to_string());
+  }
+
+  let model = Model {
+    resources: Resources {
+      object: objects,
+      basematerials: None,
     },
+    build: Build { item: items },
+    ..Default::default()
   };
 
   let file = std::fs::File::create(path)
     .map_err(|e| format!("Failed to create file: {e}"))?;
-  threemf::write(file, threemf_mesh)
+  threemf::write(file, model)
     .map_err(|e| format!("Failed to write 3MF: {e}"))?;
   Ok(())
 }
@@ -1916,54 +1894,78 @@ pub fn export_manifold(
     return Err("No geometry to export".to_string());
   }
 
-  use manifold_sys::*;
-
-  let manifolds: Vec<Manifold> = geometries
+  let parts: Vec<(ManifoldMesh, Option<String>)> = geometries
     .iter()
     .filter_map(|geom| {
-      // Prefer walking the ScadNode tree directly in Manifold
-      if let Some(ref scad) = geom.scad {
-        let m = materialize_scad_manifold(scad);
-        if !m.is_empty() {
-          return Some(m);
-        }
-      }
-      // Fall back to converting a pre-materialized csgrs mesh
-      #[cfg(feature = "csgrs")]
-      {
-        if let Some(ref mesh) = geom.mesh
-          && !mesh.polygons.is_empty()
-        {
-          return csg_mesh_to_manifold(mesh).ok();
-        }
-      }
-      None
+      let manifold = manifold_for_geometry(geom)?;
+      Some((extract_manifold_mesh(&manifold), geom.name.clone()))
     })
     .collect();
 
-  if manifolds.is_empty() {
+  if parts.is_empty() {
     return Err("No geometry to export".to_string());
   }
 
-  // Union all geometries together
-  let result = manifolds
-    .into_iter()
-    .reduce(|acc, next| {
-      Manifold(unsafe {
-        manifold_union(Manifold::alloc(), acc.ptr(), next.ptr())
-      })
-    })
-    .unwrap();
+  // 3MF can hold one object per geometry; every other format has to flatten
+  // them into a single mesh.
+  type MeshWriter = fn(&ManifoldMesh, &std::path::Path) -> Result<(), String>;
+  let write: MeshWriter = match fmt {
+    ManifoldFormat::ThreeMF => return write_manifold_3mf(&parts, path),
+    ManifoldFormat::Stl => write_manifold_stl,
+    ManifoldFormat::Obj => write_manifold_obj,
+    ManifoldFormat::Ply => write_manifold_ply,
+    ManifoldFormat::Off => write_manifold_off,
+    ManifoldFormat::Amf => write_manifold_amf,
+  };
 
-  let mesh = extract_manifold_mesh(&result);
+  write(
+    &concat_manifold_meshes(parts.into_iter().map(|(m, _)| m)),
+    path,
+  )
+}
 
-  match fmt {
-    ManifoldFormat::ThreeMF => write_manifold_3mf(&mesh, path),
-    ManifoldFormat::Stl => write_manifold_stl(&mesh, path),
-    ManifoldFormat::Obj => write_manifold_obj(&mesh, path),
-    ManifoldFormat::Ply => write_manifold_ply(&mesh, path),
-    ManifoldFormat::Off => write_manifold_off(&mesh, path),
-    ManifoldFormat::Amf => write_manifold_amf(&mesh, path),
+/// Build a Manifold for a single geometry, or `None` if it holds no geometry.
+fn manifold_for_geometry(geom: &CsgGeometry) -> Option<Manifold> {
+  // Prefer walking the ScadNode tree directly in Manifold
+  if let Some(ref scad) = geom.scad {
+    let m = materialize_scad_manifold(scad);
+    if !m.is_empty() {
+      return Some(m);
+    }
+  }
+  // Fall back to converting a pre-materialized csgrs mesh
+  #[cfg(feature = "csgrs")]
+  {
+    if let Some(ref mesh) = geom.mesh
+      && !mesh.polygons.is_empty()
+    {
+      return csg_mesh_to_manifold(mesh).ok();
+    }
+  }
+  None
+}
+
+/// Concatenate several manifold meshes into one, offsetting triangle indices.
+/// No boolean union is performed — overlapping shells stay overlapping, which
+/// slicers resolve themselves.
+fn concat_manifold_meshes(
+  meshes: impl IntoIterator<Item = ManifoldMesh>,
+) -> ManifoldMesh {
+  let mut vertices: Vec<[f32; 3]> = Vec::new();
+  let mut triangles: Vec<[u32; 3]> = Vec::new();
+  for mesh in meshes {
+    let offset = vertices.len() as u32;
+    vertices.extend(mesh.vertices);
+    triangles.extend(
+      mesh
+        .triangles
+        .into_iter()
+        .map(|t| [t[0] + offset, t[1] + offset, t[2] + offset]),
+    );
+  }
+  ManifoldMesh {
+    vertices,
+    triangles,
   }
 }
 
@@ -1979,7 +1981,7 @@ pub fn export_manifold_3mf(
 mod tests {
   use super::*;
   use crate::scad_export::ScadNode;
-  use std::collections::HashMap;
+  use csgrs::traits::CSG;
 
   /// Compute signed volume of the mesh. Positive = outward-facing normals.
   fn signed_volume(tris: &[[usize; 3]], verts: &[[f64; 3]]) -> f64 {
@@ -2000,81 +2002,7 @@ mod tests {
   fn build_export_mesh(
     geometries: &[CsgGeometry],
   ) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
-    let merged = merge_geometries(geometries).unwrap();
-
-    let mut verts: Vec<[f64; 3]> = Vec::new();
-    let mut tris: Vec<[usize; 3]> = Vec::new();
-    let mut vertex_map: HashMap<VKey, usize> = HashMap::new();
-
-    let get_idx = |verts: &mut Vec<[f64; 3]>,
-                   vertex_map: &mut HashMap<VKey, usize>,
-                   x: f32,
-                   y: f32,
-                   z: f32|
-     -> usize {
-      let key = vkey(x, y, z);
-      *vertex_map.entry(key).or_insert_with(|| {
-        let idx = verts.len();
-        verts.push([x as f64, y as f64, z as f64]);
-        idx
-      })
-    };
-
-    for polygon in &merged.polygons {
-      let plane_normal = polygon.plane.normal();
-      let triangulated = polygon.triangulate();
-
-      for tri_verts in &triangulated {
-        let i0 = get_idx(
-          &mut verts,
-          &mut vertex_map,
-          tri_verts[0].pos.x,
-          tri_verts[0].pos.y,
-          tri_verts[0].pos.z,
-        );
-        let i1 = get_idx(
-          &mut verts,
-          &mut vertex_map,
-          tri_verts[1].pos.x,
-          tri_verts[1].pos.y,
-          tri_verts[1].pos.z,
-        );
-        let i2 = get_idx(
-          &mut verts,
-          &mut vertex_map,
-          tri_verts[2].pos.x,
-          tri_verts[2].pos.y,
-          tri_verts[2].pos.z,
-        );
-
-        if i0 == i1 || i1 == i2 || i0 == i2 {
-          continue;
-        }
-
-        let v0 = verts[i0];
-        let v1 = verts[i1];
-        let v2 = verts[i2];
-        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
-        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-        let cross = [
-          e1[1] * e2[2] - e1[2] * e2[1],
-          e1[2] * e2[0] - e1[0] * e2[2],
-          e1[0] * e2[1] - e1[1] * e2[0],
-        ];
-
-        let dot = cross[0] * plane_normal.x as f64
-          + cross[1] * plane_normal.y as f64
-          + cross[2] * plane_normal.z as f64;
-
-        if dot >= 0.0 {
-          tris.push([i0, i1, i2]);
-        } else {
-          tris.push([i0, i2, i1]);
-        }
-      }
-    }
-
-    (verts, tris)
+    mesh_to_indexed(&merge_geometries(geometries).unwrap())
   }
 
   /// Verify that each triangle's winding agrees with its polygon's plane normal.
@@ -2107,6 +2035,7 @@ mod tests {
   fn simple_cube_manifold_and_correct_winding() {
     let cube = CsgMesh::<()>::cuboid(10.0, 10.0, 10.0, None);
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(cube),
       color: None,
       scad: None,
@@ -2130,6 +2059,7 @@ mod tests {
     let result = cube.difference(&cyl);
 
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(result),
       color: None,
       scad: None,
@@ -2158,6 +2088,7 @@ mod tests {
     let result = outer.difference(&inner);
 
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(result),
       color: None,
       scad: None,
@@ -2178,6 +2109,7 @@ mod tests {
     let result = a.union(&b);
 
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(result),
       color: None,
       scad: None,
@@ -2197,6 +2129,7 @@ mod tests {
     // make it into the output.
     let cube = CsgMesh::<()>::cuboid(0.001, 0.001, 0.001, None);
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(cube),
       color: None,
       scad: None,
@@ -2214,6 +2147,7 @@ mod tests {
   fn export_3mf_writes_valid_file() {
     let cube = CsgMesh::<()>::cuboid(5.0, 5.0, 5.0, None);
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(cube),
       color: None,
       scad: None,
@@ -2243,6 +2177,7 @@ mod tests {
     let result = cube.difference(&cyl);
 
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(result),
       color: None,
       scad: None,
@@ -2259,11 +2194,113 @@ mod tests {
     let _ = std::fs::remove_file(&path);
   }
 
+  /// Read back the `3D/model.model` XML from in-memory 3MF bytes.
+  fn model_xml(geometries: &[CsgGeometry]) -> String {
+    let bytes = export_3mf_bytes(geometries).unwrap();
+    let mut archive =
+      zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(
+      &mut archive.by_name("3D/model.model").unwrap(),
+      &mut xml,
+    )
+    .unwrap();
+    xml
+  }
+
+  fn named_cube(size: f32, offset: f32, name: Option<&str>) -> CsgGeometry {
+    CsgGeometry {
+      name: name.map(str::to_string),
+      mesh: Some(
+        CsgMesh::<()>::cuboid(size, size, size, None)
+          .translate(offset, 0.0, 0.0),
+      ),
+      color: None,
+      scad: None,
+    }
+  }
+
+  #[test]
+  fn export_3mf_writes_one_object_per_geometry() {
+    let xml = model_xml(&[
+      named_cube(5.0, 0.0, None),
+      named_cube(5.0, 20.0, None),
+      named_cube(5.0, 40.0, None),
+    ]);
+
+    assert_eq!(xml.matches("<object ").count(), 3);
+    assert_eq!(xml.matches("<item ").count(), 3);
+    // Every object must be referenced by a build item, or slicers ignore it
+    for id in 1..=3 {
+      assert!(
+        xml.contains(&format!("<object id=\"{id}\"")),
+        "missing object {id} in:\n{xml}"
+      );
+      assert!(
+        xml.contains(&format!("<item objectid=\"{id}\"")),
+        "missing build item {id} in:\n{xml}"
+      );
+    }
+  }
+
+  #[test]
+  fn export_3mf_labels_named_geometries() {
+    let xml = model_xml(&[
+      named_cube(5.0, 0.0, Some("base")),
+      named_cube(5.0, 20.0, None),
+    ]);
+
+    assert!(xml.contains("<object id=\"1\" name=\"base\""), "{xml}");
+    // An unnamed geometry must not emit an empty name attribute
+    assert!(xml.contains("<object id=\"2\">"), "{xml}");
+  }
+
+  #[test]
+  fn export_3mf_skips_empty_geometries() {
+    let empty = CsgGeometry {
+      name: None,
+      mesh: Some(CsgMesh::<()>::new()),
+      color: None,
+      scad: None,
+    };
+    let xml = model_xml(&[empty, named_cube(5.0, 0.0, Some("solid"))]);
+
+    assert_eq!(xml.matches("<object ").count(), 1);
+    // Ids stay contiguous so the single object is still id 1
+    assert!(xml.contains("<object id=\"1\" name=\"solid\""), "{xml}");
+  }
+
+  #[test]
+  fn export_3mf_without_geometry_errors() {
+    let empty = CsgGeometry {
+      name: None,
+      mesh: Some(CsgMesh::<()>::new()),
+      color: None,
+      scad: None,
+    };
+    assert!(export_3mf_bytes(&[]).is_err());
+    assert!(export_3mf_bytes(&[empty]).is_err());
+  }
+
+  #[test]
+  fn merge_geometries_concatenates_without_union() {
+    // Two overlapping cubes: a boolean union would drop the interior faces,
+    // concatenation keeps every polygon of both.
+    let a = named_cube(10.0, 0.0, None);
+    let b = named_cube(10.0, 5.0, None);
+    let a_polys = a.mesh.as_ref().unwrap().polygons.len();
+    let b_polys = b.mesh.as_ref().unwrap().polygons.len();
+
+    let merged = merge_geometries(&[a, b]).unwrap();
+    assert_eq!(merged.polygons.len(), a_polys + b_polys);
+  }
+
   // --- Manifold export path tests ---
 
   /// Helper: create a CsgGeometry with only a ScadNode (no pre-materialized mesh).
   fn geom_from_scad(scad: ScadNode) -> CsgGeometry {
     CsgGeometry {
+      name: None,
       mesh: None,
       color: None,
       scad: Some(scad),
@@ -2557,6 +2594,7 @@ mod tests {
     // Geometry with only a pre-materialized mesh and no ScadNode
     let cube = CsgMesh::<()>::cuboid(5.0, 5.0, 5.0, None);
     let geom = CsgGeometry {
+      name: None,
       mesh: Some(cube),
       color: None,
       scad: None,

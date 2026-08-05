@@ -238,6 +238,9 @@ pub struct CsgGeometry {
   pub mesh: Option<()>,
   pub color: Option<[f32; 3]>,
   pub scad: Option<ScadNode>,
+  /// Optional object name. Written to export formats that can carry one (3MF),
+  /// where it shows up as the object label in slicers such as BambuStudio.
+  pub name: Option<String>,
 }
 
 impl CsgGeometry {
@@ -443,6 +446,7 @@ impl UserData for CsgGeometry {
           },
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -490,6 +494,7 @@ impl UserData for CsgGeometry {
           mesh,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       } else {
         // rotate(rx, ry, rz)
@@ -518,6 +523,7 @@ impl UserData for CsgGeometry {
           },
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       }
     });
@@ -559,6 +565,7 @@ impl UserData for CsgGeometry {
           mesh,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -583,6 +590,7 @@ impl UserData for CsgGeometry {
         },
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -624,6 +632,7 @@ impl UserData for CsgGeometry {
         mesh,
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -652,6 +661,7 @@ impl UserData for CsgGeometry {
         },
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -693,6 +703,7 @@ impl UserData for CsgGeometry {
         },
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -700,6 +711,19 @@ impl UserData for CsgGeometry {
 
     methods.add_method("clone", |_, this, ()| Ok(this.clone()));
     methods.add_method("copy", |_, this, ()| Ok(this.clone()));
+
+    // --- Name ---
+
+    // `geom:name("lid")` labels the object. Top-level named geometries are
+    // written as separate, labelled 3MF objects.
+    methods.add_method("name", |_, this, name: String| {
+      Ok(CsgGeometry {
+        mesh: this.mesh_clone(),
+        color: this.color,
+        scad: this.scad.clone(),
+        name: Some(name),
+      })
+    });
 
     // --- Color ---
 
@@ -736,6 +760,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: Some(color),
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -775,6 +800,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: Some(color),
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -791,6 +817,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -806,6 +833,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -820,6 +848,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -832,6 +861,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -844,6 +874,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -856,6 +887,7 @@ impl UserData for CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -883,6 +915,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -909,6 +942,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -935,6 +969,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -950,6 +985,7 @@ impl UserData for CsgGeometry {
         mesh: None,
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -971,6 +1007,7 @@ impl UserData for CsgGeometry {
         mesh: None,
         color: this.color,
         scad,
+        name: this.name.clone(),
       })
     });
 
@@ -991,6 +1028,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -1010,6 +1048,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -1029,6 +1068,7 @@ impl UserData for CsgGeometry {
           mesh: None,
           color: this.color,
           scad,
+          name: this.name.clone(),
         })
       },
     );
@@ -1314,6 +1354,7 @@ impl UserData for CsgSketch {
         mesh,
         color: this.color,
         scad,
+        name: None,
       })
     });
 
@@ -1342,6 +1383,7 @@ impl UserData for CsgSketch {
         mesh,
         color: this.color,
         scad,
+        name: None,
       })
     });
 
@@ -1371,6 +1413,7 @@ impl UserData for CsgSketch {
         mesh,
         color: this.color,
         scad,
+        name: None,
       })
     });
 

@@ -522,6 +522,7 @@ fn bosl_geometry(
   preview: BoslPreviewParams,
 ) -> CsgGeometry {
   CsgGeometry {
+    name: None,
     mesh: {
       #[cfg(feature = "csgrs")]
       {
