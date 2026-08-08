@@ -792,16 +792,22 @@ fn main() {
           Event::MousePress {
             button: MouseButton::Left,
             position,
+            modifiers,
             handled,
-            ..
           } if !handled && in_scene(position) => {
-            dragging_scene = true;
+            // Ctrl + drag pans, plain drag rotates.
+            if modifiers.ctrl {
+              panning_scene = true;
+            } else {
+              dragging_scene = true;
+            }
           }
           Event::MouseRelease {
             button: MouseButton::Left,
             ..
           } => {
             dragging_scene = false;
+            panning_scene = false;
           }
           Event::MousePress {
             button: MouseButton::Middle,
@@ -828,7 +834,7 @@ fn main() {
           }
           Event::MouseMotion {
             delta,
-            button: Some(MouseButton::Middle),
+            button: Some(MouseButton::Left | MouseButton::Middle),
             ..
           } if panning_scene => {
             // World-space size of one logical pixel at the camera target,

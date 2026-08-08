@@ -175,6 +175,8 @@ fn render_settings_shortcuts(ui: &mut egui::Ui) {
       "Viewport",
       vec![
         ("Drag".into(), "Rotate camera"),
+        ("⌃ Drag".into(), "Pan camera"),
+        ("Middle Drag".into(), "Pan camera"),
         ("Scroll".into(), "Zoom in / out"),
         (format!("{m} 4"), "Top"),
         (format!("{m} 5"), "Bottom"),
