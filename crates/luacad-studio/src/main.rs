@@ -707,13 +707,7 @@ impl Studio {
       if let Some(action) = app.pending_file_action.take() {
         match action {
           FileAction::New => {
-            app.text_content.clear();
-            app.mark_saved();
-            app.geometries.clear();
-            app.lua_error = None;
-            app.current_file = None;
-            app.disk_mtime = None;
-            app.scene_dirty = true;
+            app.new_document();
             save_last_file(None);
           }
           FileAction::Open => {
@@ -728,9 +722,8 @@ impl Studio {
                   app.mark_saved();
                   app.current_file = Some(path.clone());
                   app.disk_mtime = file_mtime(&path);
+                  app.reset_render_area();
                   app.execute_lua_code();
-                  app.scene_dirty = true;
-                  app.needs_fit_to_view = true;
                   save_last_file(Some(&path));
                 }
                 Err(e) => {
@@ -941,13 +934,14 @@ impl Studio {
 
       // Handle scene rebuild on Lua re-execution
       if app.scene_dirty {
-        if app.needs_fit_to_view {
-          if let Some(dist) =
+        if app.needs_fit_to_view
+          && let Some(dist) =
             compute_fit_distance(&app.geometries, app.orthogonal_view)
-          {
-            app.camera_distance = dist;
-            app.camera_target = [0.0; 3];
-          }
+        {
+          // Keep the request pending while the scene is empty, so the fit
+          // happens as soon as the document produces geometry
+          app.camera_distance = dist;
+          app.camera_target = [0.0; 3];
           app.needs_fit_to_view = false;
         }
         app.scene_dirty = false;

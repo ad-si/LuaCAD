@@ -468,13 +468,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
-        app.text_content.clear();
-        app.mark_saved();
-        app.geometries.clear();
-        app.lua_error = None;
-        app.scene_dirty = true;
-        app.current_file = None;
-        app.disk_mtime = None;
+        app.pending_file_action = Some(FileAction::New);
       }
     });
     ui.add_space(8.0);

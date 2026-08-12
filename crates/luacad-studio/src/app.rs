@@ -91,6 +91,11 @@ pub fn file_mtime(path: &Path) -> Option<SystemTime> {
   std::fs::metadata(path).ok()?.modified().ok()
 }
 
+/// Camera pose the viewport starts with and returns to on document change.
+pub const DEFAULT_CAMERA_AZIMUTH: f32 = -30.0;
+pub const DEFAULT_CAMERA_ELEVATION: f32 = 30.0;
+pub const DEFAULT_CAMERA_DISTANCE: f32 = 5.0;
+
 pub struct AppState {
   pub text_content: String,
   /// Snapshot of text_content as it was last loaded from or written to disk
@@ -180,9 +185,9 @@ impl AppState {
       text_content,
       geometries: vec![],
       lua_error: None,
-      camera_azimuth: -30.0,
-      camera_elevation: 30.0,
-      camera_distance: 5.0,
+      camera_azimuth: DEFAULT_CAMERA_AZIMUTH,
+      camera_elevation: DEFAULT_CAMERA_ELEVATION,
+      camera_distance: DEFAULT_CAMERA_DISTANCE,
       camera_target: [0.0; 3],
       orthogonal_view: true,
       scene_dirty: true,
@@ -236,6 +241,35 @@ impl AppState {
   /// Record the current editor content as the on-disk state.
   pub fn mark_saved(&mut self) {
     self.saved_text = self.text_content.clone();
+  }
+
+  /// Move the camera back to the pose the app starts with.
+  pub fn reset_camera(&mut self) {
+    self.camera_azimuth = DEFAULT_CAMERA_AZIMUTH;
+    self.camera_elevation = DEFAULT_CAMERA_ELEVATION;
+    self.camera_distance = DEFAULT_CAMERA_DISTANCE;
+    self.camera_target = [0.0; 3];
+  }
+
+  /// Empty the viewport: drop all geometry and restore the default camera.
+  pub fn reset_render_area(&mut self) {
+    self.geometries.clear();
+    self.csg_groups.clear();
+    self.overlay_meshes.clear();
+    self.reset_camera();
+    self.scene_dirty = true;
+    // Fit as soon as the next geometry appears
+    self.needs_fit_to_view = true;
+  }
+
+  /// Start a blank, unsaved document with an empty viewport.
+  pub fn new_document(&mut self) {
+    self.text_content.clear();
+    self.mark_saved();
+    self.lua_error = None;
+    self.current_file = None;
+    self.disk_mtime = None;
+    self.reset_render_area();
   }
 
   pub fn resolve_theme(&self) -> ThemeColors {
