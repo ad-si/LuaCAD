@@ -767,10 +767,13 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
 
             // Highlight search matches by splitting sections at match boundaries
             if !search_matches.is_empty() {
+              // The current match has to stand out from the other matches
+              // without the text selection backing it up, so it gets an opaque
+              // background with a forced-contrast glyph colour.
               let match_bg =
-                egui::Color32::from_rgba_premultiplied(255, 255, 0, 60);
-              let current_bg =
-                egui::Color32::from_rgba_premultiplied(255, 165, 0, 100);
+                egui::Color32::from_rgba_unmultiplied(255, 235, 0, 80);
+              let current_bg = egui::Color32::from_rgb(255, 150, 0);
+              let current_fg = egui::Color32::BLACK;
 
               let mut new_sections: Vec<egui::text::LayoutSection> = Vec::new();
               for section in layout_job.sections.drain(..) {
@@ -810,13 +813,14 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
                   }
 
                   // Match portion with background highlight
-                  let bg = if current_search_match == Some(*match_idx) {
-                    current_bg
-                  } else {
-                    match_bg
-                  };
+                  let is_current = current_search_match == Some(*match_idx);
                   let mut fmt = section.format.clone();
-                  fmt.background = bg;
+                  if is_current {
+                    fmt.background = current_bg;
+                    fmt.color = current_fg;
+                  } else {
+                    fmt.background = match_bg;
+                  }
                   new_sections.push(egui::text::LayoutSection {
                     leading_space: if is_first {
                       section.leading_space
