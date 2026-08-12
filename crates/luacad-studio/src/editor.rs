@@ -11,6 +11,81 @@ pub enum EditorAction {
   WrapSelection(char),    // Wrap selected text with bracket pair: (, [, {
 }
 
+/// How a character is grouped when a click expands a selection.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum CharClass {
+  Word,
+  Space,
+  Newline,
+  Punctuation,
+}
+
+fn char_class(c: char) -> CharClass {
+  if c == '\n' || c == '\r' {
+    CharClass::Newline
+  } else if c.is_alphanumeric() || c == '_' {
+    CharClass::Word
+  } else if c.is_whitespace() {
+    CharClass::Space
+  } else {
+    CharClass::Punctuation
+  }
+}
+
+/// Byte offset of the `char_idx`-th character.
+fn byte_index_of(text: &str, char_idx: usize) -> usize {
+  text
+    .char_indices()
+    .nth(char_idx)
+    .map_or(text.len(), |(byte_idx, _)| byte_idx)
+}
+
+/// The character range a double click selects around `caret`: the run of
+/// like characters it sits in — a word, a stretch of spaces, a stretch of
+/// punctuation.
+///
+/// This only walks outwards from the caret. egui's own `select_word_at`
+/// re-scans (and, for the left boundary, reverses) the entire buffer for
+/// every lookup, which makes double clicking a word in a large file take
+/// seconds.
+pub fn double_click_range(text: &str, caret: usize) -> (usize, usize) {
+  let byte_idx = byte_index_of(text, caret);
+  let before = text[..byte_idx].chars().next_back();
+  let after = text[byte_idx..].chars().next();
+
+  // A caret right after a word belongs to that word, like in native editors
+  let class = match (before, after) {
+    (_, Some(c)) if char_class(c) == CharClass::Word => CharClass::Word,
+    (Some(c), _) if char_class(c) == CharClass::Word => CharClass::Word,
+    (_, Some(c)) => char_class(c),
+    (Some(c), _) => char_class(c),
+    (None, None) => return (caret, caret),
+  };
+
+  let same_class = |c: &char| char_class(*c) == class;
+  let left = text[..byte_idx]
+    .chars()
+    .rev()
+    .take_while(same_class)
+    .count();
+  let right = text[byte_idx..].chars().take_while(same_class).count();
+  (caret - left, caret + right)
+}
+
+/// The character range a triple click selects: the line around `caret`,
+/// without its line break.
+pub fn triple_click_range(text: &str, caret: usize) -> (usize, usize) {
+  let byte_idx = byte_index_of(text, caret);
+  let not_newline = |c: &char| *c != '\n';
+  let left = text[..byte_idx]
+    .chars()
+    .rev()
+    .take_while(not_newline)
+    .count();
+  let right = text[byte_idx..].chars().take_while(not_newline).count();
+  (caret - left, caret + right)
+}
+
 /// Get the word boundaries around a character index in the text.
 /// Returns (start, end) character indices of the word.
 fn word_at(text: &str, char_idx: usize) -> (usize, usize) {
@@ -403,5 +478,73 @@ pub fn apply_editor_action(
       *text = new_text;
       (new_start.min(new_len), new_end.min(new_len))
     }
+  }
+}
+
+#[cfg(test)]
+mod click_range_tests {
+  use super::{double_click_range, triple_click_range};
+
+  /// Character index of the first occurrence of `needle` in `text`.
+  fn caret_at(text: &str, needle: &str) -> usize {
+    text[..text.find(needle).expect("needle in text")]
+      .chars()
+      .count()
+  }
+
+  fn selected(text: &str, caret: usize) -> &str {
+    let (start, end) = double_click_range(text, caret);
+    let byte_start = super::byte_index_of(text, start);
+    let byte_end = super::byte_index_of(text, end);
+    &text[byte_start..byte_end]
+  }
+
+  #[test]
+  fn selects_the_word_around_the_caret() {
+    let text = "local width = 10";
+    let w = caret_at(text, "width");
+    assert_eq!(selected(text, w), "width");
+    assert_eq!(selected(text, w + 2), "width");
+    // Caret at the trailing edge still belongs to the word
+    assert_eq!(selected(text, w + 5), "width");
+  }
+
+  #[test]
+  fn selects_runs_of_spaces_and_punctuation() {
+    let text = "f(a,   b) -- ok";
+    assert_eq!(selected(text, caret_at(text, "   ") + 1), "   ");
+    assert_eq!(selected(text, caret_at(text, "--") + 1), "--");
+    // A caret between a word and punctuation belongs to the word
+    assert_eq!(selected(text, caret_at(text, ",")), "a");
+  }
+
+  #[test]
+  fn does_not_cross_line_breaks() {
+    let text = "alpha\nbeta";
+    assert_eq!(selected(text, caret_at(text, "beta")), "beta");
+    // Caret right after `alpha`, before the newline
+    assert_eq!(selected(text, 5), "alpha");
+  }
+
+  #[test]
+  fn word_with_underscores_and_digits_stays_one_word() {
+    let text = "tooth_width_2 = 3";
+    assert_eq!(selected(text, 4), "tooth_width_2");
+  }
+
+  #[test]
+  fn triple_click_takes_the_line_without_the_break() {
+    let text = "local a = 1\nlocal b = 2\n";
+    let caret = caret_at(text, "b");
+    let (start, end) = triple_click_range(text, caret);
+    let chars: String = text.chars().skip(start).take(end - start).collect();
+    assert_eq!(chars, "local b = 2");
+  }
+
+  #[test]
+  fn handles_empty_text_and_end_of_text() {
+    assert_eq!(double_click_range("", 0), (0, 0));
+    let text = "abc";
+    assert_eq!(double_click_range(text, 3), (0, 3));
   }
 }

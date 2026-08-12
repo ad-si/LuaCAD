@@ -12,8 +12,20 @@ pub struct EguiIntegration {
 
 impl EguiIntegration {
   pub fn new(gl: Arc<glow::Context>) -> Self {
+    let egui_context = egui::Context::default();
+    egui_context.options_mut(|o| {
+      // egui only counts a double click when both clicks are released within
+      // 300 ms of each other, which is well below what the OS considers a
+      // double click. Clicks at a normal pace were dropped to single clicks,
+      // so a word only got selected after several attempts.
+      o.input_options.max_double_click_delay = crate::ui::DOUBLE_CLICK_SECS;
+      // Trackpads wobble a few pixels while clicking; egui's 6 pt default
+      // turns such a click into a drag and swallows it.
+      o.input_options.max_click_dist = 10.0;
+    });
+
     Self {
-      egui_context: egui::Context::default(),
+      egui_context,
       painter: egui_glow::Painter::new(gl, "", None, true).unwrap(),
       output: None,
       viewport: Viewport::new_at_origo(1, 1),

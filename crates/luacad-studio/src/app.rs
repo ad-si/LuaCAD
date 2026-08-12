@@ -62,6 +62,18 @@ pub struct SearchState {
   pub last_computed: (String, bool, String),
 }
 
+/// The most recent mouse press inside the code editor, used to recognise a
+/// double click on the second *press* (see `ui::render_ui`).
+#[derive(Debug, Clone, Copy)]
+pub struct EditorClick {
+  /// egui input time of the press, in seconds
+  pub time: f64,
+  /// Press position in egui points
+  pub pos: (f32, f32),
+  /// How many presses in a row landed close together in time and space
+  pub count: u32,
+}
+
 #[derive(Debug, Clone)]
 pub enum FileAction {
   New,
@@ -133,6 +145,8 @@ pub struct AppState {
   pub editor_selection_len: usize,
   /// Whether the code editor had keyboard focus in the last rendered frame
   pub editor_focused: bool,
+  /// Last mouse press inside the code editor (for double/triple click)
+  pub editor_click: Option<EditorClick>,
   /// True when clipboard contains a whole-line copy (Cmd+C with no selection)
   pub clipboard_is_line: bool,
   /// Flattened CSG groups for OpenCSG preview rendering
@@ -198,6 +212,7 @@ impl AppState {
       editor_cursor_pos: 0,
       editor_selection_len: 0,
       editor_focused: false,
+      editor_click: None,
       clipboard_is_line: false,
       csg_groups: vec![],
       overlay_meshes: vec![],

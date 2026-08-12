@@ -4,12 +4,21 @@ use luacad::export::ExportFormat;
 use luacad::export::ManifoldFormat;
 use luacad::linter::LintSeverity;
 
-use crate::app::{AppState, EditorPosition, FileAction, SearchState};
-use crate::editor::apply_editor_action;
+use crate::app::{
+  AppState, EditorClick, EditorPosition, FileAction, SearchState,
+};
+use crate::editor::{
+  apply_editor_action, double_click_range, triple_click_range,
+};
 use crate::theme::ThemeMode;
 
 /// Fill color of the Save button while there are unsaved changes.
 const UNSAVED_ORANGE: egui::Color32 = egui::Color32::from_rgb(230, 140, 40);
+
+/// How long after a click a following click still counts as a double click.
+/// macOS and Windows both use 500 ms; egui's own default of 300 ms drops
+/// double clicks made at a normal pace.
+pub const DOUBLE_CLICK_SECS: f64 = 0.5;
 
 /// Return the platform modifier key label: ⌘ on macOS, Ctrl elsewhere.
 fn modifier_label() -> &'static str {
@@ -841,6 +850,72 @@ pub fn render_ui(
 
         app.editor_focused = te_output.response.has_focus();
 
+        // Handle double/triple clicks in the editor ourselves: egui only acts
+        // on the *release* of the second click, and it re-scans the whole
+        // buffer to find the word, which takes seconds in a large file.
+        let press = ui.input(|i| {
+          if i.pointer.button_pressed(egui::PointerButton::Primary) {
+            i.pointer.interact_pos().map(|pos| (i.time, pos))
+          } else {
+            None
+          }
+        });
+        let pointer_in_editor = te_output.response.contains_pointer();
+        if let Some((time, pos)) = press
+          && pointer_in_editor
+        {
+          let max_dist = ui.ctx().options(|o| o.input_options.max_click_dist);
+          let count = match app.editor_click {
+            Some(prev)
+              if time - prev.time < DOUBLE_CLICK_SECS
+                && egui::pos2(prev.pos.0, prev.pos.1).distance(pos)
+                  <= max_dist =>
+            {
+              prev.count + 1
+            }
+            _ => 1,
+          };
+          app.editor_click = Some(EditorClick {
+            time,
+            pos: (pos.x, pos.y),
+            count,
+          });
+
+          if count >= 2
+            && let Some(range) = te_output.cursor_range
+          {
+            // The TextEdit has already moved the caret to the press position
+            let caret = range.as_sorted_char_range().start;
+            let (start, end) = if count == 2 {
+              double_click_range(&app.text_content, caret)
+            } else {
+              triple_click_range(&app.text_content, caret)
+            };
+
+            let mut state = te_output.state.clone();
+            use egui::text::CCursor;
+            use egui::text_selection::CCursorRange;
+            state.cursor.set_char_range(Some(CCursorRange::two(
+              CCursor::new(start),
+              CCursor::new(end),
+            )));
+            state.store(ui.ctx(), te_output.response.id);
+          }
+        }
+
+        // Keep egui from counting double clicks of its own while the pointer
+        // is over the editor — its word lookup walks the entire buffer, so it
+        // would stall for seconds on the release of every double click. The
+        // option is read at the start of the next frame; short text fields
+        // elsewhere keep egui's own handling.
+        ui.ctx().options_mut(|o| {
+          o.input_options.max_double_click_delay = if pointer_in_editor {
+            0.0
+          } else {
+            DOUBLE_CLICK_SECS
+          };
+        });
+
         // Extract cursor position for status line
         if let Some(range) = te_output.cursor_range {
           let sorted = range.as_sorted_char_range();
@@ -1240,4 +1315,207 @@ pub fn render_ui(
   let scene_rect = gui_context.available_rect();
 
   PanelLayout { scene_rect }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::app::AppState;
+
+  /// Drive `render_ui` headlessly and return the app state after the pass.
+  struct Harness {
+    ctx: egui::Context,
+    app: AppState,
+    time: f64,
+  }
+
+  impl Harness {
+    fn new(text: &str) -> Self {
+      let ctx = egui::Context::default();
+      ctx.options_mut(|o| {
+        o.input_options.max_double_click_delay = 0.5;
+        o.input_options.max_click_dist = 10.0;
+      });
+      let mut app = AppState::new(None);
+      app.text_content = text.to_string();
+      Self {
+        ctx,
+        app,
+        time: 0.0,
+      }
+    }
+
+    /// Run one UI pass with the given events, advancing time by `dt` seconds.
+    fn pass(&mut self, dt: f64, events: Vec<egui::Event>) {
+      self.time += dt;
+      let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+          egui::Pos2::ZERO,
+          egui::vec2(1200.0, 800.0),
+        )),
+        time: Some(self.time),
+        events,
+        ..Default::default()
+      };
+      let app = &mut self.app;
+      let _ = self.ctx.run(input, |ctx| {
+        render_ui(ctx, app);
+      });
+    }
+
+    fn click_event(pos: egui::Pos2, pressed: bool) -> egui::Event {
+      egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+      }
+    }
+
+    /// Press the primary button at `pos` (without releasing it).
+    fn press(&mut self, dt: f64, pos: egui::Pos2) {
+      self.pass(
+        dt,
+        vec![egui::Event::PointerMoved(pos), Self::click_event(pos, true)],
+      );
+    }
+
+    fn release(&mut self, dt: f64, pos: egui::Pos2) {
+      self.pass(dt, vec![Self::click_event(pos, false)]);
+    }
+
+    fn selected_text(&self) -> String {
+      let end = self.app.editor_cursor_pos;
+      let start = end.saturating_sub(self.app.editor_selection_len);
+      self
+        .app
+        .text_content
+        .chars()
+        .skip(start)
+        .take(end - start)
+        .collect()
+    }
+  }
+
+  /// A point inside the word `width` on the first line of the editor.
+  const IN_WORD: egui::Pos2 = egui::Pos2 { x: 800.0, y: 65.0 };
+
+  /// Double clicking must not get slower as the file grows: both the word
+  /// lookup and egui's own handling used to walk the whole buffer, which made
+  /// this take tens of seconds for a few thousand lines.
+  #[test]
+  fn double_click_stays_fast_in_a_large_file() {
+    let text: String = (0..3200)
+      .map(|i| format!("local width_{i} = 10 + some_value * factor_{i}\n"))
+      .collect();
+    let mut h = Harness::new(&text);
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+
+    let before = std::time::Instant::now();
+    h.press(0.2, IN_WORD);
+    let press = before.elapsed();
+    let before = std::time::Instant::now();
+    h.release(0.05, IN_WORD);
+    let release = before.elapsed();
+
+    // A pass over a file this size costs a few hundred ms in a debug build;
+    // the double click must not add another order of magnitude on top.
+    let idle = {
+      let before = std::time::Instant::now();
+      h.pass(0.016, vec![]);
+      before.elapsed()
+    };
+    let budget = 4 * idle.max(std::time::Duration::from_millis(50));
+    assert!(
+      press < budget && release < budget,
+      "double click cost press={press:?} release={release:?}, idle pass={idle:?}"
+    );
+    assert_eq!(h.selected_text(), "width_0");
+  }
+
+  #[test]
+  fn single_click_does_not_select() {
+    let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.016, IN_WORD);
+    h.pass(0.016, vec![]);
+    assert_eq!(h.app.editor_selection_len, 0);
+  }
+
+  #[test]
+  fn double_click_selects_word_while_button_is_still_down() {
+    let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+    // Second press only — the button is still held down
+    h.press(0.2, IN_WORD);
+    // One more pass so the stored selection is picked up by the TextEdit
+    h.pass(0.016, vec![]);
+    assert_eq!(h.selected_text(), "width");
+  }
+
+  #[test]
+  fn double_click_at_native_pace_still_selects() {
+    let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.06, IN_WORD);
+    // 410 ms between the two presses: within the 500 ms the OS considers a
+    // double click, but beyond the 300 ms egui counts by default.
+    h.press(0.35, IN_WORD);
+    h.release(0.06, IN_WORD);
+    h.pass(0.016, vec![]);
+    // The selection also survives the release of the second click
+    assert_eq!(h.selected_text(), "width");
+  }
+
+  #[test]
+  fn triple_click_selects_line() {
+    let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+    h.press(0.2, IN_WORD);
+    h.release(0.05, IN_WORD);
+    h.press(0.2, IN_WORD);
+    h.pass(0.016, vec![]);
+    assert_eq!(h.selected_text(), "local width = 10");
+  }
+
+  /// The word picked while the button is held must be the one egui settles on
+  /// when it is released — otherwise the selection would visibly jump.
+  #[test]
+  fn selection_does_not_change_on_release() {
+    // x = 770 lands on the space right after `local`
+    for pos in [IN_WORD, egui::pos2(770.0, 65.0)] {
+      let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+      h.pass(0.016, vec![]);
+      h.press(0.016, pos);
+      h.release(0.05, pos);
+      h.press(0.2, pos);
+      h.pass(0.016, vec![]);
+      let while_pressed = h.selected_text();
+      h.release(0.05, pos);
+      h.pass(0.016, vec![]);
+      assert!(!while_pressed.is_empty(), "nothing selected at {pos:?}");
+      assert_eq!(while_pressed, h.selected_text(), "at {pos:?}");
+    }
+  }
+
+  #[test]
+  fn slow_clicks_stay_separate() {
+    let mut h = Harness::new("local width = 10\nlocal height = 20\n");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+    // 1 s apart — two independent single clicks
+    h.press(1.0, IN_WORD);
+    h.release(0.05, IN_WORD);
+    h.pass(0.016, vec![]);
+    assert_eq!(h.app.editor_selection_len, 0);
+  }
 }
