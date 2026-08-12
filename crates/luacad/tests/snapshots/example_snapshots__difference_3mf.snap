@@ -3,7 +3,7 @@ source: crates/luacad/tests/example_snapshots.rs
 expression: threemf_output(&geoms)
 ---
 <?xml version="1.0" encoding="utf-8"?>
-<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" unit="millimeter">
+<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" unit="millimeter">
   <resources>
     <object id="1">
       <mesh>
