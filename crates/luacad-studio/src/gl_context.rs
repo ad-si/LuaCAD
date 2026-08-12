@@ -53,7 +53,7 @@ impl std::ops::Deref for GlWindowContext {
 #[cfg(target_os = "macos")]
 #[allow(non_upper_case_globals)]
 mod macos {
-  use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+  use raw_window_handle::{HasWindowHandle, RawWindowHandle};
   use std::ffi::{c_char, c_void};
   use std::sync::Arc;
 
@@ -233,13 +233,16 @@ mod macos {
       msg_send_no_args()(pixel_format, release_sel);
 
       // Get the NSView from the winit window and set it as the context's view
-      let ns_view = match window.raw_window_handle() {
+      let window_handle = window
+        .window_handle()
+        .expect("failed to get the window handle");
+      let ns_view = match window_handle.as_raw() {
         RawWindowHandle::AppKit(handle) => handle.ns_view,
         _ => panic!("Expected AppKit window handle on macOS"),
       };
 
       let set_view_sel = sel_registerName(c"setView:".as_ptr());
-      msg_send_one_ptr()(context, set_view_sel, ns_view as *const c_void);
+      msg_send_one_ptr()(context, set_view_sel, ns_view.as_ptr().cast_const());
 
       // Make current
       let make_current_sel = sel_registerName(c"makeCurrentContext".as_ptr());
@@ -314,7 +317,7 @@ mod linux {
   use glutin::surface::{
     SurfaceAttributesBuilder, SwapInterval, WindowSurface,
   };
-  use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+  use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
   use std::num::NonZeroU32;
   use std::sync::Arc;
 
@@ -342,8 +345,14 @@ mod linux {
     window: &winit::window::Window,
     stencil_bits: u8,
   ) -> (Arc<glow::Context>, LinuxGlContext) {
-    let raw_display_handle = window.raw_display_handle();
-    let raw_window_handle = window.raw_window_handle();
+    let raw_display_handle = window
+      .display_handle()
+      .expect("failed to get the display handle")
+      .as_raw();
+    let raw_window_handle = window
+      .window_handle()
+      .expect("failed to get the window handle")
+      .as_raw();
 
     let preference = glutin::display::DisplayApiPreference::GlxThenEgl(
       Box::new(winit::platform::x11::register_xlib_error_hook),
@@ -434,7 +443,7 @@ mod windows {
   use glutin::surface::{
     SurfaceAttributesBuilder, SwapInterval, WindowSurface,
   };
-  use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+  use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
   use std::num::NonZeroU32;
   use std::sync::Arc;
 
@@ -462,8 +471,14 @@ mod windows {
     window: &winit::window::Window,
     stencil_bits: u8,
   ) -> (Arc<glow::Context>, WindowsGlContext) {
-    let raw_display_handle = window.raw_display_handle();
-    let raw_window_handle = window.raw_window_handle();
+    let raw_display_handle = window
+      .display_handle()
+      .expect("failed to get the display handle")
+      .as_raw();
+    let raw_window_handle = window
+      .window_handle()
+      .expect("failed to get the window handle")
+      .as_raw();
 
     let preference = glutin::display::DisplayApiPreference::EglThenWgl(Some(
       raw_window_handle,

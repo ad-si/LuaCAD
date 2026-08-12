@@ -12,18 +12,18 @@ csgrs = ["dep:csgrs", "luacad/csgrs"]
 
 [dependencies]
 luacad = { version = "0.1.0", path = "../luacad" }
-egui = "0.32"
-egui_glow = "0.32"
-egui_extras = { version = "0.32", features = ["default", "syntect"] }
+egui = "0.36"
+egui_glow = "0.36"
+egui_extras = { version = "0.36", features = ["default", "syntect"] }
 cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
 opencsg-sys = { version = "0.1.0", path = "../opencsg-sys" }
 arboard = "3"
-rfd = "0.15"
-winit = "0.28"
-glutin = "0.30"
-glow = "0.16"
-raw-window-handle = "0.5"
+rfd = "0.17"
+winit = "0.30"
+glutin = "0.32"
+glow = "0.17"
+raw-window-handle = "0.6"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 dirs = "6"
 serde_json = "1"

@@ -221,12 +221,12 @@ pub struct PanelLayout {
   pub scene_rect: egui::Rect,
 }
 
-pub fn render_ui(
-  gui_context: &egui::Context,
-  app: &mut AppState,
-) -> PanelLayout {
+pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
   // Re-lint whenever the editor text changes
   app.update_lint();
+
+  let gui_context = root_ui.ctx().clone();
+  let gui_context = &gui_context;
 
   // Apply theme visuals
   if app.theme_colors.egui_dark {
@@ -237,7 +237,7 @@ pub fn render_ui(
 
   // Bottom panel: camera controls and view presets (rendered first so it
   // claims the bottom edge before a potential bottom editor panel).
-  egui::TopBottomPanel::bottom("controls").show(gui_context, |ui| {
+  egui::Panel::bottom("controls").show(root_ui, |ui| {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
       ui.label("Projection:");
@@ -397,7 +397,7 @@ pub fn render_ui(
   });
 
   // Editor panel (position depends on settings)
-  let screen_rect = gui_context.screen_rect();
+  let screen_rect = gui_context.input(|i| i.viewport_rect());
   let screen_width = screen_rect.width();
   let screen_height = screen_rect.height();
 
@@ -751,8 +751,8 @@ pub fn render_ui(
                 LintSeverity::Warning => egui::Color32::from_rgb(220, 120, 0),
               };
               for section in &mut layout_job.sections {
-                let s_start = section.byte_range.start;
-                let s_end = section.byte_range.end;
+                let s_start = section.byte_range.start.0;
+                let s_end = section.byte_range.end.0;
                 // If this section overlaps the diagnostic range, underline it
                 if s_start < range.end && s_end > range.start {
                   section.format.underline = egui::Stroke::new(1.5_f32, color);
@@ -769,8 +769,8 @@ pub fn render_ui(
 
               let mut new_sections: Vec<egui::text::LayoutSection> = Vec::new();
               for section in layout_job.sections.drain(..) {
-                let s_start = section.byte_range.start;
-                let s_end = section.byte_range.end;
+                let s_start = section.byte_range.start.0;
+                let s_end = section.byte_range.end.0;
 
                 let overlapping: Vec<(usize, &std::ops::Range<usize>)> =
                   search_matches
@@ -798,7 +798,7 @@ pub fn render_ui(
                       } else {
                         0.0
                       },
-                      byte_range: cursor..overlap_start,
+                      byte_range: cursor.into()..overlap_start.into(),
                       format: section.format.clone(),
                     });
                     is_first = false;
@@ -818,7 +818,7 @@ pub fn render_ui(
                     } else {
                       0.0
                     },
-                    byte_range: overlap_start..overlap_end,
+                    byte_range: overlap_start.into()..overlap_end.into(),
                     format: fmt,
                   });
                   is_first = false;
@@ -829,7 +829,7 @@ pub fn render_ui(
                 if cursor < s_end {
                   new_sections.push(egui::text::LayoutSection {
                     leading_space: 0.0,
-                    byte_range: cursor..s_end,
+                    byte_range: cursor.into()..s_end.into(),
                     format: section.format.clone(),
                   });
                 }
@@ -837,7 +837,7 @@ pub fn render_ui(
               layout_job.sections = new_sections;
             }
 
-            ui.fonts(|f| f.layout_job(layout_job))
+            ui.ctx().fonts_mut(|f| f.layout_job(layout_job))
           };
 
         let te_output = egui::TextEdit::multiline(&mut app.text_content)
@@ -885,7 +885,7 @@ pub fn render_ui(
             && let Some(range) = te_output.cursor_range
           {
             // The TextEdit has already moved the caret to the press position
-            let caret = range.as_sorted_char_range().start;
+            let caret = range.as_sorted_char_range().start.0;
             let (start, end) = if count == 2 {
               double_click_range(&app.text_content, caret)
             } else {
@@ -919,8 +919,8 @@ pub fn render_ui(
         // Extract cursor position for status line
         if let Some(range) = te_output.cursor_range {
           let sorted = range.as_sorted_char_range();
-          let cursor_pos = sorted.end;
-          selection_len = sorted.end - sorted.start;
+          let cursor_pos = sorted.end.0;
+          selection_len = sorted.end.0 - sorted.start.0;
           app.editor_cursor_pos = cursor_pos;
           app.editor_selection_len = selection_len;
 
@@ -945,7 +945,7 @@ pub fn render_ui(
           let (cursor_start, cursor_end) =
             if let Some(range) = te_output.cursor_range {
               let sorted = range.as_sorted_char_range();
-              (sorted.start, sorted.end)
+              (sorted.start.0, sorted.end.0)
             } else {
               (0, 0)
             };
@@ -1148,33 +1148,34 @@ pub fn render_ui(
 
   // Show the editor panel in the configured position.
   // Each position uses a distinct ID so egui's persisted size state doesn't
-  // conflict across panel types (SidePanel stores width, TopBottomPanel stores height).
+  // conflict across sides (a side panel stores a width, a top/bottom one a
+  // height, and both live under the same `Panel` type).
   match editor_position {
     EditorPosition::Right => {
-      egui::SidePanel::right("editor_right")
-        .default_width(screen_width * 0.4)
-        .min_width(screen_width * 0.2)
-        .show(gui_context, |ui| render_editor_panel(ui));
+      egui::Panel::right("editor_right")
+        .default_size(screen_width * 0.4)
+        .min_size(screen_width * 0.2)
+        .show(root_ui, |ui| render_editor_panel(ui));
     }
     EditorPosition::Left => {
-      egui::SidePanel::left("editor_left")
-        .default_width(screen_width * 0.4)
-        .min_width(screen_width * 0.2)
-        .show(gui_context, |ui| render_editor_panel(ui));
+      egui::Panel::left("editor_left")
+        .default_size(screen_width * 0.4)
+        .min_size(screen_width * 0.2)
+        .show(root_ui, |ui| render_editor_panel(ui));
     }
     EditorPosition::Top => {
-      egui::TopBottomPanel::top("editor_top")
-        .default_height(screen_height * 0.4)
-        .height_range(100.0..=screen_height * 0.8)
+      egui::Panel::top("editor_top")
+        .default_size(screen_height * 0.4)
+        .size_range(100.0..=screen_height * 0.8)
         .resizable(true)
-        .show(gui_context, |ui| render_editor_panel(ui));
+        .show(root_ui, |ui| render_editor_panel(ui));
     }
     EditorPosition::Bottom => {
-      egui::TopBottomPanel::bottom("editor_bottom")
-        .default_height(screen_height * 0.4)
-        .height_range(100.0..=screen_height * 0.8)
+      egui::Panel::bottom("editor_bottom")
+        .default_size(screen_height * 0.4)
+        .size_range(100.0..=screen_height * 0.8)
         .resizable(true)
-        .show(gui_context, |ui| render_editor_panel(ui));
+        .show(root_ui, |ui| render_editor_panel(ui));
     }
   }
 
@@ -1312,7 +1313,7 @@ pub fn render_ui(
   // The scene rect is the remaining area after all panels.
   // We intentionally do NOT use CentralPanel here — that would cause egui
   // to mark mouse events in this area as handled, preventing 3D interaction.
-  let scene_rect = gui_context.available_rect();
+  let scene_rect = root_ui.available_rect_before_wrap();
 
   PanelLayout { scene_rect }
 }
@@ -1358,9 +1359,12 @@ mod tests {
         ..Default::default()
       };
       let app = &mut self.app;
-      let _ = self.ctx.run(input, |ctx| {
-        render_ui(ctx, app);
+      let mut output = self.ctx.run_ui(input, |ui| {
+        render_ui(ui, app);
       });
+      // Nothing paints in these tests, and epaint asserts that a
+      // `TexturesDelta` is not dropped with deltas still pending.
+      output.textures_delta.clear();
     }
 
     fn click_event(pos: egui::Pos2, pressed: bool) -> egui::Event {

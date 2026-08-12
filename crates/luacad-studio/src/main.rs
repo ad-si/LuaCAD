@@ -10,7 +10,7 @@ mod theme;
 mod ui;
 
 use app::{AppState, FileAction, file_mtime};
-use camera::{Viewport, degrees, vec3};
+use camera::{Camera, Viewport, degrees, vec3};
 use cgmath::InnerSpace;
 use editor::EditorAction;
 use egui_integration::EguiIntegration;
@@ -98,7 +98,7 @@ fn timestamped_filename(current_file: Option<&Path>, ext: &str) -> String {
 fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
   match cursor {
     egui::CursorIcon::Default => winit::window::CursorIcon::Default,
-    egui::CursorIcon::PointingHand => winit::window::CursorIcon::Hand,
+    egui::CursorIcon::PointingHand => winit::window::CursorIcon::Pointer,
     egui::CursorIcon::Text => winit::window::CursorIcon::Text,
     egui::CursorIcon::Crosshair => winit::window::CursorIcon::Crosshair,
     egui::CursorIcon::Grab => winit::window::CursorIcon::Grab,
@@ -122,66 +122,131 @@ fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
   }
 }
 
-fn main() {
-  // Resolve initial file: CLI argument takes priority, then last opened file.
-  let initial_file = std::env::args()
-    .nth(1)
-    .map(|arg| {
-      let path = PathBuf::from(&arg);
-      // Canonicalize relative paths so the state file stores absolute paths
-      std::fs::canonicalize(&path).unwrap_or(path)
-    })
-    .or_else(load_last_file);
+/// Everything that exists once the window and its GL context are up.
+///
+/// Field order is drop order: the egui painter and the GL context both hold
+/// resources owned by the window, so they have to go before it.
+struct Studio {
+  gui: EguiIntegration,
+  gl: gl_context::GlWindowContext,
+  app: AppState,
+  camera: Camera,
+  scene_fbo: SceneFbo,
+  frame_input_generator: FrameInputGenerator,
+  clipboard: Option<arboard::Clipboard>,
+  last_theme_check: f64,
+  dragging_scene: bool,
+  panning_scene: bool,
+  window: winit::window::Window,
+}
 
-  let event_loop = winit::event_loop::EventLoop::new();
-  let winit_window = winit::window::WindowBuilder::new()
-    .with_title("LuaCAD Studio")
-    .with_maximized(true)
-    .build(&event_loop)
-    .unwrap();
-  winit_window.focus_window();
+/// winit only hands out a window once the event loop is running, so the whole
+/// application is built lazily on the first `resumed`.
+struct StudioApp {
+  initial_file: Option<PathBuf>,
+  studio: Option<Studio>,
+}
 
-  // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
-  let gl = gl_context::GlWindowContext::new(&winit_window, 8);
-  let mut gui = EguiIntegration::new(gl.gl.clone());
-  let mut app = AppState::new(initial_file);
-
-  // Persist the initial file if it was loaded successfully
-  if let Some(ref path) = app.current_file {
-    save_last_file(Some(path));
-  }
-
-  // Initialize OpenCSG's GLAD loader
-  opencsg_sys::init_gl();
-
-  // Auto-zoom to fit initial geometry
-  if let Some(dist) = compute_fit_distance(&app.geometries, app.orthogonal_view)
-  {
-    app.camera_distance = dist;
-  }
-  app.needs_fit_to_view = false;
-  app.scene_dirty = false;
-
-  let initial_viewport = {
-    let (w, h): (u32, u32) = winit_window.inner_size().into();
-    Viewport::new_at_origo(w, h)
-  };
-  let mut camera = build_camera(initial_viewport, &app);
-  let mut last_theme_check = 0.0_f64;
-
-  let mut scene_fbo =
-    SceneFbo::new(initial_viewport.width, initial_viewport.height);
-  let mut dragging_scene = false;
-  let mut panning_scene = false;
-  let mut clipboard = arboard::Clipboard::new().ok();
-  let mut frame_input_generator =
-    FrameInputGenerator::from_winit_window(&winit_window);
-
-  event_loop.run(move |event, _, control_flow| match event {
-    winit::event::Event::MainEventsCleared => {
-      winit_window.request_redraw();
+impl winit::application::ApplicationHandler for StudioApp {
+  fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    if self.studio.is_some() {
+      return;
     }
-    winit::event::Event::RedrawRequested(_) => {
+
+    let window_attributes = winit::window::Window::default_attributes()
+      .with_title("LuaCAD Studio")
+      .with_maximized(true);
+    let winit_window = event_loop
+      .create_window(window_attributes)
+      .expect("failed to create window");
+    winit_window.focus_window();
+
+    // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
+    let gl = gl_context::GlWindowContext::new(&winit_window, 8);
+    let gui = EguiIntegration::new(gl.gl.clone());
+    let mut app = AppState::new(self.initial_file.take());
+
+    // Persist the initial file if it was loaded successfully
+    if let Some(ref path) = app.current_file {
+      save_last_file(Some(path));
+    }
+
+    // Initialize OpenCSG's GLAD loader
+    opencsg_sys::init_gl();
+
+    // Auto-zoom to fit initial geometry
+    if let Some(dist) =
+      compute_fit_distance(&app.geometries, app.orthogonal_view)
+    {
+      app.camera_distance = dist;
+    }
+    app.needs_fit_to_view = false;
+    app.scene_dirty = false;
+
+    let initial_viewport = {
+      let (w, h): (u32, u32) = winit_window.inner_size().into();
+      Viewport::new_at_origo(w, h)
+    };
+    let camera = build_camera(initial_viewport, &app);
+    let scene_fbo =
+      SceneFbo::new(initial_viewport.width, initial_viewport.height);
+    let frame_input_generator =
+      FrameInputGenerator::from_winit_window(&winit_window);
+
+    self.studio = Some(Studio {
+      gui,
+      gl,
+      app,
+      camera,
+      scene_fbo,
+      frame_input_generator,
+      clipboard: arboard::Clipboard::new().ok(),
+      last_theme_check: 0.0,
+      dragging_scene: false,
+      panning_scene: false,
+      window: winit_window,
+    });
+  }
+
+  fn about_to_wait(&mut self, _: &winit::event_loop::ActiveEventLoop) {
+    if let Some(studio) = self.studio.as_ref() {
+      studio.window.request_redraw();
+    }
+  }
+
+  fn window_event(
+    &mut self,
+    event_loop: &winit::event_loop::ActiveEventLoop,
+    _window_id: winit::window::WindowId,
+    event: winit::event::WindowEvent,
+  ) {
+    let Some(studio) = self.studio.as_mut() else {
+      return;
+    };
+    if matches!(event, winit::event::WindowEvent::RedrawRequested) {
+      studio.redraw(event_loop);
+    } else {
+      studio.window_event(event_loop, &event);
+    }
+  }
+}
+
+impl Studio {
+  fn redraw(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    let Studio {
+      gui,
+      gl,
+      app,
+      camera,
+      scene_fbo,
+      frame_input_generator,
+      clipboard,
+      last_theme_check,
+      dragging_scene,
+      panning_scene,
+      window: winit_window,
+    } = self;
+    {
       // Update window title to reflect the current file
       let window_title = match &app.current_file {
         Some(path) => format!(
@@ -431,7 +496,9 @@ fn main() {
         frame_input.accumulated_time,
         frame_input.viewport,
         frame_input.device_pixel_ratio,
-        |gui_context| {
+        |root_ui| {
+          let gui_context = root_ui.ctx().clone();
+          let gui_context = &gui_context;
           if let Some(text) = &paste_text {
             if app.clipboard_is_line {
               app.pending_editor_action =
@@ -464,7 +531,7 @@ fn main() {
             gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
           }
 
-          panel_layout = render_ui(gui_context, &mut app);
+          panel_layout = render_ui(root_ui, app);
 
           // Draw axis labels as overlay within the 3D scene area.
           // Camera viewport is at origin (0,0), so pixel_at_position returns
@@ -687,14 +754,14 @@ fn main() {
               if changed_on_disk {
                 app.show_overwrite_confirm = true;
               } else {
-                save_to_path(&mut app, &path);
+                save_to_path(app, &path);
               }
             } else if let Some(path) = rfd::FileDialog::new()
               .set_title("Save Lua File")
               .add_filter("Lua Files", &["lua"])
               .set_file_name("untitled.lua")
               .save_file()
-              && save_to_path(&mut app, &path)
+              && save_to_path(app, &path)
             {
               app.current_file = Some(path.clone());
               save_last_file(Some(&path));
@@ -718,7 +785,7 @@ fn main() {
               .add_filter("Lua Files", &["lua"])
               .set_file_name(&default_name)
               .save_file()
-              && save_to_path(&mut app, &path)
+              && save_to_path(app, &path)
             {
               app.current_file = Some(path.clone());
               save_last_file(Some(&path));
@@ -757,7 +824,7 @@ fn main() {
         }
       }
       if app.should_exit {
-        *control_flow = winit::event_loop::ControlFlow::Exit;
+        event_loop.exit();
         return;
       }
 
@@ -797,17 +864,17 @@ fn main() {
           } if !handled && in_scene(position) => {
             // Ctrl + drag pans, plain drag rotates.
             if modifiers.ctrl {
-              panning_scene = true;
+              *panning_scene = true;
             } else {
-              dragging_scene = true;
+              *dragging_scene = true;
             }
           }
           Event::MouseRelease {
             button: MouseButton::Left,
             ..
           } => {
-            dragging_scene = false;
-            panning_scene = false;
+            *dragging_scene = false;
+            *panning_scene = false;
           }
           Event::MousePress {
             button: MouseButton::Middle,
@@ -815,19 +882,19 @@ fn main() {
             handled,
             ..
           } if !handled && in_scene(position) => {
-            panning_scene = true;
+            *panning_scene = true;
           }
           Event::MouseRelease {
             button: MouseButton::Middle,
             ..
           } => {
-            panning_scene = false;
+            *panning_scene = false;
           }
           Event::MouseMotion {
             delta,
             button: Some(MouseButton::Left),
             ..
-          } if dragging_scene => {
+          } if *dragging_scene => {
             app.camera_azimuth -= delta.0 * 0.5;
             app.camera_elevation =
               (app.camera_elevation + delta.1 * 0.5).clamp(-85.0, 85.0);
@@ -836,7 +903,7 @@ fn main() {
             delta,
             button: Some(MouseButton::Left | MouseButton::Middle),
             ..
-          } if panning_scene => {
+          } if *panning_scene => {
             // World-space size of one logical pixel at the camera target,
             // so the model tracks the cursor while panning.
             let visible_height = if app.orthogonal_view {
@@ -887,7 +954,7 @@ fn main() {
       }
 
       // Update camera
-      let (pos, target, up) = compute_camera_vectors(&app);
+      let (pos, target, up) = compute_camera_vectors(app);
       camera.set_view(pos, target, up);
       if app.orthogonal_view {
         camera.set_orthographic_projection(
@@ -905,9 +972,9 @@ fn main() {
 
       // Re-check system theme
       if app.theme_mode == ThemeMode::System
-        && frame_input.accumulated_time - last_theme_check > 2000.0
+        && frame_input.accumulated_time - *last_theme_check > 2000.0
       {
-        last_theme_check = frame_input.accumulated_time;
+        *last_theme_check = frame_input.accumulated_time;
         app.theme_colors = app.resolve_theme();
       }
 
@@ -922,8 +989,8 @@ fn main() {
       scene_fbo.bind();
       gl_clear_screen(bg_r, bg_g, bg_b);
 
-      let proj = camera_projection_matrix(&camera);
-      let view = camera_view_matrix(&camera);
+      let proj = camera_projection_matrix(camera);
+      let view = camera_view_matrix(camera);
       render_opencsg_scene(&app.csg_groups, &app.overlay_meshes, &proj, &view);
       render_axes();
 
@@ -941,27 +1008,42 @@ fn main() {
       // Render egui overlay
       gui.render();
 
-      winit_window.set_cursor_icon(egui_to_winit_cursor(egui_cursor));
+      winit_window.set_cursor(egui_to_winit_cursor(egui_cursor));
       gl.swap_buffers();
-      *control_flow = winit::event_loop::ControlFlow::Poll;
+      event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
       winit_window.request_redraw();
     }
-    winit::event::Event::WindowEvent { ref event, .. } => {
+  }
+
+  fn window_event(
+    &mut self,
+    event_loop: &winit::event_loop::ActiveEventLoop,
+    event: &winit::event::WindowEvent,
+  ) {
+    let Studio {
+      gl,
+      app,
+      frame_input_generator,
+      window: winit_window,
+      ..
+    } = self;
+    {
       frame_input_generator.handle_winit_window_event(event);
       match event {
         winit::event::WindowEvent::Resized(physical_size) => {
           gl.resize(*physical_size)
         }
-        winit::event::WindowEvent::ScaleFactorChanged {
-          new_inner_size,
-          ..
-        } => gl.resize(**new_inner_size),
+        // winit 0.30 resizes the window itself before delivering this, so the
+        // surface only has to follow the window's new size.
+        winit::event::WindowEvent::ScaleFactorChanged { .. } => {
+          gl.resize(winit_window.inner_size())
+        }
         winit::event::WindowEvent::CloseRequested => {
           if app.has_unsaved_changes() {
             app.show_close_confirm = true;
             winit_window.request_redraw();
           } else {
-            *control_flow = winit::event_loop::ControlFlow::Exit
+            event_loop.exit()
           }
         }
         winit::event::WindowEvent::DroppedFile(path) => {
@@ -989,6 +1071,27 @@ fn main() {
         _ => {}
       }
     }
-    _ => {}
-  });
+  }
+}
+
+fn main() {
+  // Resolve initial file: CLI argument takes priority, then last opened file.
+  let initial_file = std::env::args()
+    .nth(1)
+    .map(|arg| {
+      let path = PathBuf::from(&arg);
+      // Canonicalize relative paths so the state file stores absolute paths
+      std::fs::canonicalize(&path).unwrap_or(path)
+    })
+    .or_else(load_last_file);
+
+  let event_loop =
+    winit::event_loop::EventLoop::new().expect("failed to create event loop");
+  let mut studio_app = StudioApp {
+    initial_file,
+    studio: None,
+  };
+  event_loop
+    .run_app(&mut studio_app)
+    .expect("event loop failed");
 }

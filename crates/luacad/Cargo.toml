@@ -11,19 +11,21 @@ default = []
 csgrs = ["dep:csgrs"]
 
 [dependencies]
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mlua = { version = "0.12", features = ["lua54", "vendored"] }
 csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"], optional = true }
+# Held at 0.33 to match csgrs — a newer nalgebra puts two incompatible copies
+# of its matrix types in the graph and the `csgrs` feature stops compiling.
 nalgebra = "0.33"
-threemf = "0.5"
-selene-lib = { version = "0.30", default-features = false, features = ["lua54"] }
+threemf = "0.8"
+selene-lib = { version = "0.31", default-features = false, features = ["lua54"] }
 full_moon = { version = "2", features = ["lua54"] }
-toml = "0.7"
+toml = "1.1"
 serde_yaml = "0.9"
 manifold-sys = { path = "../manifold-sys" }
 png = "0.18"
-usvg = { version = "0.45", default-features = false }
-kurbo = "0.11"
+usvg = { version = "0.48", default-features = false }
+kurbo = "0.13"
 
 [dev-dependencies]
 insta = "1"
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+zip = { version = "8.6", default-features = false, features = ["deflate"] }

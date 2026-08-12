@@ -41,12 +41,11 @@ impl EguiIntegration {
     accumulated_time_in_ms: f64,
     viewport: Viewport,
     device_pixel_ratio: f32,
-    callback: impl FnOnce(&egui::Context),
+    callback: impl FnOnce(&mut egui::Ui),
   ) -> bool {
-    self.egui_context.set_pixels_per_point(device_pixel_ratio);
     self.viewport = viewport;
 
-    let egui_input = egui::RawInput {
+    let mut egui_input = egui::RawInput {
       screen_rect: Some(egui::Rect {
         min: egui::Pos2 {
           x: viewport.x as f32 / device_pixel_ratio,
@@ -60,7 +59,6 @@ impl EguiIntegration {
         },
       }),
       time: Some(accumulated_time_in_ms * 0.001),
-      modifiers: egui_modifiers(&self.modifiers),
       events: events
         .iter()
         .filter_map(|event| {
@@ -70,16 +68,39 @@ impl EguiIntegration {
       ..Default::default()
     };
 
-    self.egui_context.begin_pass(egui_input);
-    callback(&self.egui_context);
-    self.output = Some(self.egui_context.end_pass());
+    // The scale has to travel with the viewport info rather than through
+    // `Context::set_pixels_per_point`: the latter goes through the zoom factor,
+    // and on the pass where a new zoom takes effect egui replaces the
+    // `screen_rect` we pass with a rescaled copy of the previous pass's one.
+    // On the very first pass that is egui's 10000x10000 placeholder, which the
+    // panels then size themselves against.
+    let viewport_id = egui_input.viewport_id;
+    egui_input
+      .viewports
+      .entry(viewport_id)
+      .or_default()
+      .native_pixels_per_point = Some(device_pixel_ratio);
+
+    // A pass whose output never reached `render` still owns texture deltas,
+    // and epaint panics if those are dropped unapplied.
+    if let Some(mut stale) = self.output.take() {
+      stale.textures_delta.clear();
+    }
+
+    // `run_ui` hands us the root `Ui` that panels attach to.
+    let mut callback = Some(callback);
+    self.output = Some(self.egui_context.run_ui(egui_input, |ui| {
+      if let Some(callback) = callback.take() {
+        callback(ui);
+      }
+    }));
 
     // Mark events as handled if egui wants the input
     for event in events.iter_mut() {
       if let Event::ModifiersChange { modifiers } = event {
         self.modifiers = *modifiers;
       }
-      if self.egui_context.wants_pointer_input() {
+      if self.egui_context.egui_wants_pointer_input() {
         match event {
           Event::MousePress { handled, .. }
           | Event::MouseRelease { handled, .. }
@@ -90,7 +111,7 @@ impl EguiIntegration {
           _ => {}
         }
       }
-      if self.egui_context.wants_keyboard_input() {
+      if self.egui_context.egui_wants_keyboard_input() {
         match event {
           Event::KeyPress { handled, .. }
           | Event::KeyRelease { handled, .. } => {
@@ -101,13 +122,13 @@ impl EguiIntegration {
       }
     }
 
-    self.egui_context.wants_pointer_input()
-      || self.egui_context.wants_keyboard_input()
+    self.egui_context.egui_wants_pointer_input()
+      || self.egui_context.egui_wants_keyboard_input()
   }
 
   /// Render the egui output. Call after update().
   pub fn render(&mut self) {
-    let output = self
+    let mut output = self
       .output
       .take()
       .expect("call EguiIntegration::update before render");
@@ -117,7 +138,7 @@ impl EguiIntegration {
       [self.viewport.width, self.viewport.height],
       scale,
       &clipped_meshes,
-      &output.textures_delta,
+      &mut output.textures_delta,
     );
     unsafe {
       use glow::HasContext as _;
@@ -128,6 +149,9 @@ impl EguiIntegration {
 
 impl Drop for EguiIntegration {
   fn drop(&mut self) {
+    if let Some(output) = self.output.as_mut() {
+      output.textures_delta.clear();
+    }
     self.painter.destroy();
   }
 }
@@ -229,11 +253,17 @@ fn translate_event(
         Some(egui::Event::MouseWheel {
           delta: egui::Vec2::new(delta.0, delta.1),
           unit: egui::MouseWheelUnit::Point,
+          phase: egui::TouchPhase::Move,
           modifiers: egui_modifiers(modifiers),
         })
       } else {
         None
       }
+    }
+    // egui no longer reads the modifier state off `RawInput`, so it has to be
+    // told about every change through the event stream.
+    Event::ModifiersChange { modifiers } => {
+      Some(egui::Event::ModifiersChanged(egui_modifiers(modifiers)))
     }
     _ => None,
   }

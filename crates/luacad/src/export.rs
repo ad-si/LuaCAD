@@ -236,7 +236,7 @@ fn indexed_to_threemf(verts: &[[f64; 3]], tris: &[[usize; 3]]) -> ThreemfMesh {
 fn build_3mf_model(
   geometries: &[CsgGeometry],
 ) -> Result<threemf::model::Model, String> {
-  use threemf::model::{Build, Item, Model, Object, ObjectData, Resources};
+  use threemf::model::{Build, Item, Model, Object, Resources};
 
   let mut objects: Vec<Object> = Vec::new();
   let mut items: Vec<Item> = Vec::new();
@@ -249,10 +249,9 @@ fn build_3mf_model(
     let id = objects.len() + 1;
     objects.push(Object {
       id,
-      partnumber: None,
       name,
-      pid: None,
-      object: ObjectData::Mesh(indexed_to_threemf(&verts, &tris)),
+      mesh: Some(indexed_to_threemf(&verts, &tris)),
+      ..Default::default()
     });
     items.push(Item {
       objectid: id,
@@ -1594,7 +1593,7 @@ fn write_manifold_3mf(
   parts: &[(ManifoldMesh, Option<String>)],
   path: &std::path::Path,
 ) -> Result<(), String> {
-  use threemf::model::{Build, Item, Model, Object, ObjectData, Resources};
+  use threemf::model::{Build, Item, Model, Object, Resources};
 
   let mut objects: Vec<Object> = Vec::new();
   let mut items: Vec<Item> = Vec::new();
@@ -1616,10 +1615,9 @@ fn write_manifold_3mf(
     let id = objects.len() + 1;
     objects.push(Object {
       id,
-      partnumber: None,
       name: name.clone(),
-      pid: None,
-      object: ObjectData::Mesh(indexed_to_threemf(&verts, &tris)),
+      mesh: Some(indexed_to_threemf(&verts, &tris)),
+      ..Default::default()
     });
     items.push(Item {
       objectid: id,

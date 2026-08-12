@@ -208,65 +208,65 @@ impl FrameInputGenerator {
         self.viewport =
           Viewport::new_at_origo(physical_size.width, physical_size.height);
       }
-      WindowEvent::ScaleFactorChanged {
-        scale_factor,
-        new_inner_size,
+      WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+        // The matching `Resized` event carries the new size.
+        self.device_pixel_ratio = *scale_factor;
+      }
+      WindowEvent::ModifiersChanged(modifiers) => {
+        let state = modifiers.state();
+        self.modifiers = Modifiers {
+          alt: state.alt_key(),
+          ctrl: state.control_key(),
+          shift: state.shift_key(),
+          // ⌘ on macOS, Ctrl everywhere else
+          command: if cfg!(target_os = "macos") {
+            state.super_key()
+          } else {
+            state.control_key()
+          },
+        };
+        self.events.push(Event::ModifiersChange {
+          modifiers: self.modifiers,
+        });
+      }
+      WindowEvent::KeyboardInput {
+        event,
+        is_synthetic,
         ..
       } => {
-        self.device_pixel_ratio = *scale_factor;
-        self.viewport =
-          Viewport::new_at_origo(new_inner_size.width, new_inner_size.height);
-      }
-      WindowEvent::KeyboardInput { input, .. } => {
-        if let Some(keycode) = input.virtual_keycode {
-          use winit::event::VirtualKeyCode;
-          let state = input.state == winit::event::ElementState::Pressed;
-          if let Some(kind) = translate_virtual_key_code(keycode) {
-            self.events.push(if state {
-              Event::KeyPress {
-                kind,
-                modifiers: self.modifiers,
-                handled: false,
-              }
-            } else {
-              Event::KeyRelease {
-                kind,
-                modifiers: self.modifiers,
-                handled: false,
-              }
-            });
-          } else if keycode == VirtualKeyCode::LControl
-            || keycode == VirtualKeyCode::RControl
-          {
-            self.modifiers.ctrl = state;
-            if !cfg!(target_os = "macos") {
-              self.modifiers.command = state;
+        let pressed = event.state == winit::event::ElementState::Pressed;
+        if let winit::keyboard::PhysicalKey::Code(keycode) = event.physical_key
+          && let Some(kind) = translate_key_code(keycode)
+        {
+          self.events.push(if pressed {
+            Event::KeyPress {
+              kind,
+              modifiers: self.modifiers,
+              handled: false,
             }
-            self.events.push(Event::ModifiersChange {
+          } else {
+            Event::KeyRelease {
+              kind,
               modifiers: self.modifiers,
-            });
-          } else if keycode == VirtualKeyCode::LAlt
-            || keycode == VirtualKeyCode::RAlt
-          {
-            self.modifiers.alt = state;
-            self.events.push(Event::ModifiersChange {
-              modifiers: self.modifiers,
-            });
-          } else if keycode == VirtualKeyCode::LShift
-            || keycode == VirtualKeyCode::RShift
-          {
-            self.modifiers.shift = state;
-            self.events.push(Event::ModifiersChange {
-              modifiers: self.modifiers,
-            });
-          } else if (keycode == VirtualKeyCode::LWin
-            || keycode == VirtualKeyCode::RWin)
-            && cfg!(target_os = "macos")
-          {
-            self.modifiers.command = state;
-            self.events.push(Event::ModifiersChange {
-              modifiers: self.modifiers,
-            });
+              handled: false,
+            }
+          });
+        }
+
+        // winit 0.29 dropped `ReceivedCharacter`; the text a key press
+        // produces now rides along with the key event itself. Synthetic
+        // presses are replayed for every key held while the window regains
+        // focus, and must not be typed into the editor a second time.
+        if pressed
+          && !is_synthetic
+          && !self.modifiers.ctrl
+          && !self.modifiers.command
+          && let Some(text) = &event.text
+        {
+          let text: String =
+            text.chars().filter(|c| is_printable_char(*c)).collect();
+          if !text.is_empty() {
+            self.events.push(Event::Text(text));
           }
         }
       }
@@ -354,14 +354,6 @@ impl FrameInputGenerator {
           handled: false,
         });
         self.cursor_pos = Some(position);
-      }
-      WindowEvent::ReceivedCharacter(ch) => {
-        if is_printable_char(*ch)
-          && !self.modifiers.ctrl
-          && !self.modifiers.command
-        {
-          self.events.push(Event::Text(ch.to_string()));
-        }
       }
       WindowEvent::CursorEntered { .. } => {
         self.events.push(Event::MouseEnter);
@@ -471,20 +463,18 @@ fn is_printable_char(chr: char) -> bool {
   !is_in_private_use_area && !chr.is_ascii_control()
 }
 
-fn translate_virtual_key_code(
-  key: winit::event::VirtualKeyCode,
-) -> Option<Key> {
-  use winit::event::VirtualKeyCode::*;
+fn translate_key_code(key: winit::keyboard::KeyCode) -> Option<Key> {
+  use winit::keyboard::KeyCode::*;
 
   Some(match key {
-    Down => Key::ArrowDown,
-    Left => Key::ArrowLeft,
-    Right => Key::ArrowRight,
-    Up => Key::ArrowUp,
+    ArrowDown => Key::ArrowDown,
+    ArrowLeft => Key::ArrowLeft,
+    ArrowRight => Key::ArrowRight,
+    ArrowUp => Key::ArrowUp,
     Escape => Key::Escape,
     Tab => Key::Tab,
-    Back => Key::Backspace,
-    Return => Key::Enter,
+    Backspace => Key::Backspace,
+    Enter | NumpadEnter => Key::Enter,
     Space => Key::Space,
     Insert => Key::Insert,
     Delete => Key::Delete,
@@ -492,43 +482,43 @@ fn translate_virtual_key_code(
     End => Key::End,
     PageUp => Key::PageUp,
     PageDown => Key::PageDown,
-    Key0 | Numpad0 => Key::Num0,
-    Key1 | Numpad1 => Key::Num1,
-    Key2 | Numpad2 => Key::Num2,
-    Key3 | Numpad3 => Key::Num3,
-    Key4 | Numpad4 => Key::Num4,
-    Key5 | Numpad5 => Key::Num5,
-    Key6 | Numpad6 => Key::Num6,
-    Key7 | Numpad7 => Key::Num7,
-    Key8 | Numpad8 => Key::Num8,
-    Key9 | Numpad9 => Key::Num9,
-    A => Key::A,
-    B => Key::B,
-    C => Key::C,
-    D => Key::D,
-    E => Key::E,
-    F => Key::F,
-    G => Key::G,
-    H => Key::H,
-    I => Key::I,
-    J => Key::J,
-    K => Key::K,
-    L => Key::L,
-    M => Key::M,
-    N => Key::N,
-    O => Key::O,
-    P => Key::P,
-    Q => Key::Q,
-    R => Key::R,
-    S => Key::S,
-    T => Key::T,
-    U => Key::U,
-    V => Key::V,
-    W => Key::W,
-    X => Key::X,
-    Y => Key::Y,
-    Z => Key::Z,
-    Slash => Key::Slash,
+    Digit0 | Numpad0 => Key::Num0,
+    Digit1 | Numpad1 => Key::Num1,
+    Digit2 | Numpad2 => Key::Num2,
+    Digit3 | Numpad3 => Key::Num3,
+    Digit4 | Numpad4 => Key::Num4,
+    Digit5 | Numpad5 => Key::Num5,
+    Digit6 | Numpad6 => Key::Num6,
+    Digit7 | Numpad7 => Key::Num7,
+    Digit8 | Numpad8 => Key::Num8,
+    Digit9 | Numpad9 => Key::Num9,
+    KeyA => Key::A,
+    KeyB => Key::B,
+    KeyC => Key::C,
+    KeyD => Key::D,
+    KeyE => Key::E,
+    KeyF => Key::F,
+    KeyG => Key::G,
+    KeyH => Key::H,
+    KeyI => Key::I,
+    KeyJ => Key::J,
+    KeyK => Key::K,
+    KeyL => Key::L,
+    KeyM => Key::M,
+    KeyN => Key::N,
+    KeyO => Key::O,
+    KeyP => Key::P,
+    KeyQ => Key::Q,
+    KeyR => Key::R,
+    KeyS => Key::S,
+    KeyT => Key::T,
+    KeyU => Key::U,
+    KeyV => Key::V,
+    KeyW => Key::W,
+    KeyX => Key::X,
+    KeyY => Key::Y,
+    KeyZ => Key::Z,
+    Slash | NumpadDivide => Key::Slash,
     _ => return None,
   })
 }
