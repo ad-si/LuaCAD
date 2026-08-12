@@ -483,6 +483,11 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           app.text_content.clone(),
         );
         if key != app.search.last_computed {
+          // Only a changed query (or case toggle) may move the caret. When the
+          // text itself changed the user is typing in the editor, so matches
+          // are refreshed without touching their cursor.
+          let query_changed = key.0 != app.search.last_computed.0
+            || key.1 != app.search.last_computed.1;
           app.search.matches.clear();
           let query = &app.search.query;
           let text = &app.text_content;
@@ -510,6 +515,8 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           if app.search.matches.is_empty() {
             app.search.current_match = None;
           } else {
+            // The current match follows the caret, so the counter and the
+            // highlight stay meaningful while the user edits the text.
             let cursor_byte: usize = app
               .text_content
               .chars()
@@ -521,10 +528,14 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
                 .search
                 .matches
                 .iter()
-                .position(|m| m.start >= cursor_byte)
+                .position(|m| m.end >= cursor_byte)
                 .unwrap_or(0),
             );
-            app.search.needs_cursor_update = true;
+            // Only a new query may pull the caret to the match; on a text
+            // edit the caret stays where the user put it.
+            if query_changed {
+              app.search.needs_cursor_update = true;
+            }
           }
           app.search.last_computed = key;
         }
@@ -1502,6 +1513,49 @@ mod tests {
       assert!(!while_pressed.is_empty(), "nothing selected at {pos:?}");
       assert_eq!(while_pressed, h.selected_text(), "at {pos:?}");
     }
+  }
+
+  /// With the find bar open, typing in the editor must insert at the caret —
+  /// the match recompute must not pull the caret back to a search hit.
+  #[test]
+  fn typing_with_the_find_bar_open_does_not_jump_to_a_match() {
+    let mut h = Harness::new(
+      "local width = 10\nlocal height = 20\nlocal depth = 30\nlocal width2 = 40\n",
+    );
+    h.app.search.open = true;
+    h.app.search.query = "width".to_string();
+    // First pass computes the matches and moves the caret to the first one,
+    // second pass lets the TextEdit pick that cursor state up.
+    h.pass(0.016, vec![]);
+    h.pass(0.016, vec![]);
+    assert_eq!(
+      h.selected_text(),
+      "width",
+      "search did not select the match"
+    );
+
+    // Click on a later line, away from any match
+    let pos = egui::pos2(800.0, 130.0);
+    h.press(0.016, pos);
+    h.release(0.05, pos);
+    h.pass(0.016, vec![]);
+    let cursor = h.app.editor_cursor_pos;
+    assert!(cursor > 0, "click did not place the caret in the editor");
+
+    h.pass(0.016, vec![egui::Event::Text("X".into())]);
+    h.pass(0.016, vec![]);
+    assert_eq!(
+      h.app.editor_cursor_pos,
+      cursor + 1,
+      "caret moved away from where the character was typed"
+    );
+    assert_eq!(
+      h.app.text_content.chars().nth(cursor),
+      Some('X'),
+      "character was not inserted at the caret"
+    );
+    // The find bar keeps tracking a match so the counter stays meaningful
+    assert!(h.app.search.current_match.is_some());
   }
 
   #[test]
