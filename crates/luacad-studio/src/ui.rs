@@ -999,6 +999,21 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
 
             app.editor_cursor_pos = char_end;
             app.editor_selection_len = char_end - char_start;
+
+            // Center the match in the editor, unless it is already
+            // comfortably visible — then the view stays where it is.
+            let galley = &te_output.galley;
+            let match_rect = galley
+              .pos_from_cursor(CCursor::new(char_start))
+              .union(galley.pos_from_cursor(CCursor::new(char_end)))
+              .translate(te_output.galley_pos.to_vec2());
+            let margin = match_rect.height().max(1.0) * 2.0;
+            let visible = ui.clip_rect().shrink2(egui::vec2(0.0, margin));
+            if match_rect.top() < visible.top()
+              || match_rect.bottom() > visible.bottom()
+            {
+              ui.scroll_to_rect(match_rect, Some(egui::Align::Center));
+            }
           }
         }
       });
@@ -1560,6 +1575,70 @@ mod tests {
     );
     // The find bar keeps tracking a match so the counter stays meaningful
     assert!(h.app.search.current_match.is_some());
+  }
+
+  /// A match outside the visible area has to be scrolled to the middle of the
+  /// editor — including when it is reached from the find field, where the
+  /// editor has no focus and egui's own scroll-to-cursor does not kick in.
+  #[test]
+  fn navigating_to_a_match_scrolls_it_to_the_middle() {
+    // ~14 characters per line, with the match halfway down the file so that
+    // centering it is not clamped by either end of the document
+    let mut text: String =
+      (0..200).map(|i| format!("local a{i} = {i}\n")).collect();
+    let needle_at = text.chars().count();
+    text.push_str("local needle = 1\n");
+    text.push_str(
+      &(0..200)
+        .map(|i| format!("local b{i} = {i}\n"))
+        .collect::<String>(),
+    );
+
+    let mut h = Harness::new(&text);
+    h.ctx.all_styles_mut(|s| {
+      s.scroll_animation = egui::style::ScrollAnimation::none();
+    });
+    // Two points inside the editor, near its top and its bottom
+    let top_probe = egui::pos2(800.0, 100.0);
+    let bottom_probe = egui::pos2(800.0, 300.0);
+
+    // Read back the character offset the given point sits on
+    let probe = |h: &mut Harness, pos| {
+      h.press(0.3, pos);
+      h.release(0.05, pos);
+      h.pass(0.016, vec![]);
+      h.app.editor_cursor_pos
+    };
+
+    // Before searching, the editor shows the top of the file
+    h.pass(0.016, vec![]);
+    let before = probe(&mut h, bottom_probe);
+    assert!(
+      before < needle_at / 4,
+      "editor did not start at the top of the file (at {before})"
+    );
+
+    // Search from the find field, so the editor loses focus
+    h.app.search.open = true;
+    h.app.search.query = "needle".to_string();
+    h.app.search.focus_search_field = true;
+    for _ in 0..3 {
+      h.pass(0.016, vec![]);
+    }
+    assert!(!h.app.editor_focused, "the editor kept the focus");
+    assert_eq!(h.selected_text(), "needle", "match was not selected");
+
+    // The match is now in view with several lines of context above and below,
+    // i.e. it sits around the middle rather than against an edge
+    let top = probe(&mut h, top_probe);
+    let bottom = probe(&mut h, bottom_probe);
+    let lines_above = (needle_at as i64 - top as i64) / 14;
+    let lines_below = (bottom as i64 - needle_at as i64) / 14;
+    assert!(
+      lines_above >= 4 && lines_below >= 4,
+      "match at {needle_at} is not centered: {lines_above} lines above, \
+       {lines_below} lines below (probes hit {top} and {bottom})"
+    );
   }
 
   #[test]
