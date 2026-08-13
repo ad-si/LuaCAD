@@ -17,7 +17,7 @@ fn print_help() {
     "  luacad lint <file.lua|dir>...             Lint Lua files with selene"
   );
   println!(
-    "  luacad convert <input.lua> <output.stl>   Convert to a mesh format with csgrs"
+    "  luacad convert <input.lua> <output.stl>   Convert to a mesh or SCAD format"
   );
   println!("  luacad render <input.lua> [output.png]    Render to a PNG image");
   println!(
@@ -33,11 +33,19 @@ fn print_help() {
     "  --format <fmt>   Override output format (default: infer from extension)"
   );
   println!(
-    "  --via-openscad   Use OpenSCAD to generate the output instead of csgrs"
+    "  --via-openscad   Delegate the export to an installed OpenSCAD binary"
   );
-  println!(
-    "  --via-manifold   Use Manifold to generate the output (3mf, stl, obj, ply, off, amf)"
-  );
+  // Without the `csgrs` feature Manifold already is the default backend, so
+  // the flag only changes anything in a build that has csgrs compiled in.
+  if cfg!(feature = "csgrs") {
+    println!(
+      "  --via-manifold   Use Manifold instead of csgrs (3mf, stl, obj, ply, off, amf)"
+    );
+  } else {
+    println!(
+      "  --via-manifold   No-op; Manifold is already the default backend"
+    );
+  }
   println!();
   println!("Render options:");
   println!(
@@ -468,6 +476,10 @@ fn parse_convert_args(
     eprintln!("Missing output file");
     return Err(ExitCode::FAILURE);
   };
+  if via_openscad && via_manifold {
+    eprintln!("--via-openscad and --via-manifold are mutually exclusive");
+    return Err(ExitCode::FAILURE);
+  }
 
   Ok((input, output, format_override, via_openscad, via_manifold))
 }

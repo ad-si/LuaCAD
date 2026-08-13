@@ -57,6 +57,8 @@ First stable release.
   mesh export or `luacad render` cannot represent them, instead of being
   dropped from the output without a word. `luacad info` reports them as a
   warning next to the triangle counts that exclude them.
+- `--via-openscad` and `--via-manifold` are rejected as a pair instead of the
+  latter silently winning.
 - The default segment count for round primitives went from 16 to 32.
 - Studio dropped `three-d` in favour of using egui, glow and cgmath directly.
 - The vendored Manifold and OpenCSG sources moved inside their respective
