@@ -52,6 +52,11 @@ First stable release.
   `model.lua:4` instead of `crates/luacad/src/lua_engine.rs:1527:4`.
 - `luacad <unknown-command>` reports an unknown command and lists the valid
   ones, rather than trying to open the command as a file.
+- Constructs that only exist as OpenSCAD — `bosl.*`, `text()`, `text3d()`,
+  `surface()`, `scad()` and `import()` of a mesh file — are now named when a
+  mesh export or `luacad render` cannot represent them, instead of being
+  dropped from the output without a word. `luacad info` reports them as a
+  warning next to the triangle counts that exclude them.
 - The default segment count for round primitives went from 16 to 32.
 - Studio dropped `three-d` in favour of using egui, glow and cgmath directly.
 - The vendored Manifold and OpenCSG sources moved inside their respective

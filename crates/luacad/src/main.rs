@@ -254,6 +254,17 @@ fn cmd_info(args: &[String]) -> ExitCode {
     }
   }
 
+  // `info` reports on the model rather than producing one, so an unsupported
+  // construct is a warning here — the triangle counts above just exclude it.
+  let blockers = luacad::export::geometries_unsupported(&geometries);
+  if !blockers.is_empty() {
+    println!();
+    println!("Warning: some constructs contribute no triangles:");
+    for item in &blockers {
+      println!("  - {item}");
+    }
+  }
+
   ExitCode::SUCCESS
 }
 

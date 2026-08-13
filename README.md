@@ -118,6 +118,12 @@ bosl.regular_prism { 5, r = 10, h = 25 }
 bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
 ```
 
+BOSL2 calls are emitted as OpenSCAD, so they need OpenSCAD to become a mesh —
+export to `.scad`, or convert with `--via-openscad`. Studio previews the common
+BOSL2 shapes with built-in approximations. The same applies to `text()`,
+`text3d()`, `surface()`, `scad()` and `import()` of a mesh file; `luacad`
+names them rather than exporting a file without them.
+
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
 

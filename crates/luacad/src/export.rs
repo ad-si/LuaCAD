@@ -1581,6 +1581,262 @@ pub fn materialize_scad_cross_section(
   }
 }
 
+/// Why a construct yields no mesh in the Manifold backend.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnsupportedReason {
+  /// Recognized, but the Manifold backend has no implementation for it. The
+  /// SCAD tree still carries it, so `.scad` export and `--via-openscad` work.
+  NotImplemented,
+  /// A 2D shape where a solid is required — it needs `linear_extrude` or
+  /// `rotate_extrude` before it can become a mesh.
+  NeedsExtrusion,
+  /// A 3D solid where a 2D sketch is required, e.g. directly under
+  /// `linear_extrude` or `offset`.
+  NeedsSketch,
+}
+
+/// A construct that [`materialize_scad_manifold`] cannot evaluate, and why.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Unsupported {
+  /// The LuaCAD call responsible, e.g. `text()` or `bosl.cuboid()`.
+  pub construct: String,
+  pub reason: UnsupportedReason,
+}
+
+impl std::fmt::Display for Unsupported {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let detail = match self.reason {
+      UnsupportedReason::NotImplemented => {
+        "not supported by the Manifold backend"
+      }
+      UnsupportedReason::NeedsExtrusion => {
+        "is a 2D shape and needs linear_extrude() or rotate_extrude()"
+      }
+      UnsupportedReason::NeedsSketch => {
+        "is a 3D solid and cannot be used where a 2D sketch is required"
+      }
+    };
+    write!(f, "{} {}", self.construct, detail)
+  }
+}
+
+/// The materialization context a node is evaluated in: solids or sketches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dim {
+  Three,
+  Two,
+}
+
+/// Collect the constructs in `node` that the Manifold backend cannot turn into
+/// geometry, so callers can report them instead of silently writing an empty
+/// mesh. Walks the same branches as [`materialize_scad_manifold`] and
+/// [`materialize_scad_cross_section`] and must be kept in step with them.
+///
+/// Results are deduplicated and keep the order they were found in.
+pub fn unsupported_constructs(
+  node: &crate::scad_export::ScadNode,
+) -> Vec<Unsupported> {
+  let mut found = Vec::new();
+  collect_unsupported(node, Dim::Three, &mut found);
+  found
+}
+
+fn collect_unsupported(
+  node: &crate::scad_export::ScadNode,
+  dim: Dim,
+  found: &mut Vec<Unsupported>,
+) {
+  use crate::scad_export::{ModifierKind, ScadNode};
+
+  let mut report = |construct: &str, reason| {
+    let item = Unsupported {
+      construct: construct.to_string(),
+      reason,
+    };
+    if !found.contains(&item) {
+      found.push(item);
+    }
+  };
+
+  // Wrong-dimension use of a primitive: a 2D shape in a solid context needs an
+  // extrusion, a 3D solid in a sketch context is simply invalid.
+  let mismatch = |dim: Dim| match dim {
+    Dim::Three => UnsupportedReason::NeedsExtrusion,
+    Dim::Two => UnsupportedReason::NeedsSketch,
+  };
+
+  match node {
+    // --- Constructs with no Manifold implementation in either context ---
+    ScadNode::Text { .. } => {
+      report("text()", UnsupportedReason::NotImplemented)
+    }
+    ScadNode::Surface { .. } => {
+      report("surface()", UnsupportedReason::NotImplemented)
+    }
+    ScadNode::Literal { .. } => {
+      report("scad()", UnsupportedReason::NotImplemented)
+    }
+    ScadNode::BoslCall {
+      function, children, ..
+    } => {
+      report(
+        &format!("bosl.{function}()"),
+        UnsupportedReason::NotImplemented,
+      );
+      for child in children {
+        collect_unsupported(child, dim, found);
+      }
+    }
+
+    // --- 3D primitives ---
+    ScadNode::Cube { .. } => {
+      if dim == Dim::Two {
+        report("cube()", mismatch(dim))
+      }
+    }
+    ScadNode::Sphere { .. } => {
+      if dim == Dim::Two {
+        report("sphere()", mismatch(dim))
+      }
+    }
+    ScadNode::Cylinder { .. } => {
+      if dim == Dim::Two {
+        report("cylinder()", mismatch(dim))
+      }
+    }
+    ScadNode::Polyhedron { .. } => {
+      if dim == Dim::Two {
+        report("polyhedron()", mismatch(dim))
+      }
+    }
+
+    // --- 2D primitives ---
+    ScadNode::Circle { .. } => {
+      if dim == Dim::Three {
+        report("circle()", mismatch(dim))
+      }
+    }
+    ScadNode::Square { .. } => {
+      if dim == Dim::Three {
+        report("rect()", mismatch(dim))
+      }
+    }
+    ScadNode::Polygon { .. } => {
+      if dim == Dim::Three {
+        report("polygon()", mismatch(dim))
+      }
+    }
+
+    // `import` reads SVG and DXF into a sketch; mesh files are only carried
+    // through to the SCAD tree.
+    ScadNode::Import { .. } => {
+      if dim == Dim::Three {
+        report("import() of a mesh file", UnsupportedReason::NotImplemented)
+      }
+    }
+
+    // --- Extrusions: 2D child, 3D result ---
+    ScadNode::LinearExtrude { child, .. }
+    | ScadNode::RotateExtrude { child, .. } => {
+      if dim == Dim::Two {
+        report("linear_extrude()/rotate_extrude()", mismatch(dim));
+      }
+      collect_unsupported(child, Dim::Two, found);
+    }
+
+    // --- Projection: 3D child, 2D result ---
+    ScadNode::Projection { child, .. } => {
+      if dim == Dim::Three {
+        report("projection()", mismatch(dim));
+      }
+      collect_unsupported(child, Dim::Three, found);
+    }
+
+    // --- offset() only applies to sketches ---
+    ScadNode::Offset { child, .. } => {
+      if dim == Dim::Three {
+        report("offset()", mismatch(dim));
+      }
+      collect_unsupported(child, Dim::Two, found);
+    }
+
+    // --- Transforms that only exist for solids ---
+    ScadNode::Multmatrix { child, .. } => {
+      if dim == Dim::Two {
+        report("multmatrix()", mismatch(dim));
+      }
+      collect_unsupported(child, dim, found);
+    }
+    ScadNode::Resize { child, .. } => {
+      if dim == Dim::Two {
+        report("resize()", mismatch(dim));
+      }
+      collect_unsupported(child, dim, found);
+    }
+
+    // --- Dimension-preserving wrappers ---
+    ScadNode::Translate { child, .. }
+    | ScadNode::Rotate { child, .. }
+    | ScadNode::Scale { child, .. }
+    | ScadNode::Mirror { child, .. }
+    | ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Hull(child) => collect_unsupported(child, dim, found),
+
+    // `*` and `%` drop their subtree from the result, so whatever is inside
+    // never has to be materialized.
+    ScadNode::Modifier { kind, child } => match kind {
+      ModifierKind::Skip | ModifierKind::Transparent => {}
+      ModifierKind::Debug | ModifierKind::Only => {
+        collect_unsupported(child, dim, found)
+      }
+    },
+
+    ScadNode::Union(children)
+    | ScadNode::Difference(children)
+    | ScadNode::Intersection(children)
+    | ScadNode::Minkowski(children) => {
+      for child in children {
+        collect_unsupported(child, dim, found);
+      }
+    }
+  }
+}
+
+/// [`unsupported_constructs`] over every geometry a script returned.
+pub fn geometries_unsupported(geometries: &[CsgGeometry]) -> Vec<Unsupported> {
+  let mut found = Vec::new();
+  for geom in geometries {
+    if let Some(ref scad) = geom.scad {
+      for item in unsupported_constructs(scad) {
+        if !found.contains(&item) {
+          found.push(item);
+        }
+      }
+    }
+  }
+  found
+}
+
+/// Format the constructs found by [`unsupported_constructs`] into an error
+/// message that names each one and points at the routes that do work.
+pub fn describe_unsupported(items: &[Unsupported]) -> String {
+  let mut msg = String::from("Cannot build a mesh from this model:\n");
+  for item in items {
+    msg.push_str(&format!("  - {item}\n"));
+  }
+  if items
+    .iter()
+    .any(|i| i.reason == UnsupportedReason::NotImplemented)
+  {
+    msg.push_str(
+      "\nExport to .scad, or pass --via-openscad to render it with an \
+       installed OpenSCAD.",
+    );
+  }
+  msg
+}
+
 /// Extracted triangle mesh from a Manifold object.
 pub struct ManifoldMesh {
   pub vertices: Vec<[f32; 3]>,
@@ -1945,6 +2201,13 @@ pub fn export_manifold(
     return Err("No geometry to export".to_string());
   }
 
+  // Report constructs the backend would silently drop before writing a file
+  // that is missing them.
+  let blockers = geometries_unsupported(geometries);
+  if !blockers.is_empty() {
+    return Err(describe_unsupported(&blockers));
+  }
+
   let parts: Vec<(ManifoldMesh, Option<String>)> = geometries
     .iter()
     .filter_map(|geom| {
@@ -2029,6 +2292,149 @@ pub fn export_manifold_3mf(
   path: &std::path::Path,
 ) -> Result<(), String> {
   export_manifold(geometries, "3mf", path)
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+  use super::*;
+  use crate::scad_export::{ModifierKind, ScadNode};
+
+  fn cube() -> ScadNode {
+    ScadNode::Cube {
+      w: 1.0,
+      d: 1.0,
+      h: 1.0,
+      center: false,
+    }
+  }
+
+  fn circle() -> ScadNode {
+    ScadNode::Circle {
+      r: 1.0,
+      segments: 32,
+    }
+  }
+
+  fn text() -> ScadNode {
+    ScadNode::Text {
+      text: "hi".into(),
+      size: 10.0,
+      font: String::new(),
+      halign: String::new(),
+      valign: String::new(),
+    }
+  }
+
+  fn extrude(child: ScadNode) -> ScadNode {
+    ScadNode::LinearExtrude {
+      height: 1.0,
+      center: false,
+      twist: 0.0,
+      slices: 1,
+      scale: 1.0,
+      child: Box::new(child),
+    }
+  }
+
+  fn names(node: &ScadNode) -> Vec<String> {
+    unsupported_constructs(node)
+      .into_iter()
+      .map(|u| u.construct)
+      .collect()
+  }
+
+  #[test]
+  fn a_plain_solid_is_fully_supported() {
+    assert!(names(&cube()).is_empty());
+  }
+
+  #[test]
+  fn an_extruded_sketch_is_fully_supported() {
+    assert!(names(&extrude(circle())).is_empty());
+  }
+
+  #[test]
+  fn text_is_reported_even_under_an_extrusion() {
+    assert_eq!(names(&extrude(text())), vec!["text()"]);
+  }
+
+  #[test]
+  fn a_sketch_without_an_extrusion_needs_one() {
+    let found = unsupported_constructs(&circle());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].reason, UnsupportedReason::NeedsExtrusion);
+  }
+
+  #[test]
+  fn a_solid_inside_an_extrusion_needs_a_sketch() {
+    let found = unsupported_constructs(&extrude(cube()));
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].reason, UnsupportedReason::NeedsSketch);
+  }
+
+  #[test]
+  fn unsupported_children_are_found_through_booleans() {
+    let tree = ScadNode::Difference(vec![cube(), extrude(text())]);
+    assert_eq!(names(&tree), vec!["text()"]);
+  }
+
+  #[test]
+  fn a_skipped_subtree_is_never_materialized() {
+    let tree = ScadNode::Union(vec![
+      cube(),
+      ScadNode::Modifier {
+        kind: ModifierKind::Skip,
+        child: Box::new(extrude(text())),
+      },
+    ]);
+    assert!(names(&tree).is_empty());
+  }
+
+  #[test]
+  fn a_highlighted_subtree_still_has_to_be_materialized() {
+    let tree = ScadNode::Modifier {
+      kind: ModifierKind::Debug,
+      child: Box::new(extrude(text())),
+    };
+    assert_eq!(names(&tree), vec!["text()"]);
+  }
+
+  #[test]
+  fn bosl_calls_are_named_individually() {
+    let bosl = |function: &str| ScadNode::BoslCall {
+      module: "std.scad".into(),
+      function: function.into(),
+      args: String::new(),
+      has_children: false,
+      children: vec![],
+      preview: crate::scad_export::BoslPreviewParams::None,
+    };
+    let tree = ScadNode::Union(vec![bosl("cuboid"), bosl("spur_gear")]);
+    assert_eq!(names(&tree), vec!["bosl.cuboid()", "bosl.spur_gear()"]);
+  }
+
+  #[test]
+  fn the_same_construct_is_only_reported_once() {
+    let tree = ScadNode::Union(vec![extrude(text()), extrude(text())]);
+    assert_eq!(names(&tree), vec!["text()"]);
+  }
+
+  #[test]
+  fn import_is_a_sketch_source_but_not_a_mesh_source() {
+    let import = ScadNode::Import {
+      file: "logo.svg".into(),
+      convexity: 1,
+    };
+    assert!(names(&extrude(import.clone())).is_empty());
+    assert_eq!(names(&import), vec!["import() of a mesh file"]);
+  }
+
+  #[test]
+  fn the_message_points_at_the_routes_that_work() {
+    let msg = describe_unsupported(&unsupported_constructs(&text()));
+    assert!(msg.contains("text()"));
+    assert!(msg.contains("--via-openscad"));
+  }
 }
 
 #[cfg(all(test, feature = "csgrs"))]

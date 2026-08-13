@@ -142,6 +142,13 @@ pub fn render_to_png(
   output: &Path,
   smooth: bool,
 ) -> Result<(), String> {
+  // Name whatever the backend cannot tessellate rather than reporting an
+  // empty scene.
+  let blockers = crate::export::geometries_unsupported(geometries);
+  if !blockers.is_empty() {
+    return Err(crate::export::describe_unsupported(&blockers));
+  }
+
   let triangles = collect_smooth_triangles(geometries, smooth);
   if triangles.is_empty() {
     return Err("No geometry to render".to_string());
