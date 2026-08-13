@@ -2,6 +2,7 @@
 name = "luacad"
 version.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "A Lua-based CAD scripting engine built on CSG operations"
 license = "AGPL-3.0-or-later"

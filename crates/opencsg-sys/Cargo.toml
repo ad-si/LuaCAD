@@ -2,6 +2,7 @@
 name = "opencsg-sys"
 version.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 edition = "2024"
 description = "FFI bindings to OpenCSG (image-based CSG rendering for OpenGL)"
 license = "GPL-2.0-or-later"

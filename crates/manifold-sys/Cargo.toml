@@ -2,6 +2,7 @@
 name = "manifold-sys"
 version.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 edition = "2021"
 description = "Raw FFI bindings for Manifold v3.4.0 C API"
 # Apache-2.0 covers the bindings and the vendored Manifold sources;

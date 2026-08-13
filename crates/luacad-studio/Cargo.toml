@@ -2,6 +2,8 @@
 name = "luacad-studio"
 version.workspace = true
 repository.workspace = true
+# Higher than the workspace default: the egui stack requires 1.95.
+rust-version = "1.95"
 edition = "2024"
 description = "A 3D CAD studio with Lua scripting and live preview"
 license = "AGPL-3.0-or-later"
