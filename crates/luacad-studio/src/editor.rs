@@ -117,7 +117,9 @@ fn word_at(text: &str, char_idx: usize) -> (usize, usize) {
 /// Find the line start and end (including trailing newline) for the line containing `char_idx`.
 fn line_range_at(text: &str, char_idx: usize) -> (usize, usize) {
   let chars: Vec<char> = text.chars().collect();
-  let idx = char_idx.min(chars.len().saturating_sub(1));
+  // Not clamped to the last character, so a caret behind a trailing newline
+  // still resolves to the empty line it sits on.
+  let idx = char_idx.min(chars.len());
 
   let mut start = idx;
   while start > 0 && chars[start - 1] != '\n' {
