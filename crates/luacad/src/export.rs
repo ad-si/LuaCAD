@@ -987,11 +987,19 @@ pub fn materialize_scad_manifold(
         if face.len() < 3 {
           continue;
         }
-        // Fan triangulation from first vertex
+        // OpenSCAD orders a face's vertices clockwise seen from outside the
+        // solid; Manifold wants counter-clockwise (normal pointing out).
+        //
+        // Fan from the face's first vertex, exactly as OpenSCAD does, and
+        // reverse each triangle as it is emitted. Reversing the *vertex
+        // list* first would also flip the fan onto the other diagonal --
+        // invisible on a planar face, but a non-planar quad split the other
+        // way encloses a different volume, so the solid would come out a
+        // slightly wrong shape.
         for i in 1..face.len() - 1 {
           flat_tris.push(face[0] as u32);
-          flat_tris.push(face[i] as u32);
           flat_tris.push(face[i + 1] as u32);
+          flat_tris.push(face[i] as u32);
         }
       }
 
@@ -2616,6 +2624,74 @@ mod manifold_tests {
   use super::*;
   use crate::scad_export::ScadNode;
 
+  /// A polyhedron quad is split along the diagonal its vertex order
+  /// implies (first to third), matching OpenSCAD's fan. On a warped face
+  /// the two diagonals enclose different volume, so the choice is
+  /// observable — and models in the wild do contain warped faces.
+  #[test]
+  fn polyhedron_quad_splits_on_the_vertex_order_diagonal() {
+    // A box with one top corner lifted, so every face touching it warps.
+    let points = vec![
+      [0.0, 0.0, 0.0],
+      [10.0, 0.0, 0.0],
+      [10.0, 7.0, 0.0],
+      [0.0, 7.0, 0.0],
+      [0.0, 0.0, 5.0],
+      [10.0, 0.0, 5.0],
+      [10.0, 7.0, 12.0],
+      [0.0, 7.0, 5.0],
+    ];
+    let quads = vec![
+      vec![0, 1, 2, 3],
+      vec![4, 5, 1, 0],
+      vec![7, 6, 5, 4],
+      vec![5, 6, 2, 1],
+      vec![6, 7, 3, 2],
+      vec![7, 4, 0, 3],
+    ];
+
+    // The same solid with each quad written out as two triangles.
+    let split = |other_diagonal: bool| {
+      let faces = quads
+        .iter()
+        .flat_map(|q| {
+          let (a, b, c, d) = (q[0], q[1], q[2], q[3]);
+          if other_diagonal {
+            vec![vec![a, b, d], vec![b, c, d]]
+          } else {
+            vec![vec![a, b, c], vec![a, c, d]]
+          }
+        })
+        .collect();
+      ScadNode::Polyhedron {
+        points: points.clone(),
+        faces,
+      }
+    };
+
+    let volume = |node: &ScadNode| materialize_scad_manifold(node).volume();
+
+    let as_quads = ScadNode::Polyhedron {
+      points: points.clone(),
+      faces: quads.clone(),
+    };
+
+    let quad_volume = volume(&as_quads);
+    let fan_volume = volume(&split(false));
+    let other_volume = volume(&split(true));
+
+    assert!(
+      (quad_volume - fan_volume).abs() < 1e-6,
+      "quad split did not follow the vertex-order diagonal: \
+       {quad_volume} vs fan {fan_volume}"
+    );
+    assert!(
+      (quad_volume - other_volume).abs() > 1.0,
+      "the two diagonals should differ on a warped face: \
+       {quad_volume} vs {other_volume}"
+    );
+  }
+
   #[test]
   fn minkowski_offset_operand() {
     // Regression: the face-sweep Minkowski decomposition is only valid
@@ -2701,6 +2777,71 @@ mod cross_section_tests {
       (actual - expected).abs() < tol,
       "{what}: expected ~{expected}, got {actual}"
     );
+  }
+
+  /// A polyhedron whose faces use OpenSCAD's winding (clockwise seen from
+  /// outside) must come out solid, not inside-out. When the winding was
+  /// passed through unreversed the volume came back negative, and unioning
+  /// such a solid subtracted from its neighbour instead of adding to it.
+  #[test]
+  fn polyhedron_with_openscad_winding_is_not_inverted() {
+    // Right triangular prism, transcribed from racecar_global_utils.scad's
+    // _triangle(l=10, w=8, h=6): volume = 1/2 * 10 * 6 * 8 = 240.
+    let node = ScadNode::Polyhedron {
+      points: vec![
+        [0.0, 0.0, 6.0],
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [0.0, 8.0, 6.0],
+        [0.0, 8.0, 0.0],
+        [10.0, 8.0, 0.0],
+      ],
+      faces: vec![
+        vec![0, 2, 1],
+        vec![3, 4, 5],
+        vec![0, 1, 4, 3],
+        vec![1, 2, 5, 4],
+        vec![0, 3, 5, 2],
+      ],
+    };
+
+    let m = materialize_scad_manifold(&node);
+    assert_close(m.volume(), 240.0, 1e-3, "prism volume");
+  }
+
+  /// The consequence of the bug above: a polyhedron unioned with an
+  /// overlapping cube has to grow the result, never shrink it.
+  #[test]
+  fn polyhedron_unions_rather_than_subtracts() {
+    let prism = ScadNode::Polyhedron {
+      points: vec![
+        [0.0, 0.0, 6.0],
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [0.0, 8.0, 6.0],
+        [0.0, 8.0, 0.0],
+        [10.0, 8.0, 0.0],
+      ],
+      faces: vec![
+        vec![0, 2, 1],
+        vec![3, 4, 5],
+        vec![0, 1, 4, 3],
+        vec![1, 2, 5, 4],
+        vec![0, 3, 5, 2],
+      ],
+    };
+    let block = ScadNode::Cube {
+      w: 10.0,
+      d: 8.0,
+      h: 6.0,
+      center: false,
+    };
+
+    let joined =
+      materialize_scad_manifold(&ScadNode::Union(vec![block, prism]));
+    // The prism sits entirely inside the block, so the union is just the
+    // block: 10 * 8 * 6. Inverted winding would give 480 - 240 instead.
+    assert_close(joined.volume(), 480.0, 1e-3, "union volume");
   }
 
   #[test]

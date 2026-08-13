@@ -415,8 +415,17 @@ pub fn execute_lua_with_root(
         faces.push(indices);
       }
 
+      // OpenSCAD orders a face's vertices clockwise when viewed from
+      // outside the solid; the mesh backend wants counter-clockwise
+      // (right-hand rule, normal pointing out). Reverse each face for the
+      // mesh only -- SCAD export keeps the original order, because
+      // OpenSCAD applies its own convention when it reads the output.
+      let mesh_faces: Vec<Vec<usize>> = faces
+        .iter()
+        .map(|f| f.iter().rev().copied().collect())
+        .collect();
       let face_refs: Vec<&[usize]> =
-        faces.iter().map(|f| f.as_slice()).collect();
+        mesh_faces.iter().map(|f| f.as_slice()).collect();
       let scad_base = ScadNode::Polyhedron {
         points: points.clone(),
         faces: faces.clone(),
