@@ -264,15 +264,21 @@ impl CsgGeometry {
     if self.mesh.is_some() {
       return;
     }
-    if let Some(ref scad) = self.scad {
-      self.mesh = Some(materialize_scad(scad));
-    }
+    // A geometry with neither a mesh nor a SCAD tree is empty rather than
+    // invalid — represent it as an empty mesh so callers cannot trip a panic.
+    self.mesh = Some(match self.scad {
+      Some(ref scad) => materialize_scad(scad),
+      None => CsgMesh::new(),
+    });
   }
 
   /// Return a reference to the mesh, materializing it first if necessary.
   pub fn mesh(&mut self) -> &CsgMesh<()> {
     self.materialize();
-    self.mesh.as_ref().unwrap()
+    self
+      .mesh
+      .as_ref()
+      .expect("materialize() always populates the mesh")
   }
 
   /// Return a reference to the mesh if already materialized, without forcing evaluation.
