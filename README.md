@@ -36,6 +36,19 @@ make install
 ```
 
 
+### Build requirements
+
+Both crates vendor their C/C++ dependencies, so no system libraries need to
+be installed — but a C++ compiler and CMake must be available to build them:
+
+- `luacad` builds [Manifold] and Clipper2
+- `luacad-studio` additionally builds [OpenCSG], which needs OpenGL
+  development headers (on Debian/Ubuntu: `libgl1-mesa-dev`, `libx11-dev`,
+  `libxcb1-dev`, `libxkbcommon-dev`, `libxrandr-dev`, `libwayland-dev`)
+
+[OpenCSG]: http://www.opencsg.org/
+
+
 ## Usage
 
 ### CLI
@@ -105,6 +118,8 @@ bosl.regular_prism { 5, r = 10, h = 25 }
 bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
 ```
 
+[BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
+
 
 ## Why Lua?
 
@@ -164,12 +179,6 @@ The other formats cannot express separate objects,
 so they flatten everything into a single mesh.
 
 
-## Roadmap
-
-- [ ]
-[BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
-
-
 ## Related
 
 Other CAD software with programmatic model creation:
@@ -210,7 +219,7 @@ Other CAD software with programmatic model creation:
 [ManifoldCAD]: https://manifoldcad.org/
 [NassCAD]: https://www.nasscad.com/
 [OpenSCAD Rust]: https://github.com/Michael-F-Bryan/scad-rs
-[openscad-rs]: https://github.com/ierror/openscad-rs:
+[openscad-rs]: https://github.com/ierror/openscad-rs
 [Rust Scad]: https://github.com/TheZoq2/Rust-Scad
 [scad_tree]: https://github.com/mrclean71774/scad_tree
 [ScalaCad]: https://github.com/joewing/ScalaCad
