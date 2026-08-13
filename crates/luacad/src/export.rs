@@ -688,6 +688,12 @@ impl Manifold {
     self.0
   }
 
+  /// Duplicate the underlying solid. Manifold is copy-on-write internally,
+  /// so this is cheap — it shares the mesh until one of the two is changed.
+  fn duplicate(&self) -> Self {
+    Self(unsafe { manifold_sys::manifold_copy(Self::alloc(), self.0) })
+  }
+
   fn is_empty(&self) -> bool {
     unsafe { manifold_sys::manifold_is_empty(self.0) != 0 }
   }
@@ -927,6 +933,45 @@ fn csg_mesh_to_manifold(mesh: &CsgMesh<()>) -> Result<Manifold, String> {
   }
 }
 
+thread_local! {
+  /// Results of hull and Minkowski subtrees, keyed by the subtree's SCAD
+  /// source. Both are orders of magnitude dearer than the booleans around
+  /// them, and models reuse them constantly — a rounded outline built once
+  /// in Lua and combined three ways is three identical subtrees by the time
+  /// it reaches here, because ScadNode is an owned tree with no sharing.
+  ///
+  /// Only these two node kinds are memoized: everything else is cheap
+  /// enough that serializing a key would cost more than recomputing.
+  static EXPENSIVE_SUBTREES: std::cell::RefCell<
+    std::collections::HashMap<String, Manifold>,
+  > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Evaluate `build` unless this exact subtree has been materialized before.
+fn memoized(
+  node: &crate::scad_export::ScadNode,
+  build: impl FnOnce() -> Manifold,
+) -> Manifold {
+  let key = node.to_scad();
+
+  if let Some(hit) =
+    EXPENSIVE_SUBTREES.with(|c| c.borrow().get(&key).map(Manifold::duplicate))
+  {
+    return hit;
+  }
+
+  let built = build();
+  let result = built.duplicate();
+  EXPENSIVE_SUBTREES.with(|c| c.borrow_mut().insert(key, built));
+  result
+}
+
+/// Drop every memoized subtree. Called between top-level geometries so a
+/// long-running process (the Studio preview loop) does not grow unbounded.
+pub fn clear_subtree_cache() {
+  EXPENSIVE_SUBTREES.with(|c| c.borrow_mut().clear());
+}
+
 /// Recursively evaluate a ScadNode tree into a Manifold object.
 /// All boolean operations, transforms, and primitives are performed
 /// directly by the Manifold library — no csgrs involved.
@@ -1082,12 +1127,12 @@ pub fn materialize_scad_manifold(
       })
     }
 
-    ScadNode::Hull(child) => {
+    ScadNode::Hull(child) => memoized(node, || {
       let m = materialize_scad_manifold(child);
       Manifold(unsafe { manifold_hull(Manifold::alloc(), m.ptr()) })
-    }
+    }),
 
-    ScadNode::Minkowski(children) => {
+    ScadNode::Minkowski(children) => memoized(node, || {
       let mut iter = children.iter();
       let first = iter
         .next()
@@ -1100,7 +1145,7 @@ pub fn materialize_scad_manifold(
           manifold_minkowski_sum(Manifold::alloc(), acc.ptr(), next.ptr())
         })
       })
-    }
+    }),
 
     // --- Transforms ---
     ScadNode::Translate { x, y, z, child } => {
@@ -1908,6 +1953,9 @@ pub fn export_manifold(
     })
     .collect();
 
+  // Every mesh is extracted by now, so nothing needs the shared subtrees.
+  clear_subtree_cache();
+
   if parts.is_empty() {
     return Err("No geometry to export".to_string());
   }
@@ -2689,6 +2737,42 @@ mod manifold_tests {
       (quad_volume - other_volume).abs() > 1.0,
       "the two diagonals should differ on a warped face: \
        {quad_volume} vs {other_volume}"
+    );
+  }
+
+  /// Hull and Minkowski results are memoized across a build. Two hulls that
+  /// differ only in facet count must not collide on the same cache entry.
+  #[test]
+  fn memoized_hulls_are_keyed_by_facet_count() {
+    let hull_of = |segments: u32| {
+      ScadNode::Hull(Box::new(ScadNode::Union(vec![
+        ScadNode::Cylinder {
+          r1: 5.0,
+          r2: 5.0,
+          h: 10.0,
+          segments,
+          center: true,
+        },
+        ScadNode::Cube {
+          w: 1.0,
+          d: 1.0,
+          h: 10.0,
+          center: true,
+        },
+      ])))
+    };
+
+    clear_subtree_cache();
+    let coarse = materialize_scad_manifold(&hull_of(6)).num_tri();
+    let fine = materialize_scad_manifold(&hull_of(64)).num_tri();
+    // Same subtree again: served from the cache, same answer as the first.
+    let coarse_again = materialize_scad_manifold(&hull_of(6)).num_tri();
+    clear_subtree_cache();
+
+    assert_eq!(coarse, coarse_again, "cache returned a different solid");
+    assert!(
+      fine > coarse,
+      "facet count was dropped from the cache key: {fine} vs {coarse}"
     );
   }
 
