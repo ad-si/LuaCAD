@@ -216,6 +216,18 @@ pub fn apply_editor_action(
       let chars: Vec<char> = text.chars().collect();
       let total_chars = chars.len();
 
+      // On a blank line without a selection, start a comment to type into
+      if cursor_start == cursor_end {
+        let (line_start, line_end) = line_range_at(text, cursor_start);
+        let line: String = chars[line_start..line_end].iter().collect();
+        if line.trim().is_empty() {
+          // Behind any indentation, but still before the line break
+          let caret = line_start + line.trim_end_matches('\n').chars().count();
+          text.insert_str(byte_index_of(text, caret), "-- ");
+          return (caret + 3, caret + 3);
+        }
+      }
+
       // Find all lines that overlap the selection
       let sel_start = cursor_start.min(cursor_end);
       let sel_end = if cursor_start == cursor_end {
@@ -612,6 +624,58 @@ mod line_cut_tests {
     let (clipboard, _) = cut(&mut text, 2);
     assert_eq!(clipboard, "größe\n");
     assert_eq!(text, "width\n");
+  }
+}
+
+#[cfg(test)]
+mod toggle_comment_tests {
+  use super::{EditorAction, apply_editor_action};
+
+  /// Toggle the comment on `text` with the caret at `caret`, no selection.
+  fn toggle(text: &mut String, caret: usize) -> usize {
+    let (start, _) =
+      apply_editor_action(&EditorAction::ToggleComment, text, caret, caret);
+    start
+  }
+
+  #[test]
+  fn empty_line_gets_a_comment_marker_to_type_after() {
+    let mut text = "one\n\ntwo\n".to_string();
+    let caret = toggle(&mut text, 4);
+    assert_eq!(text, "one\n-- \ntwo\n");
+    assert_eq!(caret, 7);
+  }
+
+  #[test]
+  fn blank_line_keeps_its_indentation() {
+    let mut text = "if a then\n  \nend\n".to_string();
+    let caret = toggle(&mut text, 11); // between the two spaces
+    assert_eq!(text, "if a then\n  -- \nend\n");
+    assert_eq!(caret, 15);
+  }
+
+  #[test]
+  fn empty_line_behind_a_trailing_newline_is_commented() {
+    let mut text = "one\n".to_string();
+    let caret = toggle(&mut text, 4);
+    assert_eq!(text, "one\n-- ");
+    assert_eq!(caret, 7);
+  }
+
+  #[test]
+  fn a_line_with_code_still_toggles() {
+    let mut text = "one\n".to_string();
+    toggle(&mut text, 1);
+    assert_eq!(text, "-- one\n");
+    toggle(&mut text, 1);
+    assert_eq!(text, "one\n");
+  }
+
+  #[test]
+  fn blank_lines_inside_a_selection_stay_untouched() {
+    let mut text = "one\n\ntwo\n".to_string();
+    apply_editor_action(&EditorAction::ToggleComment, &mut text, 0, 8);
+    assert_eq!(text, "-- one\n\n-- two\n");
   }
 }
 
