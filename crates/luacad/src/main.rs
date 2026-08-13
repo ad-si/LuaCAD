@@ -147,9 +147,9 @@ fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
   let code = std::fs::read_to_string(opts.input)
     .map_err(|e| format!("Error reading {}: {e}", opts.input))?;
 
-  let geometries = luacad::lua_engine::execute_lua_with_root(
+  let geometries = luacad::lua_engine::execute_lua_with_path(
     &code,
-    Path::new(opts.input).parent(),
+    Some(Path::new(opts.input)),
   )?;
   let count = geometries.len();
 
@@ -179,9 +179,9 @@ fn cmd_info(args: &[String]) -> ExitCode {
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua_with_root(
+  let geometries = match luacad::lua_engine::execute_lua_with_path(
     &code,
-    Path::new(input).parent(),
+    Some(Path::new(input)),
   ) {
     Ok(g) => g,
     Err(e) => {
@@ -380,9 +380,9 @@ fn cmd_run(args: &[String]) -> ExitCode {
     }
   };
 
-  match luacad::lua_engine::execute_lua_with_root(
+  match luacad::lua_engine::execute_lua_with_path(
     &code,
-    Path::new(&args[0]).parent(),
+    Some(Path::new(&args[0])),
   ) {
     Ok(geometries) => {
       if geometries.is_empty() {
@@ -524,9 +524,9 @@ fn cmd_render(args: &[String]) -> ExitCode {
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua_with_root(
+  let geometries = match luacad::lua_engine::execute_lua_with_path(
     &code,
-    Path::new(input).parent(),
+    Some(Path::new(input)),
   ) {
     Ok(g) => g,
     Err(e) => {

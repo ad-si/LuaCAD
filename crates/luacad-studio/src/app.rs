@@ -305,9 +305,9 @@ impl AppState {
       }
     }
 
-    match luacad::lua_engine::execute_lua_with_root(
+    match luacad::lua_engine::execute_lua_with_path(
       &self.text_content,
-      self.current_file.as_ref().and_then(|f| f.parent()),
+      self.current_file.as_deref(),
     ) {
       Ok(geometries) => {
         if geometries.is_empty() {

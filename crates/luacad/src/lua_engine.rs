@@ -202,7 +202,7 @@ fn parse_cylinder_args(
 /// `require` resolves against the process working directory only. Use
 /// [`execute_lua_from_file`] to also resolve modules next to the script.
 pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
-  execute_lua_with_root(code, None)
+  execute_lua_with_path(code, None)
 }
 
 /// Execute a LuaCAD script file, resolving `require` relative to it.
@@ -215,14 +215,19 @@ pub fn execute_lua_from_file(
 ) -> Result<Vec<CsgGeometry>, String> {
   let code = std::fs::read_to_string(path)
     .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-  execute_lua_with_root(&code, path.parent())
+  execute_lua_with_path(&code, Some(path))
 }
 
-/// Execute LuaCAD code with an optional directory to resolve `require` from.
-pub fn execute_lua_with_root(
+/// Execute LuaCAD code, attributing it to `script_path`.
+///
+/// The path is used for two things: resolving `require` against the script's
+/// own directory, and naming the Lua chunk so that errors and tracebacks
+/// point at the user's file instead of at LuaCAD's internals.
+pub fn execute_lua_with_path(
   code: &str,
-  script_dir: Option<&std::path::Path>,
+  script_path: Option<&std::path::Path>,
 ) -> Result<Vec<CsgGeometry>, String> {
+  let script_dir = script_path.and_then(|p| p.parent());
   let lua = Lua::new();
   let collector =
     std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
@@ -1524,7 +1529,19 @@ pub fn execute_lua_with_root(
         .set("path", format!("{dir}/?.lua;{dir}/?/init.lua;{existing}"))?;
     }
 
-    lua.load(code).eval::<mlua::MultiValue>()
+    // Name the chunk after the script. Without this mlua falls back to the
+    // Rust call site, so every Lua error would read
+    // "crates/luacad/src/lua_engine.rs:1527:4" instead of "model.lua:4".
+    // The leading '@' tells Lua the name is a file path.
+    let chunk_name = match script_path {
+      Some(path) => format!("@{}", path.display()),
+      None => "@<input>".to_string(),
+    };
+
+    lua
+      .load(code)
+      .set_name(chunk_name)
+      .eval::<mlua::MultiValue>()
   })();
 
   match result {
@@ -3048,5 +3065,30 @@ mod tests {
     let nodes = run_lua_scad("return cube(5, 5, 5):render_node(10)");
     let scad = generate_scad(&nodes);
     assert!(scad.contains("render(convexity = 10)"));
+  }
+  // =========================================================================
+  // Error locations
+  // =========================================================================
+
+  #[test]
+  fn errors_name_the_script_not_the_engine() {
+    let err = execute_lua_with_path(
+      "local a = 1\nlocal b = 2\nerror('boom')",
+      Some(std::path::Path::new("models/widget.lua")),
+    )
+    .expect_err("error() must fail");
+
+    assert!(err.contains("models/widget.lua:3"), "{err}");
+    assert!(
+      !err.contains("lua_engine.rs"),
+      "internal source path leaked into a user-facing error: {err}"
+    );
+  }
+
+  #[test]
+  fn errors_without_a_path_use_a_neutral_chunk_name() {
+    let err = execute_lua("error('boom')").expect_err("error() must fail");
+    assert!(err.contains("<input>:1"), "{err}");
+    assert!(!err.contains("lua_engine.rs"), "{err}");
   }
 }
