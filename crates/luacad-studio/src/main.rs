@@ -21,9 +21,9 @@ use luacad::export::ExportFormat;
 #[cfg(feature = "csgrs")]
 use luacad::scad_export;
 use scene::{
-  SceneFbo, build_camera, camera_projection_matrix, camera_view_matrix,
-  compute_camera_vectors, compute_fit_distance, gl_clear_screen,
-  gl_set_viewport, render_axes, render_opencsg_scene,
+  SSAA_FACTOR, SceneFbo, build_camera, camera_projection_matrix,
+  camera_view_matrix, compute_camera_vectors, compute_fit_distance,
+  gl_clear_screen, gl_set_viewport, render_axes, render_opencsg_scene,
 };
 use theme::ThemeMode;
 use ui::{PanelLayout, render_ui};
@@ -123,6 +123,18 @@ fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
   }
 }
 
+/// Everything the image in the scene FBO depends on.
+///
+/// The FBO keeps its contents between frames, so as long as this is unchanged
+/// the previous render is still valid and can simply be blitted again.
+#[derive(PartialEq)]
+struct SceneSignature {
+  projection: [f32; 16],
+  view: [f32; 16],
+  background: (f32, f32, f32),
+  scene_revision: u64,
+}
+
 /// Everything that exists once the window and its GL context are up.
 ///
 /// Field order is drop order: the egui painter and the GL context both hold
@@ -133,6 +145,8 @@ struct Studio {
   app: AppState,
   camera: Camera,
   scene_fbo: SceneFbo,
+  /// What the scene FBO currently holds, or `None` while it is undefined
+  last_scene_signature: Option<SceneSignature>,
   frame_input_generator: FrameInputGenerator,
   clipboard: Option<arboard::Clipboard>,
   last_theme_check: f64,
@@ -189,8 +203,10 @@ impl winit::application::ApplicationHandler for StudioApp {
       Viewport::new_at_origo(w, h)
     };
     let camera = build_camera(initial_viewport, &app);
-    let scene_fbo =
-      SceneFbo::new(initial_viewport.width, initial_viewport.height);
+    let scene_fbo = SceneFbo::new(
+      initial_viewport.width * SSAA_FACTOR,
+      initial_viewport.height * SSAA_FACTOR,
+    );
     let frame_input_generator =
       FrameInputGenerator::from_winit_window(&winit_window);
 
@@ -200,6 +216,7 @@ impl winit::application::ApplicationHandler for StudioApp {
       app,
       camera,
       scene_fbo,
+      last_scene_signature: None,
       frame_input_generator,
       clipboard: arboard::Clipboard::new().ok(),
       last_theme_check: 0.0,
@@ -240,6 +257,7 @@ impl Studio {
       app,
       camera,
       scene_fbo,
+      last_scene_signature,
       frame_input_generator,
       clipboard,
       last_theme_check,
@@ -565,12 +583,16 @@ impl Studio {
             egui::Id::new("axis_labels"),
           ));
           let vp = camera.viewport();
+          // The camera viewport is supersampled, so its pixels are that much
+          // smaller than physical ones.
+          let px_per_point = dpr * SSAA_FACTOR as f32;
           for i in 0..3 {
             let px = camera.pixel_at_position(tips_gl[i]);
-            // pixel_at_position returns physical pixels relative to origin viewport.
+            // pixel_at_position returns render pixels relative to origin viewport.
             // Convert to logical and offset by scene_rect position.
-            let ex = px.x as f32 / dpr + scene_rect.left();
-            let ey = (vp.height as f32 - px.y as f32) / dpr + scene_rect.top();
+            let ex = px.x as f32 / px_per_point + scene_rect.left();
+            let ey = (vp.height as f32 - px.y as f32) / px_per_point
+              + scene_rect.top();
             let pos = egui::Pos2::new(ex, ey);
             if scene_rect.contains(pos) {
               painter.text(
@@ -840,8 +862,13 @@ impl Studio {
       let scene_w = (sr.width() * dpr).round() as u32;
       let scene_h = (sr.height() * dpr).round() as u32;
 
+      // The scene is supersampled: rendered at SSAA_FACTOR× the on-screen size
+      // and filtered back down when blitted.
+      let render_w = scene_w * SSAA_FACTOR;
+      let render_h = scene_h * SSAA_FACTOR;
+
       // Camera viewport is at origin — matches the FBO we'll render into
-      let scene_viewport = Viewport::new_at_origo(scene_w, scene_h);
+      let scene_viewport = Viewport::new_at_origo(render_w, render_h);
       camera.set_viewport(scene_viewport);
 
       // Scene rect in physical pixels (for mouse hit-testing).
@@ -987,20 +1014,40 @@ impl Studio {
       // --- Render ---
       let (bg_r, bg_g, bg_b) = app.theme_colors.bg;
 
-      // Resize the offscreen FBO if the scene area changed
-      scene_fbo.ensure_size(scene_w, scene_h);
-
-      // Render the 3D scene into the offscreen FBO at (0,0).
-      // OpenCSG's internal FBO/blit logic requires viewport at origin.
-      scene_fbo.bind();
-      gl_clear_screen(bg_r, bg_g, bg_b);
+      // Resize the offscreen FBO if the scene area changed. A resize leaves its
+      // contents undefined, so it always forces a re-render.
+      let resized = scene_fbo.ensure_size(render_w, render_h);
 
       let proj = camera_projection_matrix(camera);
       let view = camera_view_matrix(camera);
-      render_opencsg_scene(&app.csg_groups, &app.overlay_meshes, &proj, &view);
-      render_axes();
+      let signature = SceneSignature {
+        projection: proj,
+        view,
+        background: app.theme_colors.bg,
+        scene_revision: app.scene_revision,
+      };
 
-      scene_fbo.unbind();
+      // Redraw the 3D scene only when it would actually differ from what the
+      // FBO already holds. The frame loop runs at vsync regardless, so without
+      // this the whole OpenCSG pass — supersampled, and fill-rate bound by
+      // construction — would run every frame even while the app sits idle.
+      if resized || last_scene_signature.as_ref() != Some(&signature) {
+        // Render the 3D scene into the offscreen FBO at (0,0).
+        // OpenCSG's internal FBO/blit logic requires viewport at origin.
+        scene_fbo.bind();
+        gl_clear_screen(bg_r, bg_g, bg_b);
+
+        render_opencsg_scene(
+          &app.csg_groups,
+          &app.overlay_meshes,
+          &proj,
+          &view,
+        );
+        render_axes();
+
+        scene_fbo.unbind();
+        *last_scene_signature = Some(signature);
+      }
 
       // Clear the default framebuffer, then blit the FBO to the scene area.
       // GL blit coordinates use bottom-left origin, so convert from top-left.

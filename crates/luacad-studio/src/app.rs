@@ -158,6 +158,9 @@ pub struct AppState {
   pub csg_groups: Vec<CsgGroup>,
   /// Translucent modifier overlays (`#` highlight, `%` background)
   pub overlay_meshes: Vec<OverlayMesh>,
+  /// Bumped whenever `csg_groups` or `overlay_meshes` change, so the renderer
+  /// can tell a cached 3D image from a stale one
+  pub scene_revision: u64,
   /// Lint diagnostics for the current editor content
   pub lint_diagnostics: Vec<LintDiagnostic>,
   /// Snapshot of text_content used to detect changes for re-linting
@@ -221,6 +224,7 @@ impl AppState {
       clipboard_is_line: false,
       csg_groups: vec![],
       overlay_meshes: vec![],
+      scene_revision: 0,
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
       search: SearchState::default(),
@@ -256,6 +260,7 @@ impl AppState {
     self.geometries.clear();
     self.csg_groups.clear();
     self.overlay_meshes.clear();
+    self.scene_revision += 1;
     self.reset_camera();
     self.scene_dirty = true;
     // Fit as soon as the next geometry appears
@@ -318,6 +323,7 @@ impl AppState {
     let scene = flatten_geometries(&self.geometries);
     self.csg_groups = scene.groups;
     self.overlay_meshes = scene.overlays;
+    self.scene_revision += 1;
     self.scene_dirty = true;
   }
 

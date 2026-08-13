@@ -1228,7 +1228,20 @@ const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
 const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
 const GL_RGBA8: u32 = 0x8058;
 const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
-const GL_NEAREST: u32 = 0x2600;
+const GL_LINEAR: u32 = 0x2601;
+
+/// Supersampling factor for the 3D view.
+///
+/// The scene is rendered into an FBO this many times larger than the area it
+/// occupies on screen and downsampled when blitted, which anti-aliases the CSG
+/// silhouettes and the axis lines. A plain shader-free approach is used because
+/// the GL 2.1 compatibility context OpenCSG requires makes multisampled
+/// renderbuffers an extension question, and because MSAA would interact with
+/// OpenCSG's per-sample stencil parity passes.
+///
+/// Costs `SSAA_FACTOR²` in fill rate and FBO memory, which is why the render is
+/// cached between frames (see `SceneSignature` in `main.rs`).
+pub const SSAA_FACTOR: u32 = 2;
 
 /// Offscreen framebuffer for rendering the 3D scene.
 ///
@@ -1344,8 +1357,13 @@ impl SceneFbo {
     }
   }
 
-  /// Blit the FBO contents to a region of the default framebuffer.
+  /// Blit the FBO contents to a region of the default framebuffer, filtering
+  /// the supersampled image down to the destination size.
   /// `dst_x`, `dst_y` are in GL coordinates (bottom-left origin, physical pixels).
+  ///
+  /// Only the color buffer is copied: a scaling blit with `GL_LINEAR` is invalid
+  /// if depth or stencil bits are set, and nothing drawn afterwards (egui) reads
+  /// the default framebuffer's depth or stencil.
   pub fn blit_to_screen(&self, dst_x: i32, dst_y: i32, dst_w: u32, dst_h: u32) {
     unsafe {
       gl_BindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo);
@@ -1359,8 +1377,8 @@ impl SceneFbo {
         dst_y,
         dst_x + dst_w as i32,
         dst_y + dst_h as i32,
-        GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
-        GL_NEAREST,
+        GL_COLOR_BUFFER_BIT,
+        GL_LINEAR,
       );
       gl_BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     }
