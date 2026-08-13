@@ -147,7 +147,10 @@ fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
   let code = std::fs::read_to_string(opts.input)
     .map_err(|e| format!("Error reading {}: {e}", opts.input))?;
 
-  let geometries = luacad::lua_engine::execute_lua(&code)?;
+  let geometries = luacad::lua_engine::execute_lua_with_root(
+    &code,
+    Path::new(opts.input).parent(),
+  )?;
   let count = geometries.len();
 
   if opts.via_manifold {
@@ -176,7 +179,10 @@ fn cmd_info(args: &[String]) -> ExitCode {
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua(&code) {
+  let geometries = match luacad::lua_engine::execute_lua_with_root(
+    &code,
+    Path::new(input).parent(),
+  ) {
     Ok(g) => g,
     Err(e) => {
       eprintln!("{e}");
@@ -374,7 +380,10 @@ fn cmd_run(args: &[String]) -> ExitCode {
     }
   };
 
-  match luacad::lua_engine::execute_lua(&code) {
+  match luacad::lua_engine::execute_lua_with_root(
+    &code,
+    Path::new(&args[0]).parent(),
+  ) {
     Ok(geometries) => {
       if geometries.is_empty() {
         println!("OK");
@@ -515,7 +524,10 @@ fn cmd_render(args: &[String]) -> ExitCode {
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua(&code) {
+  let geometries = match luacad::lua_engine::execute_lua_with_root(
+    &code,
+    Path::new(input).parent(),
+  ) {
     Ok(g) => g,
     Err(e) => {
       eprintln!("{e}");

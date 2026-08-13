@@ -198,7 +198,31 @@ fn parse_cylinder_args(
 /// Execute LuaCAD code and return the resulting geometries.
 ///
 /// Returns `Ok(geometries)` on success, or `Err(message)` on failure.
+///
+/// `require` resolves against the process working directory only. Use
+/// [`execute_lua_from_file`] to also resolve modules next to the script.
 pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
+  execute_lua_with_root(code, None)
+}
+
+/// Execute a LuaCAD script file, resolving `require` relative to it.
+///
+/// The script's own directory is prepended to `package.path`, so a model
+/// split across files can `require("parts.wheel")` regardless of the
+/// working directory the CLI was invoked from.
+pub fn execute_lua_from_file(
+  path: &std::path::Path,
+) -> Result<Vec<CsgGeometry>, String> {
+  let code = std::fs::read_to_string(path)
+    .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+  execute_lua_with_root(&code, path.parent())
+}
+
+/// Execute LuaCAD code with an optional directory to resolve `require` from.
+pub fn execute_lua_with_root(
+  code: &str,
+  script_dir: Option<&std::path::Path>,
+) -> Result<Vec<CsgGeometry>, String> {
   let lua = Lua::new();
   let collector =
     std::rc::Rc::new(std::cell::RefCell::new(Vec::<CsgGeometry>::new()));
@@ -1471,6 +1495,25 @@ pub fn execute_lua(code: &str) -> Result<Vec<CsgGeometry>, String> {
       .get::<mlua::Table>("package")?
       .get("preload")?;
     preload.set("luacad", lua.create_function(|lua, ()| Ok(lua.globals()))?)?;
+
+    // ==================================================================
+    // MODULE SEARCH PATH
+    // ==================================================================
+
+    // Resolve `require` next to the script first, so a model split across
+    // several files works no matter where the CLI was invoked from.
+    if let Some(dir) = script_dir {
+      let package: mlua::Table = lua.globals().get("package")?;
+      let existing: String = package.get("path").unwrap_or_default();
+      let dir = if dir.as_os_str().is_empty() {
+        std::path::Path::new(".")
+      } else {
+        dir
+      };
+      let dir = dir.display();
+      package
+        .set("path", format!("{dir}/?.lua;{dir}/?/init.lua;{existing}"))?;
+    }
 
     lua.load(code).eval::<mlua::MultiValue>()
   })();

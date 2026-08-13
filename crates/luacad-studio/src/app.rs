@@ -305,7 +305,10 @@ impl AppState {
       }
     }
 
-    match luacad::lua_engine::execute_lua(&self.text_content) {
+    match luacad::lua_engine::execute_lua_with_root(
+      &self.text_content,
+      self.current_file.as_ref().and_then(|f| f.parent()),
+    ) {
       Ok(geometries) => {
         if geometries.is_empty() {
           self.lua_error = Some(
