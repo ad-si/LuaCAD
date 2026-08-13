@@ -692,6 +692,18 @@ fn main_impl() -> ExitCode {
     "convert" => cmd_convert(&args[1..]),
     "render" => cmd_render(&args[1..]),
     "watch" => cmd_watch(&args[1..]),
-    _ => cmd_run(&args),
+    // `luacad model.lua` is shorthand for `luacad run model.lua`, but only
+    // when it really names a script — otherwise it is a mistyped command and
+    // saying so beats "No such file or directory".
+    other if Path::new(other).exists() => cmd_run(&args),
+    other => {
+      eprintln!("Unknown command: {other}");
+      eprintln!();
+      eprintln!(
+        "Commands: run, info, lint, convert, render, watch, help, version"
+      );
+      eprintln!("Run `luacad --help` for usage.");
+      ExitCode::FAILURE
+    }
   }
 }
