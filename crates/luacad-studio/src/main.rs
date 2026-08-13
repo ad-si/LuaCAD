@@ -13,6 +13,7 @@ use app::{AppState, FileAction, file_mtime};
 use camera::{Camera, Viewport, degrees, vec3};
 use cgmath::InnerSpace;
 use editor::EditorAction;
+use editor::whole_line_at;
 use egui_integration::EguiIntegration;
 use input::{Event, FrameInputGenerator, Key, MouseButton, PhysicalPoint};
 #[cfg(feature = "csgrs")]
@@ -511,15 +512,10 @@ impl Studio {
           }
           if wants_copy {
             if app.editor_selection_len == 0 {
-              let text = &app.text_content;
-              let cursor = app.editor_cursor_pos.min(text.len());
-              let line_start = text[..cursor].rfind('\n').map_or(0, |p| p + 1);
-              let line_end = text[cursor..]
-                .find('\n')
-                .map_or(text.len(), |p| cursor + p + 1);
-              let line = &text[line_start..line_end];
+              let line =
+                whole_line_at(&app.text_content, app.editor_cursor_pos);
               if let Some(cb) = clipboard.as_mut() {
-                let _ = cb.set_text(line.to_string());
+                let _ = cb.set_text(line);
               }
               app.clipboard_is_line = true;
             } else {
@@ -528,7 +524,23 @@ impl Studio {
             }
           }
           if wants_cut {
-            gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
+            // Without a selection, cut the whole line — a following Cmd+V
+            // then puts it back as a line of its own
+            let line = if app.editor_focused && app.editor_selection_len == 0 {
+              whole_line_at(&app.text_content, app.editor_cursor_pos)
+            } else {
+              String::new()
+            };
+            if line.is_empty() {
+              gui_context.input_mut(|i| i.events.push(egui::Event::Cut));
+              app.clipboard_is_line = false;
+            } else {
+              if let Some(cb) = clipboard.as_mut() {
+                let _ = cb.set_text(line);
+              }
+              app.clipboard_is_line = true;
+              app.pending_editor_action = Some(EditorAction::CutLine);
+            }
           }
 
           panel_layout = render_ui(root_ui, app);

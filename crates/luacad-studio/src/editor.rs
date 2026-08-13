@@ -6,6 +6,7 @@ pub enum EditorAction {
   InsertTab,              // Tab — insert 2 spaces or indent selected lines
   Unindent,               // Shift+Tab — unindent selected lines
   PasteLineAbove(String), // Paste whole-line clipboard above the current line
+  CutLine,                // Cmd+X with no selection — cut the whole line
   DeleteCharRight,        // Ctrl+D — delete character right of cursor
   DeleteWordLeft,         // Ctrl+W — delete word left of cursor
   WrapSelection(char),    // Wrap selected text with bracket pair: (, [, {
@@ -133,6 +134,24 @@ fn line_range_at(text: &str, char_idx: usize) -> (usize, usize) {
   }
 
   (start, end)
+}
+
+/// The line a whole-line copy or cut of Cmd+C / Cmd+X takes, as char indices
+/// including the trailing newline. Empty when the caret sits on the empty
+/// line after a trailing newline — there is no line to take there.
+fn whole_line_range(text: &str, cursor: usize) -> (usize, usize) {
+  let total = text.chars().count();
+  if cursor >= total && text.ends_with('\n') {
+    return (total, total);
+  }
+  line_range_at(text, cursor)
+}
+
+/// The text of the line around `cursor` (a char index), including its
+/// trailing newline. Empty when there is no line to take.
+pub fn whole_line_at(text: &str, cursor: usize) -> String {
+  let (start, end) = whole_line_range(text, cursor);
+  text.chars().skip(start).take(end - start).collect()
 }
 
 /// Apply a pending editor action, returning the new cursor range (as char indices).
@@ -341,6 +360,24 @@ pub fn apply_editor_action(
       (new_pos, new_pos)
     }
 
+    EditorAction::CutLine => {
+      let (start, end) = whole_line_range(text, cursor_start);
+      if start == end {
+        return (cursor_start, cursor_end);
+      }
+      let chars: Vec<char> = text.chars().collect();
+      let column = cursor_start.saturating_sub(start);
+      let byte_start: usize = chars[..start].iter().collect::<String>().len();
+      let byte_end: usize = chars[..end].iter().collect::<String>().len();
+      text.replace_range(byte_start..byte_end, "");
+
+      // Keep the caret in its column on the line that moved up
+      let line_len =
+        text.chars().skip(start).take_while(|c| *c != '\n').count();
+      let new_pos = (start + column.min(line_len)).min(text.chars().count());
+      (new_pos, new_pos)
+    }
+
     EditorAction::DeleteCharRight => {
       let chars: Vec<char> = text.chars().collect();
       if cursor_start == cursor_end && cursor_start < chars.len() {
@@ -478,6 +515,101 @@ pub fn apply_editor_action(
       *text = new_text;
       (new_start.min(new_len), new_end.min(new_len))
     }
+  }
+}
+
+#[cfg(test)]
+mod line_cut_tests {
+  use super::{EditorAction, apply_editor_action, whole_line_at};
+
+  /// Cut the line the caret sits on, as Cmd+X does without a selection.
+  fn cut(text: &mut String, caret: usize) -> (String, usize) {
+    let clipboard = whole_line_at(text, caret);
+    let (start, _) =
+      apply_editor_action(&EditorAction::CutLine, text, caret, caret);
+    (clipboard, start)
+  }
+
+  #[test]
+  fn cut_takes_the_whole_line_including_its_break() {
+    let mut text = "one\ntwo\nthree\n".to_string();
+    let (clipboard, caret) = cut(&mut text, 5); // inside `two`
+    assert_eq!(clipboard, "two\n");
+    assert_eq!(text, "one\nthree\n");
+    // Caret keeps its column on the line that moved up
+    assert_eq!(caret, 5);
+  }
+
+  #[test]
+  fn cut_then_paste_restores_the_line() {
+    let mut text = "one\ntwo\nthree\n".to_string();
+    let (clipboard, caret) = cut(&mut text, 5);
+    let (new_caret, _) = apply_editor_action(
+      &EditorAction::PasteLineAbove(clipboard),
+      &mut text,
+      caret,
+      caret,
+    );
+    assert_eq!(text, "one\ntwo\nthree\n");
+    assert_eq!(new_caret, 9);
+  }
+
+  #[test]
+  fn cut_moves_the_line_up_when_pasted_one_line_higher() {
+    let mut text = "one\ntwo\nthree\n".to_string();
+    // Cut `three`, then paste with the caret on `two`
+    let (clipboard, _) = cut(&mut text, 8);
+    assert_eq!(text, "one\ntwo\n");
+    apply_editor_action(
+      &EditorAction::PasteLineAbove(clipboard),
+      &mut text,
+      5,
+      5,
+    );
+    assert_eq!(text, "one\nthree\ntwo\n");
+  }
+
+  #[test]
+  fn cut_of_a_blank_line_keeps_the_break() {
+    let mut text = "one\n\ntwo\n".to_string();
+    let (clipboard, caret) = cut(&mut text, 4);
+    assert_eq!(clipboard, "\n");
+    assert_eq!(text, "one\ntwo\n");
+    assert_eq!(caret, 4);
+  }
+
+  #[test]
+  fn cut_of_the_last_line_without_a_break() {
+    let mut text = "one\ntwo".to_string();
+    let (clipboard, caret) = cut(&mut text, 6);
+    assert_eq!(clipboard, "two");
+    assert_eq!(text, "one\n");
+    assert_eq!(caret, 4);
+  }
+
+  #[test]
+  fn caret_on_the_empty_line_after_a_trailing_break_cuts_nothing() {
+    let mut text = "one\ntwo\n".to_string();
+    let (clipboard, caret) = cut(&mut text, 8);
+    assert!(clipboard.is_empty());
+    assert_eq!(text, "one\ntwo\n");
+    assert_eq!(caret, 8);
+  }
+
+  #[test]
+  fn caret_column_is_clamped_to_a_shorter_following_line() {
+    let mut text = "aaaaaaaa\nbb\n".to_string();
+    let (_, caret) = cut(&mut text, 6);
+    assert_eq!(text, "bb\n");
+    assert_eq!(caret, 2);
+  }
+
+  #[test]
+  fn multi_byte_characters_keep_char_indices_aligned() {
+    let mut text = "größe\nwidth\n".to_string();
+    let (clipboard, _) = cut(&mut text, 2);
+    assert_eq!(clipboard, "größe\n");
+    assert_eq!(text, "width\n");
   }
 }
 

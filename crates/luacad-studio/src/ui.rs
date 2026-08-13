@@ -165,9 +165,12 @@ fn render_settings_shortcuts(ui: &mut egui::Ui) {
     (
       "Editing",
       vec![
-        (format!("{m} C"), "Copy"),
-        (format!("{m} X"), "Cut"),
-        (format!("{m} V"), "Paste"),
+        (format!("{m} C"), "Copy (whole line if nothing selected)"),
+        (format!("{m} X"), "Cut (whole line if nothing selected)"),
+        (
+          format!("{m} V"),
+          "Paste (as a line above if a line was cut)",
+        ),
         (format!("{m} F"), "Find"),
         (format!("{m} H"), "Find and replace"),
         (format!("{m} D"), "Select word / next occurrence"),
