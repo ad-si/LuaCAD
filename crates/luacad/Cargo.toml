@@ -1,10 +1,13 @@
 [package]
 name = "luacad"
-version = "0.1.0"
+version.workspace = true
+repository.workspace = true
 edition = "2024"
 description = "A Lua-based CAD scripting engine built on CSG operations"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/ad-si/LuaCAD"
+readme = "README.md"
+keywords = ["cad", "lua", "csg", "3d", "openscad"]
+categories = ["graphics", "command-line-utilities"]
 
 [features]
 default = []
@@ -21,7 +24,7 @@ selene-lib = { version = "0.31", default-features = false, features = ["lua54"] 
 full_moon = { version = "2", features = ["lua54"] }
 toml = "1.1"
 serde_yaml = "0.9"
-manifold-sys = { path = "../manifold-sys" }
+manifold-sys = { version = "1.0.0", path = "../manifold-sys" }
 png = "0.18"
 usvg = { version = "0.48", default-features = false }
 kurbo = "0.13"

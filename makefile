@@ -41,15 +41,26 @@ dev:
 	watchexec --restart --exts rs,toml -- cargo run --package luacad-studio
 
 
+.PHONY: package
+package:
+	cargo package --workspace
+
+
 .PHONY: release
 release:
 	@echo '1. `cai changelog <first-commit-hash>`'
 	@echo '2. `git add ./changelog.md && git commit -m "Update changelog"`'
-	@echo '3. `cargo release major / minor / patch`'
-	@echo '4. Create a new GitHub release at' \
-		'https://github.com/ad-si/LuaCAD-Studio-Rust/releases/new'
+	@echo '3. `make package` to check every crate builds from its tarball'
+	@echo '4. Publish in dependency order — each must be live on crates.io'
+	@echo '   before the next one can resolve it:'
+	@echo '     cargo publish -p manifold-sys'
+	@echo '     cargo publish -p opencsg-sys'
+	@echo '     cargo publish -p luacad'
+	@echo '     cargo publish -p luacad-studio'
+	@echo '5. Create a new GitHub release at' \
+		'https://github.com/ad-si/LuaCAD/releases/new'
 	@echo -e \
-		"5. Announce release on \n" \
+		"6. Announce release on \n" \
 		"   - https://x.com \n" \
 		"   - https://bsky.app \n" \
 		"   - https://this-week-in-rust.org \n" \

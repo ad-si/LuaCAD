@@ -1,3 +1,7 @@
 [workspace]
 members = ["crates/luacad", "crates/luacad-studio", "crates/opencsg-sys", "crates/manifold-sys"]
 resolver = "3"
+
+[workspace.package]
+version = "1.0.0"
+repository = "https://github.com/ad-si/LuaCAD"
