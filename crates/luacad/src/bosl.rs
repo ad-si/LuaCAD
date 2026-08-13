@@ -1889,12 +1889,11 @@ mod tests {
     // Collect returned geometries
     let mut nodes = Vec::new();
     for val in result.iter() {
-      if let LuaValue::UserData(ud) = val {
-        if let Ok(geom) = ud.borrow::<CsgGeometry>() {
-          if let Some(ref scad) = geom.scad {
-            nodes.push(scad.clone());
-          }
-        }
+      if let LuaValue::UserData(ud) = val
+        && let Ok(geom) = ud.borrow::<CsgGeometry>()
+        && let Some(ref scad) = geom.scad
+      {
+        nodes.push(scad.clone());
       }
     }
 
