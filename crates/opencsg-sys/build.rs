@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 fn main() {
-  let opencsg_dir: PathBuf = ["../../OpenCSG"].iter().collect();
+  // Vendored inside the crate so `cargo package` can see it — a build script
+  // may not reach outside its own package directory.
+  let opencsg_dir: PathBuf = ["vendor", "opencsg"].iter().collect();
   let src_dir = opencsg_dir.join("src");
   let include_dir = opencsg_dir.join("include");
   let glad_include = src_dir.join("glad").join("include");
@@ -67,6 +69,6 @@ fn main() {
   build.compile("opencsg");
 
   // Re-run build if OpenCSG sources change
-  println!("cargo:rerun-if-changed=../../OpenCSG/src/");
-  println!("cargo:rerun-if-changed=../../OpenCSG/include/");
+  println!("cargo:rerun-if-changed=vendor/opencsg/src/");
+  println!("cargo:rerun-if-changed=vendor/opencsg/include/");
 }

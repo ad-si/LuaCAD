@@ -7,5 +7,14 @@ description = "FFI bindings to OpenCSG (image-based CSG rendering for OpenGL)"
 license = "GPL-2.0-or-later"
 links = "opencsg"
 
+include = [
+  "/build.rs",
+  "/src/**/*.rs",
+  "/vendor/opencsg/copying.txt",
+  "/vendor/opencsg/doc/**",
+  "/vendor/opencsg/include/**",
+  "/vendor/opencsg/src/**",
+]
+
 [build-dependencies]
 cc = "1"
