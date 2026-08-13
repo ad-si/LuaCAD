@@ -5,7 +5,7 @@ Solid 3D CAD modeling with Lua.
 Write parametric 2D and 3D models in Lua
 and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD.
 
-![Screenshot of LuaCAD Studio app](images/2026-02-25t1353_screenshot.png)
+![Screenshot of LuaCAD Studio app](images/screenshots/2026-02-25t1353_studio_csg_modules.png)
 
 LuaCAD embeds Lua 5.4 in a Rust engine
 that evaluates CSG operations directly (via [Manifold])
