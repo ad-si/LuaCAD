@@ -10,6 +10,12 @@ format:
 	# nix fmt  # TODO: Reactivate when it's faster
 
 
+.PHONY: lint
+lint:
+	cargo fmt --all --check
+	cargo clippy --workspace --all-targets -- --deny warnings
+
+
 .PHONY: lint-lua
 lint-lua:
 	cargo run --package luacad -- lint examples/
@@ -50,7 +56,10 @@ package:
 release:
 	@echo '1. `cai changelog <first-commit-hash>`'
 	@echo '2. `git add ./changelog.md && git commit -m "Update changelog"`'
-	@echo '3. `make package` to check every crate builds from its tarball'
+	@echo '3. Check CI is green on main — the `package` job verifies every'
+	@echo '   crate builds from its tarball. `make package` does the same'
+	@echo '   locally, but reuses cached builds of the local registry and can'
+	@echo '   pass or fail against stale artifacts; trust CI over it.'
 	@echo '4. Publish in dependency order — each must be live on crates.io'
 	@echo '   before the next one can resolve it:'
 	@echo '     cargo publish -p manifold-sys'

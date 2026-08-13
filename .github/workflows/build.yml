@@ -8,6 +8,109 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint-rust:
+    runs-on: ubuntu-latest
+    name: Lint Rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libwayland-dev
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- --deny warnings
+
+  # The MSRV each crate advertises has to actually build, otherwise the
+  # `rust-version` field just produces a more confusing error than none.
+  msrv:
+    runs-on: ubuntu-latest
+    name: Check MSRV
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libwayland-dev
+
+      # `luacad` and the two -sys crates share the workspace MSRV; Studio
+      # needs a newer one because of the egui stack.
+      - name: Install the luacad MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Install the luacad-studio MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check luacad, manifold-sys and opencsg-sys at 1.89
+        run: |
+          cargo +1.89.0 check \
+            --package luacad \
+            --package manifold-sys \
+            --package opencsg-sys \
+            --all-targets
+
+      - name: Check luacad-studio at 1.95
+        run: cargo +1.95.0 check --package luacad-studio --all-targets
+
+  # Publishing is four irreversible pushes to crates.io in dependency order, so
+  # a defective tarball has to surface here rather than halfway through.
+  package:
+    runs-on: ubuntu-latest
+    name: Package
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libwayland-dev
+
+      - name: Build and verify every crate tarball
+        run: cargo package --workspace
+
   lint-lua:
     runs-on: ubuntu-latest
     name: Lint Lua
