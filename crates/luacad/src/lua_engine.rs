@@ -35,6 +35,80 @@ fn table_segments(t: &mlua::Table, default: u32) -> u32 {
     .unwrap_or(default)
 }
 
+/// Levenshtein distance, used to suggest a parameter the user probably meant.
+fn edit_distance(a: &str, b: &str) -> usize {
+  let b_chars: Vec<char> = b.chars().collect();
+  let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+  let mut curr = vec![0; b_chars.len() + 1];
+
+  for (i, ca) in a.chars().enumerate() {
+    curr[0] = i + 1;
+    for (j, cb) in b_chars.iter().enumerate() {
+      let cost = usize::from(ca != *cb);
+      curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+    }
+    std::mem::swap(&mut prev, &mut curr);
+  }
+  prev[b_chars.len()]
+}
+
+/// Reject named parameters a function does not understand.
+///
+/// Silently dropping them turns a typo — or an OpenSCAD habit such as
+/// `$fn` — into a model that is quietly the wrong shape, which is the
+/// hardest kind of CAD bug to notice. Only string keys are checked, so the
+/// positional forms (`cube { 1, 2, 3 }`) are unaffected.
+fn check_table_keys(
+  t: &mlua::Table,
+  func: &str,
+  allowed: &[&str],
+) -> mlua::Result<()> {
+  let mut unknown: Vec<String> = Vec::new();
+  for pair in t.pairs::<mlua::Value, mlua::Value>() {
+    let (key, _) = pair?;
+    if let LuaValue::String(s) = key {
+      let key = s.to_str()?.to_string();
+      if !allowed.contains(&key.as_str()) {
+        unknown.push(key);
+      }
+    }
+  }
+
+  if unknown.is_empty() {
+    return Ok(());
+  }
+  unknown.sort();
+
+  let mut msg = format!(
+    "{func}() got unknown parameter{} {}",
+    if unknown.len() == 1 { "" } else { "s" },
+    unknown
+      .iter()
+      .map(|k| format!("'{k}'"))
+      .collect::<Vec<_>>()
+      .join(", ")
+  );
+
+  // `$fn` is the OpenSCAD spelling of `fn`, so strip the sigil before
+  // looking for a near match — it makes the common port mistake obvious.
+  let first = unknown[0].trim_start_matches('$');
+  if let Some(best) = allowed
+    .iter()
+    .map(|c| (edit_distance(first, c), *c))
+    .filter(|(dist, _)| *dist <= 2)
+    .min_by_key(|(dist, _)| *dist)
+    .map(|(_, name)| name)
+  {
+    msg.push_str(&format!("\nDid you mean '{best}'?"));
+  }
+
+  let mut valid: Vec<&str> = allowed.to_vec();
+  valid.sort_unstable();
+  msg.push_str(&format!("\nValid parameters: {}", valid.join(", ")));
+
+  Err(mlua::Error::RuntimeError(msg))
+}
+
 // ---------------------------------------------------------------------------
 // cube() argument parsing
 // ---------------------------------------------------------------------------
@@ -53,6 +127,8 @@ fn parse_cube_args(
   let first = &args[0];
 
   if let LuaValue::Table(t) = first {
+    check_table_keys(t, "cube", &["size", "center"])?;
+
     // Check for "size" named key: cube { size = {w,d,h}, center = true }
     if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
       let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
@@ -112,6 +188,8 @@ fn parse_sphere_args(args: &mlua::MultiValue) -> mlua::Result<(f32, u32)> {
   let first = &args[0];
 
   if let LuaValue::Table(t) = first {
+    check_table_keys(t, "sphere", &["r", "d", "segments", "fn"])?;
+
     let radius = if let Some(r) = table_get_f32(t, "r") {
       r
     } else if let Some(d) = table_get_f32(t, "d") {
@@ -153,6 +231,15 @@ fn parse_cylinder_args(
   let first = &args[0];
 
   if let LuaValue::Table(t) = first {
+    check_table_keys(
+      t,
+      "cylinder",
+      &[
+        "h", "height", "r", "r1", "r2", "d", "d1", "d2", "segments", "fn",
+        "center",
+      ],
+    )?;
+
     let h = table_get_f32(t, "h")
       .or_else(|| table_get_f32(t, "height"))
       .unwrap_or(1.0);
@@ -356,6 +443,7 @@ pub fn execute_lua_with_path(
 
       let (tx, ty, tz, points_table, faces_table) =
         if let LuaValue::Table(t) = &first {
+          check_table_keys(t, "polyhedron", &["points", "faces"])?;
           if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points") {
             let faces: mlua::Table =
               t.get::<mlua::Table>("faces").map_err(|_| {
@@ -540,6 +628,20 @@ pub fn execute_lua_with_path(
       })?;
 
       if let LuaValue::Table(t) = first {
+        check_table_keys(
+          t,
+          "torus",
+          &[
+            "R",
+            "major",
+            "r",
+            "minor",
+            "segments",
+            "fn",
+            "segments_minor",
+          ],
+        )?;
+
         let major = table_get_f32(t, "R")
           .or_else(|| table_get_f32(t, "major"))
           .unwrap_or(2.0);
@@ -628,6 +730,7 @@ pub fn execute_lua_with_path(
     // ---- octahedron() ----
     let octahedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
       let radius = if let Some(LuaValue::Table(t)) = args.front() {
+        check_table_keys(t, "octahedron", &["r", "radius"])?;
         table_get_f32(t, "r")
           .or_else(|| table_get_f32(t, "radius"))
           .unwrap_or(1.0)
@@ -676,6 +779,7 @@ pub fn execute_lua_with_path(
     // ---- icosahedron() ----
     let icosahedron_fn = lua.create_function(|_, args: mlua::MultiValue| {
       let radius = if let Some(LuaValue::Table(t)) = args.front() {
+        check_table_keys(t, "icosahedron", &["r", "radius"])?;
         table_get_f32(t, "r")
           .or_else(|| table_get_f32(t, "radius"))
           .unwrap_or(1.0)
@@ -749,6 +853,12 @@ pub fn execute_lua_with_path(
       })?;
 
       if let LuaValue::Table(t) = first {
+        check_table_keys(
+          t,
+          "ellipsoid",
+          &["rx", "ry", "rz", "segments", "fn"],
+        )?;
+
         let rx = table_get_f32(t, "rx").unwrap_or(1.0);
         let ry = table_get_f32(t, "ry").unwrap_or(1.0);
         let rz = table_get_f32(t, "rz").unwrap_or(1.0);
@@ -832,6 +942,8 @@ pub fn execute_lua_with_path(
       })?;
 
       if let LuaValue::Table(t) = first {
+        check_table_keys(t, "circle", &["r", "d", "segments", "fn"])?;
+
         let radius = if let Some(r) = table_get_f32(t, "r") {
           r
         } else if let Some(d) = table_get_f32(t, "d") {
@@ -885,6 +997,9 @@ pub fn execute_lua_with_path(
       })?;
 
       if let LuaValue::Table(t) = first {
+        // Registered as both `rect` and `square`; name the one the user called.
+        check_table_keys(t, "rect", &["size", "center"])?;
+
         let (w, h) =
           if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
             let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
@@ -947,6 +1062,7 @@ pub fn execute_lua_with_path(
       })?;
 
       let points_table = if let LuaValue::Table(t) = first {
+        check_table_keys(t, "polygon", &["points"])?;
         if let Ok(LuaValue::Table(pts)) = t.get::<mlua::Value>("points") {
           pts
         } else {
@@ -1158,35 +1274,37 @@ pub fn execute_lua_with_path(
         mlua::Error::RuntimeError("text() requires arguments".to_string())
       })?;
 
-      let (text_str, size, font, halign, valign) =
-        if let LuaValue::String(s) = first {
-          let text = s.to_str().map(|s| s.to_string()).unwrap_or_default();
-          // Optional second arg: table with options
-          let (size, font, halign, valign) =
-            if let Some(LuaValue::Table(t)) = args.get(1) {
-              (
-                table_get_f32(t, "size").unwrap_or(10.0),
-                t.get::<String>("font")
-                  .unwrap_or_else(|_| "Arial".to_string()),
-                t.get::<String>("halign")
-                  .unwrap_or_else(|_| "left".to_string()),
-                t.get::<String>("valign")
-                  .unwrap_or_else(|_| "baseline".to_string()),
-              )
-            } else {
-              (
-                10.0,
-                "Arial".to_string(),
-                "left".to_string(),
-                "baseline".to_string(),
-              )
-            };
-          (text, size, font, halign, valign)
-        } else {
-          return Err(mlua::Error::RuntimeError(
-            "text() first argument must be a string".to_string(),
-          ));
-        };
+      let (text_str, size, font, halign, valign) = if let LuaValue::String(s) =
+        first
+      {
+        let text = s.to_str().map(|s| s.to_string()).unwrap_or_default();
+        // Optional second arg: table with options
+        let (size, font, halign, valign) =
+          if let Some(LuaValue::Table(t)) = args.get(1) {
+            check_table_keys(t, "text", &["size", "font", "halign", "valign"])?;
+            (
+              table_get_f32(t, "size").unwrap_or(10.0),
+              t.get::<String>("font")
+                .unwrap_or_else(|_| "Arial".to_string()),
+              t.get::<String>("halign")
+                .unwrap_or_else(|_| "left".to_string()),
+              t.get::<String>("valign")
+                .unwrap_or_else(|_| "baseline".to_string()),
+            )
+          } else {
+            (
+              10.0,
+              "Arial".to_string(),
+              "left".to_string(),
+              "baseline".to_string(),
+            )
+          };
+        (text, size, font, halign, valign)
+      } else {
+        return Err(mlua::Error::RuntimeError(
+          "text() first argument must be a string".to_string(),
+        ));
+      };
 
       let scad = Some(ScadNode::Text {
         text: text_str,
@@ -1227,6 +1345,11 @@ pub fn execute_lua_with_path(
 
       let (size, depth, font, halign, valign) =
         if let Some(LuaValue::Table(t)) = args.get(1) {
+          check_table_keys(
+            t,
+            "text3d",
+            &["size", "depth", "font", "halign", "valign"],
+          )?;
           (
             table_get_f32(t, "size").unwrap_or(10.0),
             table_get_f32(t, "depth").unwrap_or(1.0),
@@ -3066,6 +3189,48 @@ mod tests {
     let scad = generate_scad(&nodes);
     assert!(scad.contains("render(convexity = 10)"));
   }
+
+  // =========================================================================
+  // Unknown named parameters
+  // =========================================================================
+
+  #[test]
+  fn unknown_parameter_is_rejected() {
+    let err = execute_lua("return cube { size = { 1, 2, 3 }, centre = true }")
+      .expect_err("a misspelt parameter must not be ignored");
+    assert!(err.contains("unknown parameter 'centre'"), "{err}");
+    assert!(err.contains("Did you mean 'center'?"), "{err}");
+    assert!(err.contains("Valid parameters: center, size"), "{err}");
+  }
+
+  #[test]
+  fn openscad_dollar_fn_suggests_fn() {
+    let err = execute_lua("return sphere { r = 10, [\"$fn\"] = 64 }")
+      .expect_err("$fn is not a LuaCAD parameter");
+    assert!(err.contains("unknown parameter '$fn'"), "{err}");
+    assert!(err.contains("Did you mean 'fn'?"), "{err}");
+  }
+
+  #[test]
+  fn unknown_parameters_are_all_listed() {
+    let err = execute_lua("return cube { size = { 1 }, foo = 1, bar = 2 }")
+      .expect_err("both bogus parameters must be reported");
+    assert!(err.contains("unknown parameters 'bar', 'foo'"), "{err}");
+  }
+
+  #[test]
+  fn positional_table_forms_are_unaffected() {
+    execute_lua("return cube { 1, 2, 3 }").expect("array form");
+    execute_lua("return cube { { 1, 2, 3 }, center = true }")
+      .expect("nested array form");
+    execute_lua("return polygon { { 0, 0 }, { 1, 0 }, { 1, 1 } }")
+      .expect("polygon points array");
+    execute_lua("return cylinder { h = 10, r1 = 5, r2 = 2, fn = 8 }")
+      .expect("named form");
+    execute_lua("return text3d(\"hi\", { size = 4, depth = 2 })")
+      .expect("text3d options");
+  }
+
   // =========================================================================
   // Error locations
   // =========================================================================
