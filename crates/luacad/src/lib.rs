@@ -3,6 +3,8 @@ pub mod export;
 pub mod geometry;
 pub mod linter;
 pub mod lua_engine;
+pub mod mesh_import;
 pub mod render;
 pub mod scad_export;
 pub mod svg_import;
+pub mod text_render;

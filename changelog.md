@@ -24,6 +24,12 @@ First stable release.
   them as individually movable parts. Name them with `:name(…)`.
 - Full support for the Belfry OpenSCAD Library v2 (BOSL2) under `bosl.*`.
 - SVG and DXF import, returning a sketch.
+- `import()` of a mesh returns a solid the Manifold backend can transform and
+  combine, in every format LuaCAD exports: 3MF, STL, OBJ, PLY, OFF and AMF.
+- `text()` and `text3d()` outline a system font into real geometry, so text
+  exports to a mesh and previews in Studio without going through OpenSCAD.
+  Fonts are selected by family and optional style (`"DejaVu Sans:style=Bold"`),
+  with `halign`, `valign` and kerning applied.
 - Support for the OpenSCAD modifier characters (`*`, `!`, `#`, `%`).
 - All 147 CSS3/SVG named colors, matching OpenSCAD, plus hex color strings
   (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`).
@@ -52,11 +58,11 @@ First stable release.
   `model.lua:4` instead of `crates/luacad/src/lua_engine.rs:1527:4`.
 - `luacad <unknown-command>` reports an unknown command and lists the valid
   ones, rather than trying to open the command as a file.
-- Constructs that only exist as OpenSCAD — `bosl.*`, `text()`, `text3d()`,
-  `surface()`, `scad()` and `import()` of a mesh file — are now named when a
-  mesh export or `luacad render` cannot represent them, instead of being
-  dropped from the output without a word. `luacad info` reports them as a
-  warning next to the triangle counts that exclude them.
+- Constructs that only exist as OpenSCAD — `bosl.*`, `surface()`, `scad()` and
+  `import()` of a DXF file — are now named when a mesh export or
+  `luacad render` cannot represent them, instead of being dropped from the
+  output without a word. `luacad info` reports them as a warning next to the
+  triangle counts that exclude them.
 - `--via-openscad` and `--via-manifold` are rejected as a pair instead of the
   latter silently winning.
 - The default segment count for round primitives went from 16 to 32.

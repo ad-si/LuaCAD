@@ -29,6 +29,11 @@ manifold-sys = { version = "1.0.0", path = "../manifold-sys" }
 png = "0.18"
 usvg = { version = "0.48", default-features = false }
 kurbo = "0.13"
+# Font lookup and glyph outlines for text().
+fontdb = "0.24"
+ttf-parser = "0.25"
+# AMF is plain XML, unlike the other mesh formats import() reads.
+roxmltree = "0.21"
 
 [dev-dependencies]
 insta = "1"

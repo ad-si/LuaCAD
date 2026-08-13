@@ -972,6 +972,44 @@ pub fn clear_subtree_cache() {
   EXPENSIVE_SUBTREES.with(|c| c.borrow_mut().clear());
 }
 
+/// Build a Manifold from flat vertex and triangle arrays, as
+/// `manifold_meshgl` wants them: `verts` is x,y,z per vertex and `tris` is
+/// three vertex indices per triangle, wound counter-clockwise seen from
+/// outside.
+///
+/// A mesh Manifold rejects — open edges, self-intersections, inconsistent
+/// winding — yields an empty solid rather than a corrupt one.
+fn manifold_from_triangles(verts: &mut [f32], tris: &mut [u32]) -> Manifold {
+  use manifold_sys::*;
+  use std::os::raw::c_void;
+
+  let n_verts = verts.len() / 3;
+  let n_tris = tris.len() / 3;
+
+  if n_verts == 0 || n_tris == 0 {
+    return Manifold::empty();
+  }
+
+  unsafe {
+    let mesh_gl = manifold_meshgl(
+      manifold_alloc_meshgl() as *mut c_void,
+      verts.as_mut_ptr(),
+      n_verts,
+      3,
+      tris.as_mut_ptr(),
+      n_tris,
+    );
+    let m = Manifold(manifold_of_meshgl(Manifold::alloc(), mesh_gl));
+    manifold_delete_meshgl(mesh_gl);
+
+    if manifold_status(m.ptr()) != ManifoldError_MANIFOLD_NO_ERROR {
+      Manifold::empty()
+    } else {
+      m
+    }
+  }
+}
+
 /// Recursively evaluate a ScadNode tree into a Manifold object.
 /// All boolean operations, transforms, and primitives are performed
 /// directly by the Manifold library — no csgrs involved.
@@ -1015,9 +1053,6 @@ pub fn materialize_scad_manifold(
     }),
 
     ScadNode::Polyhedron { points, faces } => {
-      use manifold_sys::*;
-      use std::os::raw::c_void;
-
       // Fan-triangulate faces and build flat arrays
       let mut flat_verts: Vec<f32> = Vec::new();
       let mut flat_tris: Vec<u32> = Vec::new();
@@ -1048,30 +1083,25 @@ pub fn materialize_scad_manifold(
         }
       }
 
-      let n_verts = points.len();
-      let n_tris = flat_tris.len() / 3;
+      manifold_from_triangles(&mut flat_verts, &mut flat_tris)
+    }
 
-      if n_verts == 0 || n_tris == 0 {
-        return Manifold::empty();
-      }
-
-      unsafe {
-        let mesh_gl = manifold_meshgl(
-          manifold_alloc_meshgl() as *mut c_void,
-          flat_verts.as_mut_ptr(),
-          n_verts,
-          3,
-          flat_tris.as_mut_ptr(),
-          n_tris,
-        );
-        let m = Manifold(manifold_of_meshgl(Manifold::alloc(), mesh_gl));
-        manifold_delete_meshgl(mesh_gl);
-
-        let status = manifold_status(m.ptr());
-        if status != ManifoldError_MANIFOLD_NO_ERROR {
+    // Mesh files are read straight into a Manifold. A file that cannot be
+    // parsed is reported and treated as empty; erroring out of a recursive
+    // materialization would mean threading a Result through every branch,
+    // and `unsupported_constructs` cannot see inside the file.
+    ScadNode::Import { file, .. } => {
+      match crate::mesh_import::import_mesh(file) {
+        Ok(mesh) => {
+          let mut verts: Vec<f32> =
+            mesh.vertices.iter().flatten().copied().collect();
+          let mut tris: Vec<u32> =
+            mesh.triangles.iter().flatten().copied().collect();
+          manifold_from_triangles(&mut verts, &mut tris)
+        }
+        Err(e) => {
+          eprintln!("Warning: {e}");
           Manifold::empty()
-        } else {
-          m
         }
       }
     }
@@ -1402,6 +1432,25 @@ pub fn materialize_scad_cross_section(
       }
     }
 
+    // Glyph outlines are contours like any other sketch. Counters come back
+    // wound against their outer contour, so the non-zero fill rule that
+    // `from_contours` uses cuts them out.
+    ScadNode::Text {
+      text,
+      size,
+      font,
+      halign,
+      valign,
+    } => match crate::text_render::text_to_polygons(
+      text, *size, font, halign, valign,
+    ) {
+      Ok(contours) => CrossSection::from_contours(&contours),
+      Err(e) => {
+        eprintln!("Warning: {e}");
+        CrossSection::empty()
+      }
+    },
+
     // --- CSG booleans ---
     ScadNode::Union(children) => {
       let mut iter = children.iter();
@@ -1593,6 +1642,8 @@ pub enum UnsupportedReason {
   /// A 3D solid where a 2D sketch is required, e.g. directly under
   /// `linear_extrude` or `offset`.
   NeedsSketch,
+  /// A readable format, but the file is not there.
+  MissingFile,
 }
 
 /// A construct that [`materialize_scad_manifold`] cannot evaluate, and why.
@@ -1615,6 +1666,7 @@ impl std::fmt::Display for Unsupported {
       UnsupportedReason::NeedsSketch => {
         "is a 3D solid and cannot be used where a 2D sketch is required"
       }
+      UnsupportedReason::MissingFile => "refers to a file that does not exist",
     };
     write!(f, "{} {}", self.construct, detail)
   }
@@ -1666,10 +1718,15 @@ fn collect_unsupported(
   };
 
   match node {
-    // --- Constructs with no Manifold implementation in either context ---
+    // Text is outlined from the font, so it behaves like any other sketch:
+    // usable under an extrusion, meaningless as a solid on its own.
     ScadNode::Text { .. } => {
-      report("text()", UnsupportedReason::NotImplemented)
+      if dim == Dim::Three {
+        report("text()", mismatch(dim))
+      }
     }
+
+    // --- Constructs with no Manifold implementation in either context ---
     ScadNode::Surface { .. } => {
       report("surface()", UnsupportedReason::NotImplemented)
     }
@@ -1727,11 +1784,46 @@ fn collect_unsupported(
       }
     }
 
-    // `import` reads SVG and DXF into a sketch; mesh files are only carried
-    // through to the SCAD tree.
-    ScadNode::Import { .. } => {
-      if dim == Dim::Three {
-        report("import() of a mesh file", UnsupportedReason::NotImplemented)
+    // `import` covers two different things: SVG becomes a sketch, mesh files
+    // become a solid. Which one is valid depends on the context it is used in.
+    ScadNode::Import { file, .. } => {
+      let ext = std::path::Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+      match ext.as_str() {
+        "svg" => {
+          if dim == Dim::Three {
+            report("import() of an SVG file", mismatch(dim))
+          } else if !std::path::Path::new(file).exists() {
+            report(
+              &format!("import(\"{file}\")"),
+              UnsupportedReason::MissingFile,
+            )
+          }
+        }
+        // DXF still only reaches the SCAD tree.
+        "dxf" => {
+          report("import() of a DXF file", UnsupportedReason::NotImplemented)
+        }
+        _ if crate::mesh_import::is_mesh_file(file) => {
+          if dim == Dim::Two {
+            report("import() of a mesh file", mismatch(dim))
+          } else if !std::path::Path::new(file).exists() {
+            // Checked here so a typo'd path fails with one clear message
+            // instead of a warning followed by an empty export.
+            report(
+              &format!("import(\"{file}\")"),
+              UnsupportedReason::MissingFile,
+            )
+          }
+        }
+        other => report(
+          &format!("import() of a .{other} file"),
+          UnsupportedReason::NotImplemented,
+        ),
       }
     }
 
@@ -2325,6 +2417,14 @@ mod unsupported_tests {
     }
   }
 
+  fn surface() -> ScadNode {
+    ScadNode::Surface {
+      file: "heights.dat".into(),
+      center: false,
+      convexity: 1,
+    }
+  }
+
   fn extrude(child: ScadNode) -> ScadNode {
     ScadNode::LinearExtrude {
       height: 1.0,
@@ -2354,8 +2454,15 @@ mod unsupported_tests {
   }
 
   #[test]
-  fn text_is_reported_even_under_an_extrusion() {
-    assert_eq!(names(&extrude(text())), vec!["text()"]);
+  fn extruded_text_is_fully_supported() {
+    assert!(names(&extrude(text())).is_empty());
+  }
+
+  #[test]
+  fn text_without_an_extrusion_needs_one() {
+    let found = unsupported_constructs(&text());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].reason, UnsupportedReason::NeedsExtrusion);
   }
 
   #[test]
@@ -2374,8 +2481,8 @@ mod unsupported_tests {
 
   #[test]
   fn unsupported_children_are_found_through_booleans() {
-    let tree = ScadNode::Difference(vec![cube(), extrude(text())]);
-    assert_eq!(names(&tree), vec!["text()"]);
+    let tree = ScadNode::Difference(vec![cube(), surface()]);
+    assert_eq!(names(&tree), vec!["surface()"]);
   }
 
   #[test]
@@ -2384,7 +2491,7 @@ mod unsupported_tests {
       cube(),
       ScadNode::Modifier {
         kind: ModifierKind::Skip,
-        child: Box::new(extrude(text())),
+        child: Box::new(surface()),
       },
     ]);
     assert!(names(&tree).is_empty());
@@ -2394,9 +2501,9 @@ mod unsupported_tests {
   fn a_highlighted_subtree_still_has_to_be_materialized() {
     let tree = ScadNode::Modifier {
       kind: ModifierKind::Debug,
-      child: Box::new(extrude(text())),
+      child: Box::new(surface()),
     };
-    assert_eq!(names(&tree), vec!["text()"]);
+    assert_eq!(names(&tree), vec!["surface()"]);
   }
 
   #[test]
@@ -2415,24 +2522,79 @@ mod unsupported_tests {
 
   #[test]
   fn the_same_construct_is_only_reported_once() {
-    let tree = ScadNode::Union(vec![extrude(text()), extrude(text())]);
-    assert_eq!(names(&tree), vec!["text()"]);
+    let tree = ScadNode::Union(vec![surface(), surface()]);
+    assert_eq!(names(&tree), vec!["surface()"]);
+  }
+
+  /// An empty file at a real path: the walker only checks that the path
+  /// resolves, never the contents.
+  fn temp_file(extension: &str) -> String {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+      "luacad_walker_{}_{}.{extension}",
+      std::process::id(),
+      COUNTER.fetch_add(1, Ordering::Relaxed),
+    ));
+    std::fs::write(&path, b"").unwrap();
+    path.to_str().unwrap().to_string()
   }
 
   #[test]
-  fn import_is_a_sketch_source_but_not_a_mesh_source() {
+  fn an_svg_import_is_a_sketch() {
     let import = ScadNode::Import {
-      file: "logo.svg".into(),
+      file: temp_file("svg"),
       convexity: 1,
     };
     assert!(names(&extrude(import.clone())).is_empty());
-    assert_eq!(names(&import), vec!["import() of a mesh file"]);
+    assert_eq!(names(&import), vec!["import() of an SVG file"]);
+  }
+
+  #[test]
+  fn a_mesh_import_is_a_solid() {
+    let import = ScadNode::Import {
+      file: temp_file("stl"),
+      convexity: 1,
+    };
+    assert!(names(&import).is_empty());
+    assert_eq!(names(&extrude(import)), vec!["import() of a mesh file"]);
+  }
+
+  #[test]
+  fn a_missing_import_is_reported_before_anything_is_materialized() {
+    let import = ScadNode::Import {
+      file: "/nonexistent/part.stl".into(),
+      convexity: 1,
+    };
+    let found = unsupported_constructs(&import);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].reason, UnsupportedReason::MissingFile);
+    assert!(found[0].construct.contains("/nonexistent/part.stl"));
+  }
+
+  #[test]
+  fn a_missing_file_does_not_suggest_openscad() {
+    let import = ScadNode::Import {
+      file: "/nonexistent/part.stl".into(),
+      convexity: 1,
+    };
+    let msg = describe_unsupported(&unsupported_constructs(&import));
+    assert!(!msg.contains("--via-openscad"), "{msg}");
+  }
+
+  #[test]
+  fn an_unreadable_import_format_is_named_with_its_extension() {
+    let import = ScadNode::Import {
+      file: "part.step".into(),
+      convexity: 1,
+    };
+    assert_eq!(names(&import), vec!["import() of a .step file"]);
   }
 
   #[test]
   fn the_message_points_at_the_routes_that_work() {
-    let msg = describe_unsupported(&unsupported_constructs(&text()));
-    assert!(msg.contains("text()"));
+    let msg = describe_unsupported(&unsupported_constructs(&surface()));
+    assert!(msg.contains("surface()"));
     assert!(msg.contains("--via-openscad"));
   }
 }
@@ -3528,16 +3690,40 @@ mod cross_section_tests {
 
   #[test]
   fn unsupported_sketch_yields_empty_solid() {
+    // `surface()` still only reaches the SCAD tree.
     let scad = extrude(
-      ScadNode::Text {
-        text: "hi".to_string(),
-        size: 10.0,
-        font: String::new(),
-        halign: "left".to_string(),
-        valign: "baseline".to_string(),
+      ScadNode::Surface {
+        file: "heights.dat".to_string(),
+        center: false,
+        convexity: 1,
       },
       1.0,
     );
     assert_eq!(materialize_scad_manifold(&scad).num_tri(), 0);
+  }
+
+  #[test]
+  fn extruded_text_becomes_a_solid() {
+    let scad = extrude(
+      ScadNode::Text {
+        text: "H".to_string(),
+        size: 10.0,
+        font: "sans-serif".to_string(),
+        halign: "left".to_string(),
+        valign: "baseline".to_string(),
+      },
+      2.0,
+    );
+    let m = materialize_scad_manifold(&scad);
+    // A machine with no fonts installed has nothing to outline.
+    if m.num_tri() == 0 {
+      return;
+    }
+    let (min, max) = m.bounding_box();
+    assert_close(min[2] as f64, 0.0, 1e-5, "min z");
+    assert_close(max[2] as f64, 2.0, 1e-5, "extrusion height");
+    // Cap height is a fraction of the em size, never the whole of it.
+    let height = (max[1] - min[1]) as f64;
+    assert!((5.0..10.0).contains(&height), "cap height was {height}");
   }
 }

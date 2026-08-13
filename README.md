@@ -120,9 +120,9 @@ bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
 
 BOSL2 calls are emitted as OpenSCAD, so they need OpenSCAD to become a mesh —
 export to `.scad`, or convert with `--via-openscad`. Studio previews the common
-BOSL2 shapes with built-in approximations. The same applies to `text()`,
-`text3d()`, `surface()`, `scad()` and `import()` of a mesh file; `luacad`
-names them rather than exporting a file without them.
+BOSL2 shapes with built-in approximations. The same applies to `surface()`,
+`scad()` and `import()` of a DXF file; `luacad` names them rather than
+exporting a file without them.
 
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
 
@@ -183,6 +183,42 @@ return
 
 The other formats cannot express separate objects,
 so they flatten everything into a single mesh.
+
+
+## Supported Import Formats
+
+`import()` reads every mesh format LuaCAD writes — 3MF, STL, OBJ, PLY, OFF and
+AMF — and returns a solid you can transform and combine like any primitive:
+
+```lua
+bracket = import("bracket.stl")
+render(bracket - cylinder { r = 3, h = 30 }:translate(5, 5, -5))
+```
+
+SVG returns a 2D sketch instead, ready to extrude:
+
+```lua
+render(import("logo.svg"):linear_extrude(2))
+```
+
+Only geometry is read; colors, materials and texture coordinates are dropped.
+
+
+## Text
+
+`text()` outlines a system font into a sketch, and `text3d()` extrudes it in
+one step:
+
+```lua
+render(text("LuaCAD", { size = 12, halign = "center" }):linear_extrude(2))
+render(text3d("v1.0", { size = 8, depth = 1.5 }))
+```
+
+Fonts are looked up by family, optionally with a style — `"DejaVu Sans"` or
+`"DejaVu Sans:style=Bold"` — and an unknown family falls back to the default
+sans-serif face. Layout is a single line of glyph advances plus kerning pairs;
+ligatures and complex scripts need `--via-openscad`, which runs the text
+through OpenSCAD's shaping engine instead.
 
 
 ## Related

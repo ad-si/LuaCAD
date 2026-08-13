@@ -504,6 +504,14 @@ fn flatten_inner(
     | ScadNode::Hull(_)
     | ScadNode::Minkowski(_) => manifold_preview(node, ctx, op, 1),
 
+    // Mesh files are read by the Manifold backend; the convexity the script
+    // gave is passed on, since an imported part is often concave.
+    ScadNode::Import { file, convexity }
+      if luacad::mesh_import::is_mesh_file(file) =>
+    {
+      manifold_preview(node, ctx, op, (*convexity).max(1))
+    }
+
     // --- BOSL2 shapes with preview parameters ---
     ScadNode::BoslCall { preview, .. } => match preview {
       BoslPreviewParams::Cuboid {
@@ -1430,6 +1438,64 @@ mod product_tests {
       .map(|p| p.operation)
       .collect();
     assert_eq!(ops, vec![INTERSECTION, SUBTRACTION, SUBTRACTION]);
+  }
+
+  /// Write an OFF tetrahedron somewhere `import()` can read it back.
+  fn temp_tetrahedron() -> String {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+      "luacad_studio_import_{}_{}.off",
+      std::process::id(),
+      COUNTER.fetch_add(1, Ordering::Relaxed),
+    ));
+    let mut file = std::fs::File::create(&path).unwrap();
+    file
+      .write_all(
+        b"OFF\n4 4 0\n0 0 0\n10 0 0\n0 10 0\n0 0 10\n\
+          3 0 2 1\n3 0 1 3\n3 0 3 2\n3 1 2 3\n",
+      )
+      .unwrap();
+    path.to_str().unwrap().to_string()
+  }
+
+  #[test]
+  fn an_imported_mesh_previews_as_a_leaf() {
+    let path = temp_tetrahedron();
+    let scene = flatten_lua(&format!("render(import(\"{path}\"))"));
+    assert_single_mesh(&scene, "import()");
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn an_imported_mesh_can_be_subtracted_in_one_product() {
+    // The imported leaf carries its own tessellation, so OpenCSG can take it
+    // as a product operand instead of forcing a Manifold materialization.
+    let path = temp_tetrahedron();
+    let scene = flatten_lua(&format!(
+      "render(cube({{ 20, 20, 20 }}) - import(\"{path}\"))"
+    ));
+    assert_eq!(scene.groups.len(), 1);
+    let ops: Vec<_> = scene.groups[0]
+      .primitives
+      .iter()
+      .map(|p| p.operation)
+      .collect();
+    assert_eq!(ops, vec![INTERSECTION, SUBTRACTION]);
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn extruded_text_previews_as_a_leaf() {
+    let scene = flatten_lua(
+      r#"render(text("H", { size = 10, font = "sans-serif" }):linear_extrude(2))"#,
+    );
+    // A machine with no fonts installed has nothing to outline.
+    if scene.groups.is_empty() {
+      return;
+    }
+    assert_single_mesh(&scene, "extruded text()");
   }
 
   #[test]
