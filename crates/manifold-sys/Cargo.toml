@@ -4,7 +4,31 @@ version.workspace = true
 repository.workspace = true
 edition = "2021"
 description = "Raw FFI bindings for Manifold v3.4.0 C API"
-publish = false
+# Apache-2.0 covers the bindings and the vendored Manifold sources;
+# BSL-1.0 covers the vendored Clipper2 sources under vendor/clipper2.
+license = "Apache-2.0 AND BSL-1.0"
+links = "manifold"
+
+# The vendored trees carry build files, docs and packaging metadata that the
+# CMake build never touches. Ship only what `build.rs` actually compiles.
+include = [
+  "/build.rs",
+  "/src/**/*.rs",
+  "/vendor/manifold/CMakeLists.txt",
+  "/vendor/manifold/LICENSE",
+  "/vendor/manifold/AUTHORS",
+  "/vendor/manifold/cmake/**",
+  "/vendor/manifold/include/**",
+  "/vendor/manifold/src/**",
+  "/vendor/manifold/bindings/CMakeLists.txt",
+  "/vendor/manifold/bindings/c/**",
+  "/vendor/clipper2/LICENSE",
+  "/vendor/clipper2/CPP/CMakeLists.txt",
+  "/vendor/clipper2/CPP/*.in",
+  "/vendor/clipper2/CPP/*.cmakein",
+  "/vendor/clipper2/CPP/Clipper2Lib/**",
+  "/vendor/clipper2/CPP/Utils/**",
+]
 
 [build-dependencies]
 cmake = "0.1"

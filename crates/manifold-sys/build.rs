@@ -8,10 +8,18 @@ fn main() {
   println!("cargo:rerun-if-changed=vendor/manifold/src");
   println!("cargo:rerun-if-changed=vendor/manifold/include");
   println!("cargo:rerun-if-changed=vendor/manifold/bindings/c");
+  println!("cargo:rerun-if-changed=vendor/clipper2/CPP");
 
   let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
   let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
   let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
+
+  // Manifold's CMake falls back to cloning Clipper2 from GitHub when it isn't
+  // found on the system. Point FetchContent at the vendored copy instead so
+  // the build needs no network — required for `cargo publish` verification,
+  // docs.rs, and any sandboxed or offline build.
+  let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+  let clipper2_dir = manifest_dir.join("vendor").join("clipper2");
 
   let mut cmake_config = cmake::Config::new("vendor/manifold");
 
@@ -22,6 +30,12 @@ fn main() {
     .define("MANIFOLD_CROSS_SECTION", "ON")
     .define("MANIFOLD_PAR", "OFF")
     .define("MANIFOLD_EXPORT", "OFF")
+    .define("MANIFOLD_USE_BUILTIN_CLIPPER2", "ON")
+    .define(
+      "FETCHCONTENT_SOURCE_DIR_CLIPPER2",
+      clipper2_dir.to_str().expect("non-UTF-8 manifest path"),
+    )
+    .define("FETCHCONTENT_FULLY_DISCONNECTED", "ON")
     .out_dir(out_dir.clone());
 
   if target_os == "windows" {
