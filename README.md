@@ -3,9 +3,12 @@
 Solid 3D CAD modeling with Lua.
 
 Write parametric 2D and 3D models in Lua
-and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD.
+and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD,
+or render them straight to a PNG.
 
-![Screenshot of LuaCAD Studio app](images/screenshots/2026-02-25t1353_studio_csg_modules.png)
+![Screenshot of LuaCAD Studio previewing the MuSHR racecar model, a 43-part
+assembly of 490,802 triangles, beside the Lua script that builds
+it](images/screenshots/2026-08-13t1803_studio_racecar.png)
 
 LuaCAD embeds Lua 5.4 in a Rust engine
 that evaluates CSG operations directly (via [Manifold])
@@ -58,8 +61,18 @@ luacad convert model.lua output.3mf   # Convert to 3MF
 luacad convert model.lua output.stl   # Convert to STL
 luacad convert model.lua output.scad  # Export as SCAD for OpenSCAD
 luacad watch model.lua output.3mf     # Rebuild on file changes
+luacad render model.lua preview.png   # Render to a PNG image
+luacad info model.lua                 # Print triangle counts and bounding box
+luacad lint model.lua                 # Lint with selene (also takes directories)
 luacad run model.lua                  # Execute (side-effects only)
 ```
+
+`convert` and `watch` infer the format from the output extension;
+`--format <fmt>` overrides it.
+`--via-openscad` hands the export to an installed OpenSCAD binary instead of
+building the mesh with Manifold.
+`render` shades flat by default, so the tessellation stays visible;
+`--smooth` turns that off.
 
 
 ### Studio
@@ -70,6 +83,9 @@ luacad-studio
 
 Desktop app with a code editor and 3D viewport.
 Edit Lua code on the right, see the model update on the left.
+The viewport draws the CSG tree itself through [OpenCSG],
+so a boolean shows up as soon as the script runs,
+without waiting for a mesh to be built for it.
 
 
 ## Example
@@ -157,7 +173,7 @@ Lua is a better fit:
 - Similar syntax to OpenSCAD's language
 - Already used in other CAD software ([LibreCAD], [Autodesk Netfabb])
 
-[LibreCAD]: https://wiki.librecad.org/index.php/LibreCAD_3_-_Lua_Scripting
+[LibreCAD]: https://github.com/LibreCAD/LibreCAD_3
 [Autodesk Netfabb]:
   https://help.autodesk.com/view/NETF/2025/ENU/?guid=GUID-93C06838-2623-4573-9BFB-B1EF4628AC4A
 
@@ -197,13 +213,15 @@ bracket = import("bracket.stl")
 render(bracket - cylinder { r = 3, h = 30 }:translate(5, 5, -5))
 ```
 
-SVG returns a 2D sketch instead, ready to extrude:
+SVG and DXF return a 2D sketch instead, ready to extrude:
 
 ```lua
 render(import("logo.svg"):linear_extrude(2))
 ```
 
 Only geometry is read; colors, materials and texture coordinates are dropped.
+A DXF sketch reaches the SCAD tree only, so exporting one to a mesh needs
+`--via-openscad`.
 
 
 ## Text
