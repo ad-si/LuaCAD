@@ -36,7 +36,7 @@ fn table_segments(t: &mlua::Table, default: u32) -> u32 {
 }
 
 /// Levenshtein distance, used to suggest a parameter the user probably meant.
-fn edit_distance(a: &str, b: &str) -> usize {
+pub fn edit_distance(a: &str, b: &str) -> usize {
   let b_chars: Vec<char> = b.chars().collect();
   let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
   let mut curr = vec![0; b_chars.len() + 1];
@@ -1688,10 +1688,10 @@ pub fn execute_lua_with_path(
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
-struct LuaVector {
-  x: f64,
-  y: f64,
-  z: f64,
+pub struct LuaVector {
+  pub x: f64,
+  pub y: f64,
+  pub z: f64,
 }
 
 impl mlua::UserData for LuaVector {

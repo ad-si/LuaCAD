@@ -1,19 +1,30 @@
-/// BOSL2 (Belfry OpenSCAD Library v2) function bindings for LuaCAD.
-///
-/// All functions are registered under the `bosl` Lua namespace table so they
-/// can be called as `bosl.cuboid(...)`, `bosl.cyl(...)`, etc.
-///
-/// Because BOSL2 is an OpenSCAD library, these functions produce ScadNode-only
-/// geometry (no mesh). The generated SCAD output automatically includes the
-/// required `include <BOSL2/std.scad>` directive and any additional module
-/// includes for non-std modules (threading, gears, screws, etc.).
+//! BOSL2 (Belfry OpenSCAD Library v2) support for LuaCAD.
+//!
+//! All functions are registered under the `bosl` Lua namespace table so they
+//! can be called as `bosl.cuboid(...)`, `bosl.cyl(...)`, etc.
+//!
+//! Shapes are built from LuaCAD's own primitives, so `bosl.*` renders,
+//! previews and exports to a mesh without OpenSCAD or the BOSL2 library
+//! installed. Exporting to `.scad` still writes the BOSL2 call itself,
+//! together with the `include <BOSL2/std.scad>` directive and any extra
+//! module includes (threading, gears, screws, …), which keeps the exported
+//! file as short and readable as the script that produced it.
+
+pub mod args;
+pub mod attach;
+pub mod edges;
+pub mod shapes2d;
+pub mod shapes3d;
+pub mod vecmath;
+pub mod vnf;
+
 #[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
 #[cfg(feature = "csgrs")]
 use csgrs::traits::CSG;
 use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
-use crate::geometry::CsgGeometry;
+use crate::geometry::{CsgGeometry, CsgSketch};
 use crate::scad_export::{BoslPreviewParams, CylAxis, ScadNode};
 
 // ---------------------------------------------------------------------------
@@ -514,12 +525,33 @@ fn extract_scalar_preview(function: &str, val: f64) -> BoslPreviewParams {
   }
 }
 
-/// Create a CsgGeometry representing a BOSL2 function call.
-fn bosl_geometry(
+/// The node a BOSL2 call records, carrying the shape built from LuaCAD's own
+/// primitives when the function has a native implementation.
+fn bosl_node(
   module: &str,
   function: &str,
   args: String,
   preview: BoslPreviewParams,
+  native: Option<ScadNode>,
+) -> ScadNode {
+  ScadNode::BoslCall {
+    module: module.to_string(),
+    function: function.to_string(),
+    args,
+    has_children: false,
+    children: vec![],
+    preview,
+    native: native.map(Box::new),
+  }
+}
+
+/// Create a CsgGeometry for a BOSL2 call.
+fn bosl_geometry_native(
+  module: &str,
+  function: &str,
+  args: String,
+  preview: BoslPreviewParams,
+  native: Option<ScadNode>,
 ) -> CsgGeometry {
   CsgGeometry {
     name: None,
@@ -534,14 +566,29 @@ fn bosl_geometry(
       }
     },
     color: None,
-    scad: Some(ScadNode::BoslCall {
-      module: module.to_string(),
-      function: function.to_string(),
-      args,
-      has_children: false,
-      children: vec![],
-      preview,
-    }),
+    scad: Some(bosl_node(module, function, args, preview, native)),
+  }
+}
+
+/// Create a CsgSketch for a BOSL2 call that produces a 2D outline.
+///
+/// The 2D shapes have to come back as sketches rather than solids, because
+/// that is what carries `linear_extrude()`, `rotate_extrude()` and `offset()`
+/// — a `bosl.rect()` you cannot extrude is of no use to anyone.
+fn bosl_sketch_native(
+  module: &str,
+  function: &str,
+  args: String,
+  preview: BoslPreviewParams,
+  native: Option<ScadNode>,
+) -> CsgSketch {
+  CsgSketch {
+    #[cfg(feature = "csgrs")]
+    sketch: crate::geometry::empty_sketch(),
+    #[cfg(not(feature = "csgrs"))]
+    sketch: (),
+    color: None,
+    scad: Some(bosl_node(module, function, args, preview, native)),
   }
 }
 
@@ -559,7 +606,7 @@ fn make_bosl_fn(
   module: &'static str,
   function: &'static str,
 ) -> LuaResult<mlua::Function> {
-  lua.create_function(move |_, args: mlua::MultiValue| {
+  lua.create_function(move |lua, args: mlua::MultiValue| {
     let (scad_args, preview) = if args.is_empty() {
       (String::new(), BoslPreviewParams::None)
     } else if args.len() == 1 {
@@ -586,8 +633,52 @@ fn make_bosl_fn(
         .join(", ");
       (s, BoslPreviewParams::None)
     };
-    Ok(bosl_geometry(module, function, scad_args, preview))
+
+    // Where a native builder exists it decides what actually gets rendered;
+    // `scad_args` is only what the `.scad` export writes back out.
+    let (native, dim) = match native_builder(function) {
+      Some((params, build, dim)) => {
+        let parsed = args::Args::parse(function, params, &args)?;
+        (build(&parsed)?, dim)
+      }
+      None => (None, Dim::Solid),
+    };
+
+    match dim {
+      Dim::Solid => lua.create_userdata(bosl_geometry_native(
+        module, function, scad_args, preview, native,
+      )),
+      Dim::Sketch => lua.create_userdata(bosl_sketch_native(
+        module, function, scad_args, preview, native,
+      )),
+    }
   })
+}
+
+/// Whether a BOSL2 function makes a solid or a flat outline.
+#[derive(Clone, Copy, PartialEq)]
+enum Dim {
+  Solid,
+  Sketch,
+}
+
+/// A native shape builder.
+///
+/// It returns `None` when the arguments ask for something the native
+/// implementation does not cover — a textured cylinder, say — so that the
+/// call falls back to OpenSCAD instead of quietly building the wrong solid.
+pub type NativeBuilder = fn(&args::Args) -> LuaResult<Option<ScadNode>>;
+
+/// The parameter list and builder for a BOSL2 shape that has a native
+/// implementation, or `None` when the call always needs OpenSCAD.
+fn native_builder(
+  function: &str,
+) -> Option<(&'static [&'static str], NativeBuilder, Dim)> {
+  if let Some((params, build)) = shapes3d::builder(function) {
+    return Some((params, build, Dim::Solid));
+  }
+  let (params, build) = shapes2d::builder(function)?;
+  Some((params, build, Dim::Sketch))
 }
 
 // ---------------------------------------------------------------------------
@@ -1929,12 +2020,12 @@ mod tests {
   #[test]
   fn bosl_cuboid_with_named_args() {
     let nodes = run_bosl_lua(
-      "return bosl.cuboid { {10, 20, 30}, rounding = 2, center = true }",
+      "return bosl.cuboid { {10, 20, 30}, rounding = 2, trimcorners = true }",
     );
     assert_eq!(nodes.len(), 1);
     if let ScadNode::BoslCall { args, .. } = &nodes[0] {
       assert!(args.contains("[10, 20, 30]"));
-      assert!(args.contains("center = true"));
+      assert!(args.contains("trimcorners = true"));
       assert!(args.contains("rounding = 2"));
     } else {
       panic!("Expected BoslCall");
@@ -2077,20 +2168,21 @@ mod tests {
     }
   }
 
+  /// BOSL2's `cuboid()` has no `center` parameter — it is always centred
+  /// unless an anchor says otherwise. OpenSCAD would drop the argument in
+  /// silence and build a centred cuboid anyway, so the script would be
+  /// quietly wrong; saying so is more useful.
   #[test]
-  fn bosl_cuboid_preview_center_false() {
-    let nodes =
-      run_bosl_lua("return bosl.cuboid { {10, 20, 30}, center = false }");
-    if let ScadNode::BoslCall { preview, .. } = &nodes[0] {
-      match preview {
-        BoslPreviewParams::Cuboid { center, .. } => {
-          assert!(!*center);
-        }
-        other => panic!("Expected Cuboid preview, got {:?}", other),
-      }
-    } else {
-      panic!("Expected BoslCall");
-    }
+  fn bosl_cuboid_rejects_center_and_points_at_anchor() {
+    let lua = Lua::new();
+    register_bosl(&lua).unwrap();
+    let err = lua
+      .load("return bosl.cuboid { {10, 20, 30}, center = false }")
+      .eval::<mlua::Value>()
+      .unwrap_err()
+      .to_string();
+    assert!(err.contains("unknown parameter 'center'"), "{err}");
+    assert!(err.contains("anchor = bosl.BOTTOM"), "{err}");
   }
 
   #[test]

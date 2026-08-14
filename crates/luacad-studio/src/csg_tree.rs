@@ -512,7 +512,15 @@ fn flatten_inner(
       manifold_preview(node, ctx, op, (*convexity).max(1))
     }
 
-    // --- BOSL2 shapes with preview parameters ---
+    // --- BOSL2 shapes ---
+    // A native shape is built from ordinary primitives, so it previews the
+    // same way any other subtree does. Calls still waiting on a native
+    // implementation fall back to their hand-written preview parameters.
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => flatten_inner(native, ctx, op, sink),
+
     ScadNode::BoslCall { preview, .. } => match preview {
       BoslPreviewParams::Cuboid {
         w,

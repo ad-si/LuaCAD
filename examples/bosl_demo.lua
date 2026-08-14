@@ -3,8 +3,9 @@
 -- When exported to .scad, the necessary include directives are
 -- added automatically.
 
--- A cuboid with rounded edges
-local body = bosl.cuboid { {30, 20, 10}, rounding = 2, center = true }
+-- A cuboid with rounded edges. BOSL2 shapes are centred unless an anchor
+-- says otherwise, so `anchor = bosl.BOTTOM` would stand this on the XY plane.
+local body = bosl.cuboid { {30, 20, 10}, rounding = 2 }
 
 -- A threaded rod (from threading.scad, auto-included)
 local rod = bosl.threaded_rod { d = 10, l = 25, pitch = 2 }

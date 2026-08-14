@@ -420,6 +420,12 @@ pub fn materialize_scad(node: &ScadNode) -> CsgMesh<()> {
     | ScadNode::RotateExtrude { .. }
     | ScadNode::Projection { .. } => empty_mesh(),
 
+    // --- BOSL2: the native shape is what the call stands for ---
+    ScadNode::BoslCall { native, .. } => match native {
+      Some(native) => materialize_scad(native),
+      None => empty_mesh(),
+    },
+
     // --- 2D / text / file ops: no 3D mesh ---
     _ => empty_mesh(),
   }

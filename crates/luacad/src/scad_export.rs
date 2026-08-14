@@ -168,6 +168,15 @@ pub enum ScadNode {
     children: Vec<ScadNode>,
     /// Preview parameters for live viewer tessellation.
     preview: BoslPreviewParams,
+    /// The shape built from LuaCAD's own primitives.
+    ///
+    /// Every backend other than SCAD export renders this instead of the
+    /// BOSL2 call, so `bosl.*` needs neither OpenSCAD nor the BOSL2 library
+    /// installed. SCAD export ignores it and still writes `function(args)`,
+    /// which keeps the exported file short and readable for OpenSCAD users.
+    /// `None` means the function has no native implementation yet, and the
+    /// call remains OpenSCAD-only.
+    native: Option<Box<ScadNode>>,
   },
 }
 

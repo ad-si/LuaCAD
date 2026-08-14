@@ -1385,6 +1385,15 @@ pub fn materialize_scad_manifold(
       }
     },
 
+    // --- BOSL2 ---
+    // The native tree is the shape itself, built from LuaCAD primitives.
+    // Without one the call is OpenSCAD-only and contributes nothing here;
+    // `unsupported_constructs()` reports it to the user.
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => materialize_scad_manifold(native),
+
     // --- 2D shapes (only meaningful under an extrusion), text
     // and file ops: not yet supported ---
     _ => Manifold::empty(),
@@ -1625,6 +1634,12 @@ pub fn materialize_scad_cross_section(
       }
     },
 
+    // --- BOSL2: the 2D shapes build a native outline to extrude ---
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => materialize_scad_cross_section(native),
+
     // --- 3D shapes, text and file ops: nothing to extrude ---
     _ => CrossSection::empty(),
   }
@@ -1733,17 +1748,25 @@ fn collect_unsupported(
     ScadNode::Literal { .. } => {
       report("scad()", UnsupportedReason::NotImplemented)
     }
+    // A BOSL2 call the native builders cover renders from its own primitives;
+    // only the ones still waiting on a native implementation need OpenSCAD.
     ScadNode::BoslCall {
-      function, children, ..
-    } => {
-      report(
-        &format!("bosl.{function}()"),
-        UnsupportedReason::NotImplemented,
-      );
-      for child in children {
-        collect_unsupported(child, dim, found);
+      function,
+      children,
+      native,
+      ..
+    } => match native {
+      Some(native) => collect_unsupported(native, dim, found),
+      None => {
+        report(
+          &format!("bosl.{function}()"),
+          UnsupportedReason::NotImplemented,
+        );
+        for child in children {
+          collect_unsupported(child, dim, found);
+        }
       }
-    }
+    },
 
     // --- 3D primitives ---
     ScadNode::Cube { .. } => {
@@ -2506,18 +2529,45 @@ mod unsupported_tests {
     assert_eq!(names(&tree), vec!["surface()"]);
   }
 
-  #[test]
-  fn bosl_calls_are_named_individually() {
-    let bosl = |function: &str| ScadNode::BoslCall {
+  fn bosl(function: &str, native: Option<ScadNode>) -> ScadNode {
+    ScadNode::BoslCall {
       module: "std.scad".into(),
       function: function.into(),
       args: String::new(),
       has_children: false,
       children: vec![],
       preview: crate::scad_export::BoslPreviewParams::None,
-    };
-    let tree = ScadNode::Union(vec![bosl("cuboid"), bosl("spur_gear")]);
+      native: native.map(Box::new),
+    }
+  }
+
+  #[test]
+  fn bosl_calls_without_a_native_shape_are_named_individually() {
+    let tree =
+      ScadNode::Union(vec![bosl("cuboid", None), bosl("spur_gear", None)]);
     assert_eq!(names(&tree), vec!["bosl.cuboid()", "bosl.spur_gear()"]);
+  }
+
+  #[test]
+  fn a_bosl_call_with_a_native_shape_needs_nothing_from_openscad() {
+    let tree = bosl(
+      "cuboid",
+      Some(ScadNode::Cube {
+        w: 1.0,
+        d: 1.0,
+        h: 1.0,
+        center: true,
+      }),
+    );
+    assert!(names(&tree).is_empty());
+  }
+
+  /// The native shape is what gets built, so an unsupported construct inside
+  /// it still has to be reported.
+  #[test]
+  fn an_unsupported_construct_inside_a_native_shape_is_reported() {
+    let tree = bosl("cuboid", Some(surface()));
+    assert_eq!(names(&tree), vec!["surface()"]);
   }
 
   #[test]

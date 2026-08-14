@@ -8,7 +8,7 @@ so that the CLI and Studio can share them; they are internal and may change in
 any release.
 
 
-## 2026-08-13 - 1.0.0
+## 2026-08-14 - 1.0.0
 
 First stable release.
 
@@ -22,7 +22,23 @@ First stable release.
 - OFF and AMF export, alongside the existing 3MF, STL, OBJ, PLY and SCAD.
 - Every value a script returns becomes its own 3MF object, so slicers load
   them as individually movable parts. Name them with `:name(…)`.
-- Full support for the Belfry OpenSCAD Library v2 (BOSL2) under `bosl.*`.
+- The Belfry OpenSCAD Library v2 (BOSL2) under `bosl.*`. Its 2D and 3D shapes
+  are built from LuaCAD's own primitives, so they render, preview and export
+  to a mesh with neither OpenSCAD nor BOSL2 installed: `rect`, `ellipse`,
+  `regular_ngon` with the `pentagon`/`hexagon`/`octagon` shorthands,
+  `right_triangle`, `trapezoid`, `star`, `teardrop2d`, `egg`, `glued_circles`,
+  `squircle`, `keyhole`, `reuleaux_polygon`, `supershape`, `cuboid`,
+  `prismoid`, `regular_prism`, `rect_tube`, `wedge`, `octahedron`,
+  `cyl`/`xcyl`/`ycyl`/`zcyl`, `tube`, `pie_slice`, `spheroid`, `torus`,
+  `teardrop` and `onion` — with their `anchor`/`spin`/`orient` placement, the
+  `edges`/`except` selectors, and per-end and per-corner rounding and
+  chamfering. Each one is tested against the same call rendered by OpenSCAD
+  with BOSL2 installed, and agrees to within half a percent of volume.
+  The rest of the library — gears, threading, screws, the transform and
+  distributor modules, and the math and list functions — is passed through to
+  OpenSCAD, and named as such when a mesh export cannot represent it.
+- 2D `bosl.*` shapes return a sketch, so `linear_extrude()`,
+  `rotate_extrude()` and `offset()` apply to them.
 - SVG and DXF import, returning a sketch.
 - `import()` of a mesh returns a solid the Manifold backend can transform and
   combine, in every format LuaCAD exports: 3MF, STL, OBJ, PLY, OFF and AMF.
@@ -52,17 +68,21 @@ First stable release.
   `cube { size = { 1, 2, 3 }, centre = true }` used to build an uncentred cube
   without complaint; it now raises an error naming the valid parameters and
   suggesting the one you probably meant. This also catches the OpenSCAD habit
-  of writing `$fn` where LuaCAD expects `fn`.
+  of writing `$fn` where LuaCAD expects `fn`. `bosl.*` shapes are held to the
+  same rule, against the parameters the BOSL2 module actually declares, so
+  `bosl.cuboid { …, center = … }` is an error pointing at `anchor`: BOSL2's
+  `cuboid()` has no `center`, and OpenSCAD dropped it in silence and built a
+  centred cuboid whatever you asked for.
 - Lua errors and tracebacks now point at the user's script rather than at
   LuaCAD's own Rust source. An error on line 4 of `model.lua` reports
   `model.lua:4` instead of `crates/luacad/src/lua_engine.rs:1527:4`.
 - `luacad <unknown-command>` reports an unknown command and lists the valid
   ones, rather than trying to open the command as a file.
-- Constructs that only exist as OpenSCAD — `bosl.*`, `surface()`, `scad()` and
-  `import()` of a DXF file — are now named when a mesh export or
-  `luacad render` cannot represent them, instead of being dropped from the
-  output without a word. `luacad info` reports them as a warning next to the
-  triangle counts that exclude them.
+- Constructs that only exist as OpenSCAD — `surface()`, `scad()`, `import()`
+  of a DXF file, and the `bosl.*` functions with no native implementation —
+  are now named when a mesh export or `luacad render` cannot represent them,
+  instead of being dropped from the output without a word. `luacad info`
+  reports them as a warning next to the triangle counts that exclude them.
 - `--via-openscad` and `--via-manifold` are rejected as a pair instead of the
   latter silently winning.
 - The default segment count for round primitives went from 16 to 32.
