@@ -71,11 +71,11 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check luacad, manifold-sys and opencsg-sys at 1.89
+      - name: Check luacad, luacad-manifold-sys and opencsg-sys at 1.89
         run: |
           cargo +1.89.0 check \
             --package luacad \
-            --package manifold-sys \
+            --package luacad-manifold-sys \
             --package opencsg-sys \
             --all-targets
 

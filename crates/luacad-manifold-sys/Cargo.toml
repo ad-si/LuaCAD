@@ -1,5 +1,5 @@
 [package]
-name = "manifold-sys"
+name = "luacad-manifold-sys"
 version.workspace = true
 repository.workspace = true
 rust-version.workspace = true

@@ -1737,7 +1737,7 @@ dependencies = [
  "full_moon",
  "insta",
  "kurbo",
- "manifold-sys",
+ "luacad-manifold-sys",
  "mlua",
  "nalgebra",
  "png",
@@ -1749,6 +1749,14 @@ dependencies = [
  "ttf-parser",
  "usvg",
  "zip",
+]
+
+[[package]]
+name = "luacad-manifold-sys"
+version = "1.0.0"
+dependencies = [
+ "bindgen",
+ "cmake",
 ]
 
 [[package]]
@@ -1781,14 +1789,6 @@ checksum = "920cf654b23d217c550ceea57c32cd2a413ea27b6d47ed77b5ee0cf655adefa6"
 dependencies = [
  "cc",
  "which",
-]
-
-[[package]]
-name = "manifold-sys"
-version = "1.0.0"
-dependencies = [
- "bindgen",
- "cmake",
 ]
 
 [[package]]

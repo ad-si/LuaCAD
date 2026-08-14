@@ -62,7 +62,7 @@ release:
 	@echo '   pass or fail against stale artifacts; trust CI over it.'
 	@echo '4. Publish in dependency order — each must be live on crates.io'
 	@echo '   before the next one can resolve it:'
-	@echo '     cargo publish -p manifold-sys'
+	@echo '     cargo publish -p luacad-manifold-sys'
 	@echo '     cargo publish -p opencsg-sys'
 	@echo '     cargo publish -p luacad'
 	@echo '     cargo publish -p luacad-studio'
