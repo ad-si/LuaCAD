@@ -83,6 +83,9 @@ First stable release.
   are now named when a mesh export or `luacad render` cannot represent them,
   instead of being dropped from the output without a word. `luacad info`
   reports them as a warning next to the triangle counts that exclude them.
+- `offset(r = …)` facets its rounded corners the way OpenSCAD does, at the
+  same `$fa`/`$fs` defaults, so a rounded outline has the same vertices
+  whichever backend renders it.
 - `--via-openscad` and `--via-manifold` are rejected as a pair instead of the
   latter silently winning.
 - The default segment count for round primitives went from 16 to 32.

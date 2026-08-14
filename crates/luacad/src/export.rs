@@ -1400,6 +1400,18 @@ pub fn materialize_scad_manifold(
   }
 }
 
+/// How many facets OpenSCAD puts on a full circle of radius `r`.
+///
+/// This is OpenSCAD's own rule at its default `$fa = 12` and `$fs = 2`. An
+/// `offset(r = …)` takes its facet count from here rather than leaving it to
+/// the geometry backend, so a rounded corner has the same vertices whichever
+/// of the two renders it.
+fn openscad_segments(r: f64) -> u32 {
+  let by_angle: f64 = 360.0 / 12.0;
+  let by_length = r.abs() * 2.0 * std::f64::consts::PI / 2.0;
+  by_angle.min(by_length).ceil().max(5.0) as u32
+}
+
 /// Recursively evaluate the 2D part of a ScadNode tree into a Manifold
 /// CrossSection, mirroring [`materialize_scad_manifold`] for sketches.
 /// Nodes that aren't 2D — or aren't supported yet, such as `text()` —
@@ -1590,6 +1602,13 @@ pub fn materialize_scad_cross_section(
       } else {
         return cs;
       };
+      // A rounded corner is facetted the way OpenSCAD facets one, so an
+      // offset shape has the same vertex count either backend renders it.
+      let segments = if r.is_some() {
+        openscad_segments(dist.abs() as f64) as i32
+      } else {
+        0
+      };
       CrossSection(unsafe {
         manifold_cross_section_offset(
           CrossSection::alloc(),
@@ -1597,7 +1616,7 @@ pub fn materialize_scad_cross_section(
           dist as f64,
           join,
           2.0,
-          0,
+          segments,
         )
       })
     }
