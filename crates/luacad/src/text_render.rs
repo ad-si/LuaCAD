@@ -90,6 +90,16 @@ fn resolve_face(spec: &str) -> Option<fontdb::ID> {
   })
 }
 
+/// Whether the machine has any font at all to draw with.
+///
+/// Text geometry is only as available as the system font database, and a bare
+/// container has none. Tests that assert on glyph outlines use this to skip
+/// rather than fail there; CI installs a font so they actually run.
+#[cfg(test)]
+pub(crate) fn has_system_font() -> bool {
+  resolve_face("sans-serif").is_some()
+}
+
 /// Flatten `text` into closed contours, in mm, ready for
 /// `CrossSection::from_contours`.
 ///
@@ -339,7 +349,7 @@ mod tests {
   /// Every assertion below needs at least one system font. A machine without
   /// one (a bare container) skips rather than fails.
   fn have_fonts() -> bool {
-    resolve_face("sans-serif").is_some()
+    super::has_system_font()
   }
 
   fn render(

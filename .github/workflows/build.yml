@@ -162,6 +162,12 @@ jobs:
             libxrandr-dev \
             libwayland-dev
 
+      # text() and the BOSL2 text shapes outline a system font, and the runner
+      # image ships none. Without this the tests that assert on glyph geometry
+      # skip themselves and the text path goes untested.
+      - name: Install a font for the text tests
+        run: sudo apt-get install -y fonts-dejavu-core
+
       - name: Test
         run: cargo test
 

@@ -2125,6 +2125,12 @@ mod tests {
     materialize_scad_manifold(node).bounding_box()
   }
 
+  /// `text3d` and `path_text` outline a system font, so they build nothing at
+  /// all on a machine that has none. Those tests skip there rather than fail.
+  fn have_fonts() -> bool {
+    crate::text_render::has_system_font()
+  }
+
   fn build(name: &str, code: &str) -> ScadNode {
     let lua = mlua::Lua::new();
     let v: mlua::Value = lua.load(code).eval().unwrap();
@@ -2487,6 +2493,9 @@ mod tests {
 
   #[test]
   fn text3d_stands_the_letters_up_as_a_solid() {
+    if !have_fonts() {
+      return;
+    }
     let n = build("text3d", "return { 'Hi', size = 10, h = 2 }");
     let (lo, hi) = bbox(&n);
     assert!(volume(&n) > 0.0);
@@ -2499,6 +2508,9 @@ mod tests {
 
   #[test]
   fn text3d_reads_its_alignment_off_the_anchor() {
+    if !have_fonts() {
+      return;
+    }
     let (_, right) = bbox(&build(
       "text3d",
       "return { 'Hi', size = 10, h = 2, anchor = { 1, 0, 0 } }",
@@ -2514,6 +2526,9 @@ mod tests {
 
   #[test]
   fn path_text_sets_the_letters_along_the_path() {
+    if !have_fonts() {
+      return;
+    }
     let n = build(
       "path_text",
       "return { path = { {0,0,0}, {60,0,0} }, text = 'ABC',
@@ -2531,6 +2546,9 @@ mod tests {
 
   #[test]
   fn path_text_bends_the_letters_round_a_curve() {
+    if !have_fonts() {
+      return;
+    }
     let straight = bbox(&build(
       "path_text",
       "return { path = { {0,0,0}, {60,0,0} }, text = 'ABC',
