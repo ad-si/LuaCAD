@@ -249,6 +249,7 @@ Other CAD software with programmatic model creation:
 - [bevy_editor_cam] - Camera controller for 2D/3D editors and CAD in Bevy
 - [BlocksCAD] - Blockly-based CAD
 - [CadQuery] - Python module for parametric 3D CAD models
+- [DSLCAD] - Programming language and interpreter for building 3D models
 - [Flowscad] - Rust interface to OpenSCAD
 - [ForgeCAD] - AI-native CAD for products, manufacturing, and robotics
 - [FreeCAD] - Python scripting
@@ -272,6 +273,7 @@ Other CAD software with programmatic model creation:
 [bevy_editor_cam]: https://github.com/aevyrie/bevy_editor_cam
 [BlocksCAD]: https://www.blockscad3d.com/editor/
 [CadQuery]: https://github.com/CadQuery/cadquery
+[DSLCAD]: https://dslcad.com
 [Flowscad]: https://github.com/SmoothDragon/flowscad
 [ForgeCAD]: https://forgecad.io/
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
