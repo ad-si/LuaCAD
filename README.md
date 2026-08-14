@@ -118,11 +118,13 @@ bosl.regular_prism { 5, r = 10, h = 25 }
 bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
 ```
 
-BOSL2 calls are emitted as OpenSCAD, so they need OpenSCAD to become a mesh —
-export to `.scad`, or convert with `--via-openscad`. Studio previews the common
-BOSL2 shapes with built-in approximations. The same applies to `surface()`,
-`scad()` and `import()` of a DXF file; `luacad` names them rather than
-exporting a file without them.
+The whole library is reimplemented in LuaCAD, so it renders, previews and
+exports to a mesh without OpenSCAD or BOSL2 installed. Exporting to `.scad`
+still writes the BOSL2 call itself, which keeps the exported file as short as
+the script that produced it.
+
+`surface()`, `scad()` and `import()` of a DXF file do still need OpenSCAD;
+`luacad` names them rather than exporting a file without them.
 
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki
 

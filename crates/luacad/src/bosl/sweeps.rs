@@ -250,7 +250,7 @@ fn skin(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
 /// Each frame is the previous one turned by the smallest rotation that lines
 /// its axis up with the new tangent. Building each frame from scratch would
 /// let it spin about the tangent wherever the path passes vertical.
-fn parallel_frames(path: &[[f64; 3]], closed: bool) -> Vec<Mat4> {
+pub fn parallel_frames_of(path: &[[f64; 3]], closed: bool) -> Vec<Mat4> {
   let n = path.len();
   if n == 0 {
     return vec![];
@@ -315,7 +315,7 @@ fn path_sweep(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   let scale_end = a.num_or("scale", 1.0);
   let caps = a.bool("caps").unwrap_or(!closed);
 
-  let frames = parallel_frames(&path, closed);
+  let frames = parallel_frames_of(&path, closed);
   let n = frames.len();
   let rows: Vec<Vec<[f64; 3]>> = frames
     .iter()

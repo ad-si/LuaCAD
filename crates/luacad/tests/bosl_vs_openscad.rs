@@ -354,6 +354,10 @@ fn round_shapes_match_bosl2() {
       "teardrop capped",
       "bosl.teardrop { r = 15, h = 20, cap_h = 18 }",
     ),
+    ("fillet", "bosl.fillet { l = 20, r = 6 }"),
+    ("fillet obtuse", "bosl.fillet { l = 20, r = 6, ang = 120 }"),
+    ("fillet acute", "bosl.fillet { l = 20, r = 6, ang = 60 }"),
+    ("fillet tapered", "bosl.fillet { l = 20, r1 = 3, r2 = 8 }"),
   ]);
 }
 
@@ -518,6 +522,43 @@ fn extruded_2d_shapes_match_bosl2() {
     ("keyhole", "bosl.keyhole { l = 15, r1 = 5, r2 = 10 }"),
     ("reuleaux", "bosl.reuleaux_polygon { n = 5, r = 15 }"),
     ("supershape", "bosl.supershape { m1 = 6, n1 = 1, r = 15 }"),
+    ("ring", "bosl.ring { r1 = 15, r2 = 9, n = 64 }"),
+    (
+      "ring by width",
+      "bosl.ring { r = 15, ring_width = -6, n = 64 }",
+    ),
+    (
+      "ring arc",
+      "bosl.ring { r1 = 15, r2 = 9, n = 64, angle = {20, 200} }",
+    ),
+    (
+      "jittered_poly",
+      "bosl.jittered_poly { path = { {0,0}, {10,0}, {20,0}, {20,20}, {0,20} } }",
+    ),
+    (
+      "round2d",
+      "bosl.round2d { r = 4, p = bosl.rect { {30, 20} } }",
+    ),
+    (
+      "round2d outside only",
+      "bosl.round2d { ['or'] = 5, p = bosl.star { n = 5, r = 20, ir = 9 } }",
+    ),
+    (
+      "round2d inside only",
+      "bosl.round2d { ir = 3, p = bosl.star { n = 5, r = 20, ir = 9 } }",
+    ),
+    (
+      "shell2d inward",
+      "bosl.shell2d { thickness = -3, p = bosl.rect { {30, 20} } }",
+    ),
+    (
+      "shell2d outward",
+      "bosl.shell2d { thickness = 3, p = bosl.rect { {30, 20} } }",
+    ),
+    (
+      "shell2d both ways",
+      "bosl.shell2d { thickness = {-2, 2}, p = bosl.ellipse { r = 15 } }",
+    ),
   ]
   .iter()
   .map(|(n, c)| (n.to_string(), wrap(c)))

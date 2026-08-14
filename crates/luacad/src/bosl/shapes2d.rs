@@ -14,6 +14,7 @@ use crate::bosl::args::Args;
 use crate::bosl::attach::{Attachable, Geom, reorient};
 use crate::bosl::vecmath::{Mat4, V2};
 use crate::bosl::vnf::arc_pts;
+use crate::geometry::CsgSketch;
 use crate::scad_export::ScadNode;
 
 /// A closed 2D outline.
@@ -788,6 +789,31 @@ pub fn builder(name: &str) -> Option<(&'static [&'static str], Build)> {
       ],
       build_supershape as Build,
     ),
+    "jittered_poly" => (&["path", "dist"], build_jittered_poly as Build),
+    "ring" => (
+      &[
+        "n",
+        "ring_width",
+        "r",
+        "r1",
+        "r2",
+        "angle",
+        "d",
+        "d1",
+        "d2",
+        "cp",
+        "points",
+        "corner",
+        "width",
+        "thickness",
+        "start",
+        "long",
+        "full",
+        "cw",
+        "ccw",
+      ],
+      build_ring as Build,
+    ),
     _ => return None,
   })
 }
@@ -1171,6 +1197,282 @@ fn build_supershape(args: &Args) -> LuaResult<Option<ScadNode>> {
   placed(path_node(&path), args, &extent_geom(&path))
 }
 
+/// Nudge collinear points off the line they sit on.
+///
+/// A twisted `linear_extrude()` only bends a polygon at its vertices, so a
+/// long straight run comes out as one flat facet. Moving the intermediate
+/// points a fraction to alternate sides keeps them as real corners, and the
+/// twist follows the subdivision.
+pub fn jitter_path(path: &[V2], dist: f64) -> Path {
+  if path.len() < 3 {
+    return path.to_vec();
+  }
+  let n = path.len();
+  let mut out = Vec::with_capacity(n);
+  out.push(path[0]);
+  for i in 1..n {
+    let prev = path[i - 1];
+    let here = path[i];
+    let next = path[(i + 1) % n];
+    // Only a point its neighbours already line up with needs moving.
+    let cross = (here[0] - prev[0]) * (next[1] - prev[1])
+      - (here[1] - prev[1]) * (next[0] - prev[0]);
+    if cross.abs() > EPS {
+      out.push(here);
+      continue;
+    }
+    // The segment's left normal, which is the direction to move along.
+    let d = [here[0] - prev[0], here[1] - prev[1]];
+    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    if len <= EPS {
+      out.push(here);
+      continue;
+    }
+    let normal = [-d[1] / len, d[0] / len];
+    // Alternating sides keeps the outline's area unchanged to first order.
+    let amount = dist * ((i % 2) as f64 * 2.0 - 1.0);
+    out.push([here[0] + normal[0] * amount, here[1] + normal[1] * amount]);
+  }
+  out
+}
+
+fn build_jittered_poly(args: &Args) -> LuaResult<Option<ScadNode>> {
+  let Some(path) = args.points2("path") else {
+    return args.err("path is required");
+  };
+  let jittered = jitter_path(&path, args.num_or("dist", 1.0 / 512.0));
+  placed(path_node(&jittered), args, &extent_geom(&jittered))
+}
+
+/// A ring: the area between two concentric circles, whole or as an arc.
+fn build_ring(args: &Args) -> LuaResult<Option<ScadNode>> {
+  // The point, corner and width/thickness forms fit the circle to given
+  // points rather than taking a radius; those still go through OpenSCAD.
+  if [
+    "points",
+    "corner",
+    "width",
+    "thickness",
+    "start",
+    "long",
+    "cw",
+    "ccw",
+  ]
+  .iter()
+  .any(|p| args.has(p))
+  {
+    return Ok(None);
+  }
+  let r = args.radius("r", "d", None);
+  let r1 = args.radius("r1", "d1", None);
+  let r2 = args.radius("r2", "d2", None);
+  let ring_width = args.num("ring_width");
+  // Either both edges are named, or one edge and the width across it. A
+  // negative width puts the second edge inside the first.
+  let (inner, outer) = match (r1, r2, r, ring_width) {
+    (Some(a), Some(b), None, None) => (a.min(b), a.max(b)),
+    (None, None, Some(r), Some(w)) => (r.min(r + w), r.max(r + w)),
+    _ => return args.err("give r1 and r2, or r and ring_width"),
+  };
+  if inner <= 0.0 || outer <= inner {
+    return args.err("the ring's radii must be positive and different");
+  }
+  let cp = args.vec2("cp").unwrap_or([0.0, 0.0]);
+  let facets = args
+    .int("n")
+    .map(|v| (v as u32).max(3))
+    .unwrap_or_else(|| args.segments(outer));
+
+  // An angle always means a partial ring, whatever `full` says.
+  let angle = args.nums("angle");
+  let (start, sweep) = match angle.as_deref() {
+    Some([a, b]) => (*a, b - a),
+    Some([a]) => (0.0, *a),
+    _ => (0.0, 360.0),
+  };
+  let whole = angle.is_none() || sweep.abs() >= 360.0;
+
+  let node = if whole {
+    // Two full circles, so the hole is a hole rather than a slit.
+    let circle = |r: f64| ScadNode::Translate {
+      x: cp[0] as f32,
+      y: cp[1] as f32,
+      z: 0.0,
+      child: Box::new(ScadNode::Circle {
+        r: r as f32,
+        segments: facets,
+      }),
+    };
+    ScadNode::Difference(vec![circle(outer), circle(inner)])
+  } else {
+    let mut path = bosl_arc(facets, outer, cp, start, sweep, true);
+    path.extend(bosl_arc(facets, inner, cp, start + sweep, -sweep, true));
+    path_node(&path)
+  };
+
+  let attachable = if whole {
+    Attachable::new(Geom::Ellipse { r: [outer, outer] })
+  } else {
+    let mut path = bosl_arc(facets, outer, cp, start, sweep, true);
+    path.extend(bosl_arc(facets, inner, cp, start + sweep, -sweep, true));
+    extent_geom(&path)
+  };
+  placed(node, args, &attachable)
+}
+
+// ---------------------------------------------------------------------------
+// The 2D operators, which reshape a sketch rather than make one
+// ---------------------------------------------------------------------------
+
+/// Read the sketch a 2D operator works on.
+///
+/// BOSL2 takes it as a child; LuaCAD has no child syntax, so it comes in as
+/// the `p` argument the way the transforms take theirs.
+fn read_child(args: &Args) -> LuaResult<ScadNode> {
+  match args.raw("p") {
+    Some(mlua::Value::UserData(ud)) => match ud.borrow::<CsgSketch>() {
+      Ok(s) => Ok(s.scad.clone().unwrap_or_else(|| ScadNode::Union(vec![]))),
+      Err(_) => args.err("p must be a 2D shape"),
+    },
+    _ => args.err("p is required, and must be a 2D shape"),
+  }
+}
+
+fn offset_r(child: ScadNode, r: f64) -> ScadNode {
+  if r == 0.0 {
+    return child;
+  }
+  ScadNode::Offset {
+    delta: None,
+    r: Some(r as f32),
+    chamfer: false,
+    child: Box::new(child),
+  }
+}
+
+fn offset_delta(child: ScadNode, delta: f64, chamfer: bool) -> ScadNode {
+  if delta == 0.0 {
+    return child;
+  }
+  ScadNode::Offset {
+    delta: Some(delta as f32),
+    r: None,
+    chamfer,
+    child: Box::new(child),
+  }
+}
+
+/// Round a shape's corners by offsetting out and back in again.
+///
+/// Growing then shrinking rounds the convex corners and leaves the concave
+/// ones; the chamfered inward step first keeps the concave corners from
+/// being rounded when only `or` was asked for.
+fn round2d_node(child: ScadNode, or: f64, ir: f64) -> ScadNode {
+  offset_r(offset_r(offset_delta(child, ir, true), -ir - or), or)
+}
+
+/// One radius given as either a single number or `[convex, concave]`.
+fn radius_pair(args: &Args, name: &str) -> [f64; 2] {
+  match args.nums(name) {
+    Some(v) if v.len() >= 2 => [v[0], v[1]],
+    _ => [args.num_or(name, 0.0); 2],
+  }
+}
+
+fn sketch_value(
+  lua: &mlua::Lua,
+  function: &'static str,
+  args: String,
+  child: ScadNode,
+  native: ScadNode,
+) -> LuaResult<mlua::Value> {
+  let scad = crate::bosl::bosl_node_with_children(
+    "std.scad",
+    function,
+    args,
+    vec![child],
+    Some(native),
+  );
+  Ok(mlua::Value::UserData(lua.create_userdata(CsgSketch {
+    #[cfg(feature = "csgrs")]
+    sketch: crate::geometry::empty_sketch(),
+    #[cfg(not(feature = "csgrs"))]
+    sketch: (),
+    color: None,
+    scad: Some(scad),
+  })?))
+}
+
+fn round2d(lua: &mlua::Lua, args: &Args) -> LuaResult<mlua::Value> {
+  let r = args.num("r");
+  let or = args.num("or").or(r).unwrap_or(0.0);
+  let ir = args.num("ir").or(r).unwrap_or(0.0);
+  let child = read_child(args)?;
+  let native = round2d_node(child.clone(), or, ir);
+  sketch_value(
+    lua,
+    "round2d",
+    format!("or = {or}, ir = {ir}"),
+    child,
+    native,
+  )
+}
+
+fn shell2d(lua: &mlua::Lua, args: &Args) -> LuaResult<mlua::Value> {
+  // A positive thickness grows the shell outward, a negative one eats it
+  // inward, and a pair does both at once.
+  let thickness = match args.nums("thickness") {
+    Some(v) if v.len() >= 2 => [v[0].min(v[1]), v[0].max(v[1])],
+    _ => {
+      let t = args.num_or("thickness", 1.0);
+      if t < 0.0 { [t, 0.0] } else { [0.0, t] }
+    }
+  };
+  let orad = radius_pair(args, "or");
+  let irad = radius_pair(args, "ir");
+  let child = read_child(args)?;
+
+  let native = ScadNode::Difference(vec![
+    round2d_node(
+      offset_delta(child.clone(), thickness[1], false),
+      orad[0],
+      orad[1],
+    ),
+    round2d_node(
+      offset_delta(child.clone(), thickness[0], false),
+      irad[1],
+      irad[0],
+    ),
+  ]);
+  sketch_value(
+    lua,
+    "shell2d",
+    format!("thickness = [{}, {}]", thickness[0], thickness[1]),
+    child,
+    native,
+  )
+}
+
+/// Register the 2D operators, which the generic shim cannot express because
+/// they take a shape rather than only numbers.
+pub fn register(lua: &mlua::Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  crate::bosl::threading::register_shape(
+    lua,
+    bosl,
+    "round2d",
+    &["r", "or", "ir", "p"],
+    round2d,
+  )?;
+  crate::bosl::threading::register_shape(
+    lua,
+    bosl,
+    "shell2d",
+    &["thickness", "or", "ir", "p"],
+    shell2d,
+  )?;
+  Ok(())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -1348,5 +1650,145 @@ mod tests {
     let w = p.iter().fold(f64::NEG_INFINITY, |a, q| a.max(q[0]))
       - p.iter().fold(f64::INFINITY, |a, q| a.min(q[0]));
     assert!(w > 30.0, "{w}");
+  }
+
+  /// The area of a 2D shape, measured by extruding it one unit.
+  fn area_of(code: &str) -> (f64, ([f32; 3], [f32; 3])) {
+    let geoms = crate::lua_engine::execute_lua(&format!(
+      "render(({code}):linear_extrude(1))"
+    ))
+    .unwrap();
+    let m =
+      crate::export::materialize_scad_manifold(&geoms[0].scad.clone().unwrap());
+    (m.volume() as f64, m.bounding_box())
+  }
+
+  #[test]
+  fn jitter_only_moves_the_points_between_two_collinear_neighbours() {
+    // The corners of the square stay put; the midpoints of its sides move.
+    let path = vec![
+      [0.0, 0.0],
+      [5.0, 0.0],
+      [10.0, 0.0],
+      [10.0, 10.0],
+      [0.0, 10.0],
+    ];
+    let out = jitter_path(&path, 0.5);
+    assert_eq!(out.len(), path.len());
+    assert_eq!(out[0], path[0]);
+    assert_eq!(out[3], path[3]);
+    assert!((out[1][1] - path[1][1]).abs() > 0.4, "{:?}", out[1]);
+    assert!((out[1][0] - path[1][0]).abs() < 1e-9, "{:?}", out[1]);
+  }
+
+  #[test]
+  fn a_jittered_polygon_is_still_the_shape_it_started_as() {
+    let (v, _) = area_of(
+      "bosl.jittered_poly { path = { {0,0}, {10,0}, {20,0}, {20,20}, {0,20} },
+                            dist = 0.01 }",
+    );
+    assert!((v - 400.0).abs() < 1.0, "{v}");
+  }
+
+  #[test]
+  fn a_ring_is_the_area_between_its_two_circles() {
+    let (v, (_, hi)) = area_of("bosl.ring { r1 = 10, r2 = 6, n = 256 }");
+    let ideal = PI * (100.0 - 36.0);
+    assert!((v - ideal).abs() / ideal < 0.001, "{v} against {ideal}");
+    assert!((hi[0] - 10.0).abs() < 0.01, "{hi:?}");
+  }
+
+  #[test]
+  fn a_ring_can_be_given_as_one_radius_and_a_width() {
+    let both = area_of("bosl.ring { r1 = 6, r2 = 10, n = 256 }").0;
+    let width = area_of("bosl.ring { r = 6, ring_width = 4, n = 256 }").0;
+    assert!((both - width).abs() < 1e-6, "{both} against {width}");
+    // A negative width puts the second edge inside the first.
+    let inward = area_of("bosl.ring { r = 10, ring_width = -4, n = 256 }").0;
+    assert!((both - inward).abs() < 1e-6, "{both} against {inward}");
+  }
+
+  #[test]
+  fn an_arc_of_a_ring_covers_only_its_angle() {
+    let full = area_of("bosl.ring { r1 = 10, r2 = 6, n = 256 }").0;
+    let (half, (lo, _)) =
+      area_of("bosl.ring { r1 = 10, r2 = 6, n = 256, angle = {0, 180} }");
+    assert!((half / full - 0.5).abs() < 0.01, "{half} against {full}");
+    // The lower half is gone, so nothing reaches below the axis.
+    assert!(lo[1] > -0.01, "{lo:?}");
+  }
+
+  #[test]
+  fn a_ring_needs_a_pair_of_radii_that_make_sense() {
+    let err = crate::lua_engine::execute_lua("bosl.ring { r = 10 }")
+      .unwrap_err()
+      .to_string();
+    assert!(err.contains("r1 and r2"), "{err}");
+  }
+
+  #[test]
+  fn rounding_a_square_takes_its_corners_off() {
+    let square = area_of("bosl.rect { {20, 20} }").0;
+    let rounded =
+      area_of("bosl.round2d { r = 4, p = bosl.rect { {20, 20} } }").0;
+    // Four corners each lose a square less its inscribed quarter circle.
+    // The arcs are facetted at OpenSCAD's default, which at this radius is
+    // only about three segments a corner, so they cut a little deeper than
+    // the true circle would.
+    let lost = 4.0 * (16.0 - PI * 16.0 / 4.0);
+    let actual = square - rounded;
+    assert!(actual > lost, "{actual} against {lost}");
+    assert!((actual - lost) / lost < 0.2, "{actual} against {lost}");
+  }
+
+  #[test]
+  fn rounding_only_the_inside_corners_leaves_the_outside_ones_sharp() {
+    // A star has both: sharp points outside and sharp valleys inside.
+    let star = "bosl.star { n = 5, r = 50, ir = 25 }";
+    let sharp = area_of(star).0;
+    let outside =
+      area_of(&format!("bosl.round2d {{ ['or'] = 5, p = {star} }}")).0;
+    let inside = area_of(&format!("bosl.round2d {{ ir = 5, p = {star} }}")).0;
+    // Rounding the points takes material off and rounding the valleys puts
+    // it on, so the two land on opposite sides of the sharp shape.
+    assert!(outside < sharp, "{outside} against {sharp}");
+    assert!(inside > sharp, "{inside} against {sharp}");
+  }
+
+  #[test]
+  fn a_shell_is_the_wall_left_between_two_offsets() {
+    // A 2 mm wall taken inward from a 20 mm square.
+    let (v, (_, hi)) =
+      area_of("bosl.shell2d { thickness = -2, p = bosl.rect { {20, 20} } }");
+    let ideal = 400.0 - 16.0f64.powi(2);
+    assert!((v - ideal).abs() / ideal < 0.01, "{v} against {ideal}");
+    assert!((hi[0] - 10.0).abs() < 0.01, "{hi:?}");
+  }
+
+  #[test]
+  fn a_positive_shell_grows_outward_instead() {
+    let (v, (_, hi)) =
+      area_of("bosl.shell2d { thickness = 2, p = bosl.rect { {20, 20} } }");
+    // The wall is outside the square, so the shape gets bigger.
+    assert!((hi[0] - 12.0).abs() < 0.01, "{hi:?}");
+    assert!(v > 400.0 - 16.0f64.powi(2), "{v}");
+  }
+
+  #[test]
+  fn a_two_sided_shell_straddles_the_outline() {
+    let (v, (_, hi)) = area_of(
+      "bosl.shell2d { thickness = {-1, 1}, p = bosl.rect { {20, 20} } }",
+    );
+    assert!((hi[0] - 11.0).abs() < 0.01, "{hi:?}");
+    let ideal = 22.0f64.powi(2) - 18.0f64.powi(2);
+    assert!((v - ideal).abs() / ideal < 0.01, "{v} against {ideal}");
+  }
+
+  #[test]
+  fn a_2d_operator_needs_a_2d_shape_to_work_on() {
+    let err = crate::lua_engine::execute_lua("bosl.round2d { r = 2 }")
+      .unwrap_err()
+      .to_string();
+    assert!(err.contains("2D shape"), "{err}");
   }
 }

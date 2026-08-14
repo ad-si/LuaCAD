@@ -16,15 +16,19 @@ pub mod beziers;
 pub mod coords;
 pub mod distributors;
 pub mod edges;
+pub mod gears;
 pub mod geom;
 pub mod linalg;
 pub mod lists;
 pub mod masks;
 pub mod math;
+pub mod parts;
 pub mod paths;
+pub mod screws;
 pub mod shapes2d;
 pub mod shapes3d;
 pub mod sweeps;
+pub mod threading;
 pub mod transforms;
 pub mod value;
 pub mod vecmath;
@@ -695,14 +699,6 @@ enum Dim {
 /// call falls back to OpenSCAD instead of quietly building the wrong solid.
 pub type NativeBuilder = fn(&args::Args) -> LuaResult<Option<ScadNode>>;
 
-/// Whether a BOSL2 shape is built from LuaCAD's own primitives.
-///
-/// Functions that compute a value rather than geometry are all native and do
-/// not appear here; this only answers for the shape-producing ones.
-pub fn builds_natively(function: &str) -> bool {
-  native_builder(function).is_some()
-}
-
 /// The parameter list and builder for a BOSL2 shape that has a native
 /// implementation, or `None` when the call always needs OpenSCAD.
 fn native_builder(
@@ -719,6 +715,36 @@ fn native_builder(
 // Module-specific registration helpers
 // ---------------------------------------------------------------------------
 
+/// The names that still go through OpenSCAD, which is now none of them.
+///
+/// The generic shim below is the only thing that can produce a call with no
+/// native shape behind it, so recording what it registers is an exact account
+/// of what is left to port — and the coverage test keeps it at zero.
+static OPENSCAD_ONLY: std::sync::OnceLock<
+  std::sync::Mutex<std::collections::BTreeSet<&'static str>>,
+> = std::sync::OnceLock::new();
+
+/// The clearance a printed part leaves so a matching one still fits.
+///
+/// BOSL2 reads this from `$slop`, which LuaCAD has no equivalent of, so the
+/// same 0.0 default applies and each call can override it.
+pub fn get_slop() -> f64 {
+  0.0
+}
+
+/// Every name still handled by OpenSCAD, in order.
+pub fn openscad_only_names() -> Vec<String> {
+  OPENSCAD_ONLY
+    .get()
+    .and_then(|set| {
+      set
+        .lock()
+        .ok()
+        .map(|s| s.iter().map(|n| n.to_string()).collect())
+    })
+    .unwrap_or_default()
+}
+
 /// Register a batch of simple BOSL2 functions onto a Lua table.
 fn register_functions(
   lua: &Lua,
@@ -726,9 +752,18 @@ fn register_functions(
   module: &'static str,
   names: &[&'static str],
 ) -> LuaResult<()> {
+  let registry = OPENSCAD_ONLY
+    .get_or_init(|| std::sync::Mutex::new(std::collections::BTreeSet::new()));
   for &name in names {
     let f = make_bosl_fn(lua, module, name)?;
     table.set(name, f)?;
+    // A name the shim registers has no native builder, or `make_bosl_fn`
+    // would have used it.
+    if native_builder(name).is_none()
+      && let Ok(mut set) = registry.lock()
+    {
+      set.insert(name);
+    }
   }
   Ok(())
 }
@@ -855,7 +890,9 @@ fn register_constants(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
   ident.set(4, row4)?;
   bosl.set("IDENT", ident)?;
 
-  register_functions(lua, bosl, "std.scad", &["get_slop"])?;
+  // BOSL2 reads the printer's clearance from `$slop`, which LuaCAD has no
+  // equivalent of, so this reports the same default every call falls back to.
+  bosl.set("get_slop", lua.create_function(|_, ()| Ok(get_slop()))?)?;
 
   Ok(())
 }
@@ -979,11 +1016,12 @@ fn register_shapes2d(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
       "keyhole",
       "reuleaux_polygon",
       "supershape",
-      // Rounding 2D shapes
-      "round2d",
-      "shell2d",
     ],
   )?;
+
+  // The two 2D operators take a shape rather than only numbers, which the
+  // generic shim has no way to express.
+  shapes2d::register(lua, bosl)?;
 
   Ok(())
 }
@@ -1076,31 +1114,7 @@ fn register_vnf(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_threading(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "threading.scad",
-    &[
-      "threaded_rod",
-      "threaded_nut",
-      "trapezoidal_threaded_rod",
-      "trapezoidal_threaded_nut",
-      "acme_threaded_rod",
-      "acme_threaded_nut",
-      "npt_threaded_rod",
-      "bspp_threaded_rod",
-      "buttress_threaded_rod",
-      "buttress_threaded_nut",
-      "square_threaded_rod",
-      "square_threaded_nut",
-      "ball_screw_rod",
-      "generic_threaded_rod",
-      "generic_threaded_nut",
-      "thread_helix",
-    ],
-  )?;
-
-  Ok(())
+  threading::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1108,50 +1122,15 @@ fn register_threading(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_screws(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "screws.scad",
-    &[
-      "screw",
-      "screw_hole",
-      "shoulder_screw",
-      "screw_head",
-      "nut",
-      "nut_trap_side",
-      "nut_trap_inline",
-      "screw_info",
-      "nut_info",
-      "thread_specification",
-    ],
-  )?;
-
-  Ok(())
+  screws::register(lua, bosl)
 }
 
 // ===========================================================================
 // screw_drive.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_screw_drive(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "screw_drive.scad",
-    &[
-      "phillips_mask",
-      "hex_drive_mask",
-      "torx_mask",
-      "torx_mask2d",
-      "robertson_mask",
-      "phillips_depth",
-      "phillips_diam",
-      "torx_info",
-      "torx_diam",
-      "torx_depth",
-    ],
-  )?;
-
+fn register_screw_drive(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the threads, which share their tables.
   Ok(())
 }
 
@@ -1160,45 +1139,7 @@ fn register_screw_drive(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_gears(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "gears.scad",
-    &[
-      // Gear modules
-      "spur_gear",
-      "spur_gear2d",
-      "ring_gear",
-      "ring_gear2d",
-      "rack",
-      "rack2d",
-      "crown_gear",
-      "bevel_gear",
-      "worm",
-      "enveloping_worm",
-      "worm_gear",
-      "planetary_gears",
-      // Dimension functions
-      "circular_pitch",
-      "diametral_pitch",
-      "module_value",
-      "pitch_radius",
-      "outer_radius",
-      "root_radius",
-      "bevel_pitch_angle",
-      "worm_gear_thickness",
-      "worm_dist",
-      "gear_dist",
-      "gear_dist_skew",
-      "gear_skew_angle",
-      "get_profile_shift",
-      "auto_profile_shift",
-      "gear_shorten",
-      "gear_shorten_skew",
-    ],
-  )?;
-
-  Ok(())
+  gears::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1206,34 +1147,15 @@ fn register_gears(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_joiners(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "joiners.scad",
-    &[
-      "half_joiner_clear",
-      "half_joiner",
-      "half_joiner2",
-      "joiner_clear",
-      "joiner",
-      "dovetail",
-      "snap_pin",
-      "snap_pin_socket",
-      "rabbit_clip",
-      "hirth",
-    ],
-  )?;
-
-  Ok(())
+  parts::register(lua, bosl)
 }
 
 // ===========================================================================
 // sliders.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_sliders(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(lua, bosl, "sliders.scad", &["slider", "rail"])?;
-
+fn register_sliders(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1241,14 +1163,8 @@ fn register_sliders(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // linear_bearings.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_linear_bearings(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "linear_bearings.scad",
-    &["linear_bearing", "lmXuu_info", "linear_bearing_housing"],
-  )?;
-
+fn register_linear_bearings(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1256,35 +1172,8 @@ fn register_linear_bearings(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // nema_steppers.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_nema_steppers(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "nema_steppers.scad",
-    &[
-      // Functions
-      "nema_motor_width",
-      "nema_motor_plinth_height",
-      "nema_motor_plinth_diam",
-      "nema_motor_screw_spacing",
-      "nema_motor_screw_size",
-      "nema_motor_screw_depth",
-      // Motor models
-      "nema11_stepper",
-      "nema14_stepper",
-      "nema17_stepper",
-      "nema23_stepper",
-      "nema34_stepper",
-      // Masking modules
-      "nema_mount_holes",
-      "nema11_mount_holes",
-      "nema14_mount_holes",
-      "nema17_mount_holes",
-      "nema23_mount_holes",
-      "nema34_mount_holes",
-    ],
-  )?;
-
+fn register_nema_steppers(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1292,14 +1181,8 @@ fn register_nema_steppers(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // wiring.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_wiring(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "wiring.scad",
-    &["hex_offset_ring", "hex_offsets", "wiring"],
-  )?;
-
+fn register_wiring(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1307,21 +1190,8 @@ fn register_wiring(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // walls.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_walls(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "walls.scad",
-    &[
-      "narrowing_strut",
-      "thinning_wall",
-      "thinning_triangle",
-      "sparse_strut",
-      "sparse_strut3d",
-      "corrugated_wall",
-    ],
-  )?;
-
+fn register_walls(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1329,14 +1199,8 @@ fn register_walls(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ball_bearings.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_ball_bearings(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "ball_bearings.scad",
-    &["ball_bearing", "ball_bearing_info"],
-  )?;
-
+fn register_ball_bearings(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1344,25 +1208,8 @@ fn register_ball_bearings(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // bottlecaps.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_bottlecaps(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "bottlecaps.scad",
-    &[
-      "pco1810_neck",
-      "pco1810_cap",
-      "pco1881_neck",
-      "pco1881_cap",
-      "generic_bottle_neck",
-      "generic_bottle_cap",
-      "bottle_adapter_neck_to_cap",
-      "bottle_adapter_cap_to_cap",
-      "bottle_adapter_neck_to_neck",
-      "sp_neck",
-    ],
-  )?;
-
+fn register_bottlecaps(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1370,24 +1217,8 @@ fn register_bottlecaps(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // cubetruss.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_cubetruss(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "cubetruss.scad",
-    &[
-      "cubetruss",
-      "cubetruss_corner",
-      "cubetruss_support",
-      "cubetruss_clip",
-      "cubetruss_foot",
-      "cubetruss_joiner",
-      "cubetruss_uclip",
-      "cubetruss_segment",
-      "cubetruss_dist",
-    ],
-  )?;
-
+fn register_cubetruss(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1395,14 +1226,8 @@ fn register_cubetruss(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // hinges.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_hinges(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "hinges.scad",
-    &["knuckle_hinge", "living_hinge_mask"],
-  )?;
-
+fn register_hinges(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1410,9 +1235,8 @@ fn register_hinges(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // polyhedra.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_polyhedra(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(lua, bosl, "polyhedra.scad", &["regular_polyhedron"])?;
-
+fn register_polyhedra(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 
@@ -1420,14 +1244,8 @@ fn register_polyhedra(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // tripod_mounts.scad  (NOT in std.scad)
 // ===========================================================================
 
-fn register_tripod_mounts(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "tripod_mounts.scad",
-    &["manfrotto_rc2_plate", "tripod_mount"],
-  )?;
-
+fn register_tripod_mounts(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the other mechanical parts, which share their tables.
   Ok(())
 }
 

@@ -1626,8 +1626,435 @@ pub fn builder(name: &str) -> Option<(&'static [&'static str], Build)> {
       &["r", "ang", "cap_h", "d", "circum", "realign"],
       build_onion as Build,
     ),
+    "fillet" => (
+      &[
+        "l",
+        "r",
+        "ang",
+        "r1",
+        "r2",
+        "excess",
+        "d1",
+        "d2",
+        "d",
+        "length",
+        "h",
+        "height",
+        "overlap",
+        "rounding",
+        "rounding1",
+        "rounding2",
+        "chamfer",
+        "chamfer1",
+        "chamfer2",
+      ],
+      build_fillet as Build,
+    ),
+    "text3d" => (
+      &[
+        "text",
+        "h",
+        "size",
+        "font",
+        "spacing",
+        "direction",
+        "language",
+        "script",
+        "height",
+        "thickness",
+        "atype",
+        "center",
+      ],
+      build_text3d as Build,
+    ),
+    "path_text" => (
+      &[
+        "path",
+        "text",
+        "font",
+        "size",
+        "thickness",
+        "lettersize",
+        "offset",
+        "reverse",
+        "normal",
+        "top",
+        "center",
+        "textmetrics",
+        "kern",
+        "height",
+        "h",
+        "valign",
+        "language",
+        "script",
+      ],
+      build_path_text as Build,
+    ),
     _ => return None,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Fillets
+// ---------------------------------------------------------------------------
+
+/// The cross-section of a fillet between two faces meeting at `ang`.
+///
+/// The corner sits at the origin with one face along +X and the other turned
+/// `ang` away from it. The arc is tangent to both, and `excess` pushes the
+/// outline a little past each face so the fillet always meets solid material
+/// rather than sitting exactly on the surface.
+fn fillet_profile(r: f64, ang: f64, excess: f64, steps: u32) -> Path {
+  let half = (ang / 2.0).to_radians();
+  // The arc's centre sits on the bisector, one radius off each face.
+  let leg = r / half.tan();
+  let cp = [leg, r];
+  let arc = arc_pts(steps + 1, r, cp, ang + 90.0, 180.0 - ang, true);
+
+  // Away from the sloping face, which is where its excess reaches.
+  let outward = (ang + 90.0).to_radians();
+  let mut path = vec![[
+    arc[0][0] + excess * outward.cos(),
+    arc[0][1] + excess * outward.sin(),
+  ]];
+  path.extend(arc.iter().copied());
+  let last = *path.last().unwrap();
+  path.push([last[0], -excess]);
+  // The corner itself, pushed out past both faces.
+  path.push([-excess / half.tan(), -excess]);
+  ccw(path)
+}
+
+fn build_fillet(args: &Args) -> LuaResult<Option<ScadNode>> {
+  // A rounded or chamfered end on the fillet itself is a separate shape
+  // again, and still goes through OpenSCAD.
+  if [
+    "rounding",
+    "rounding1",
+    "rounding2",
+    "chamfer",
+    "chamfer1",
+    "chamfer2",
+  ]
+  .iter()
+  .any(|p| args.has(p))
+  {
+    return Ok(None);
+  }
+  let l = args
+    .num("l")
+    .or_else(|| args.num("length"))
+    .or_else(|| args.num("h"))
+    .or_else(|| args.num("height"));
+  let Some(l) = l else {
+    return args.err("l is required");
+  };
+  let r1 = args.radius_end("r1", "d1", "r", "d", None);
+  let r2 = args.radius_end("r2", "d2", "r", "d", None);
+  let (Some(r1), Some(r2)) = (r1, r2) else {
+    return args.err("r is required");
+  };
+  let ang = args.num_or("ang", 90.0);
+  if !(0.0..180.0).contains(&ang) || ang == 0.0 {
+    return args.err("ang must be between 0 and 180");
+  }
+  // BOSL2 renamed this parameter; the old one still reads.
+  let excess = args
+    .num("excess")
+    .or_else(|| args.num("overlap"))
+    .unwrap_or(0.01);
+
+  let steps =
+    ((args.segments(r1.max(r2)) as f64 * (180.0 - ang) / 360.0).ceil() as u32)
+      .max(2);
+  let bottom = fillet_profile(r1, ang, excess, steps);
+
+  let node = if (r1 - r2).abs() < EPS {
+    ScadNode::LinearExtrude {
+      height: l as f32,
+      center: true,
+      twist: 0.0,
+      slices: 1,
+      scale: 1.0,
+      child: Box::new(crate::bosl::shapes2d::path_node(&bottom)),
+    }
+  } else {
+    // A tapered fillet is the two ends lofted together; both profiles have
+    // the same point count, so they pair up directly.
+    let top = fillet_profile(r2, ang, excess, steps);
+    let rows: Vec<Vec<V3>> = [(&bottom, -l / 2.0), (&top, l / 2.0)]
+      .iter()
+      .map(|(path, z)| path.iter().map(|p| [p[0], p[1], *z]).collect())
+      .collect();
+    Vnf::vertex_array(&rows, Caps::BOTH, true, false).to_node()
+  };
+
+  let leg = r1.max(r2) / (ang / 2.0).to_radians().tan();
+  let attachable = Attachable::new(Geom::Prismoid {
+    size: [leg, leg, l],
+    size2: [leg, leg],
+    shift: [0.0, 0.0],
+    axis: [0.0, 0.0, 1.0],
+  });
+  Ok(Some(reorient(node, args, &attachable)?))
+}
+
+// ---------------------------------------------------------------------------
+// Text
+// ---------------------------------------------------------------------------
+
+/// The text alignment BOSL2 derives from the anchor rather than taking
+/// directly, so that `anchor = bosl.RIGHT` right-aligns the letters instead
+/// of shifting an already-left-aligned block.
+fn text_alignment(anchor: V3, atype: &str) -> (String, String) {
+  let halign = if anchor[0] < 0.0 {
+    "left"
+  } else if anchor[0] > 0.0 {
+    "right"
+  } else {
+    "center"
+  };
+  let valign = if anchor[1] < 0.0 {
+    "bottom"
+  } else if anchor[1] > 0.0 {
+    "top"
+  } else if atype == "baseline" {
+    "baseline"
+  } else {
+    "center"
+  };
+  (halign.to_string(), valign.to_string())
+}
+
+fn build_text3d(args: &Args) -> LuaResult<Option<ScadNode>> {
+  // Letter spacing, writing direction and script selection are the font
+  // engine's business, and only OpenSCAD's own `text()` takes them.
+  if ["spacing", "direction", "language", "script"]
+    .iter()
+    .any(|p| args.has(p))
+  {
+    return Ok(None);
+  }
+  let Some(text) = args.string("text") else {
+    return args.err("text is required");
+  };
+  let h = args
+    .num("h")
+    .or_else(|| args.num("height"))
+    .or_else(|| args.num("thickness"))
+    .unwrap_or(1.0);
+  let size = args.num_or("size", 10.0);
+  let center = args.bool_or("center", false);
+  let atype = args
+    .string("atype")
+    .unwrap_or_else(|| if center { "ycenter" } else { "baseline" }.to_string());
+  if atype != "ycenter" && atype != "baseline" {
+    return args.err("atype must be 'ycenter' or 'baseline'");
+  }
+  let dflt = if center { [0.0; 3] } else { [-1.0, 0.0, 0.0] };
+  let anchor = match args.anchor()? {
+    Some(a) => match a.as_vector() {
+      Some(v) => v,
+      None => return args.err("that anchor name means nothing to text3d()"),
+    },
+    None => dflt,
+  };
+  let (halign, valign) = text_alignment(anchor, &atype);
+
+  let node = ScadNode::LinearExtrude {
+    height: h as f32,
+    center: true,
+    twist: 0.0,
+    slices: 1,
+    scale: 1.0,
+    child: Box::new(ScadNode::Text {
+      text,
+      size: size as f32,
+      font: args.string("font").unwrap_or_default(),
+      halign,
+      valign,
+    }),
+  };
+  // The X and Y anchors are already in the alignment, so only Z is left to
+  // move the letters by.
+  let attachable = Attachable::new(Geom::Prismoid {
+    size: [size, size, h],
+    size2: [size, size],
+    shift: [0.0, 0.0],
+    axis: [0.0, 0.0, 1.0],
+  });
+  let m = crate::bosl::attach::placement(
+    &attachable,
+    Some(&crate::bosl::args::Anchor::Vector([0.0, 0.0, anchor[2]])),
+    args.spin(),
+    args.orient(),
+  );
+  Ok(Some(match m {
+    Some(m) => crate::bosl::attach::transform(node, m),
+    None => node,
+  }))
+}
+
+/// The distance along a path to each point on it.
+fn cumulative_lengths(path: &[V3]) -> Vec<f64> {
+  let mut out = Vec::with_capacity(path.len());
+  let mut total = 0.0;
+  out.push(0.0);
+  for w in path.windows(2) {
+    total += crate::bosl::vecmath::norm(crate::bosl::vecmath::sub(w[1], w[0]));
+    out.push(total);
+  }
+  out
+}
+
+/// The point at a given distance along a path, with the direction it runs in.
+fn point_at_length(path: &[V3], lengths: &[f64], d: f64) -> (V3, V3) {
+  let last = path.len() - 1;
+  let mut i = 0;
+  while i < last && lengths[i + 1] < d {
+    i += 1;
+  }
+  let span = lengths[i + 1] - lengths[i];
+  let u = if span <= EPS {
+    0.0
+  } else {
+    (d - lengths[i]) / span
+  };
+  let dir = crate::bosl::vecmath::sub(path[i + 1], path[i]);
+  (
+    crate::bosl::vecmath::lerp3(path[i], path[i + 1], u),
+    crate::bosl::vecmath::unit_or(dir, [1.0, 0.0, 0.0]),
+  )
+}
+
+/// A value that is either one number or one per letter.
+fn per_letter(args: &Args, name: &str, n: usize) -> Option<Vec<f64>> {
+  if let Some(one) = args.num(name) {
+    return Some(vec![one; n]);
+  }
+  let mut v = args.nums(name)?;
+  if v.len() == 1 {
+    return Some(vec![v[0]; n]);
+  }
+  v.resize(n, 0.0);
+  Some(v)
+}
+
+fn build_path_text(args: &Args) -> LuaResult<Option<ScadNode>> {
+  let Some(text) = args.string("text") else {
+    return args.err("text is required");
+  };
+  let letters: Vec<char> = text.chars().collect();
+  if letters.is_empty() {
+    return Ok(Some(ScadNode::Union(vec![])));
+  }
+  // Without a letter size there is nothing to space the glyphs by; OpenSCAD
+  // can measure them itself, so the call goes there instead.
+  let Some(lsize) = per_letter(args, "lettersize", letters.len()) else {
+    return Ok(None);
+  };
+  let path = crate::bosl::paths::read_path(args, "path")?;
+  if path.len() < 2 {
+    return args.err("the path needs at least two points");
+  }
+  // The default `top` only matches BOSL2's curve normal while the path lies
+  // flat; a path that climbs needs one given, or OpenSCAD to work it out.
+  let flat = path.iter().all(|p| (p[2] - path[0][2]).abs() < EPS);
+  let top = match args.vec3("top") {
+    Some(v) => v,
+    None if args.has("top") || args.has("normal") => return Ok(None),
+    None if flat => [0.0, 0.0, 1.0],
+    None => return Ok(None),
+  };
+  if args.string("valign").as_deref().unwrap_or("baseline") != "baseline"
+    && args.num("valign").is_none()
+  {
+    return Ok(None);
+  }
+
+  let thickness = args
+    .num("thickness")
+    .or_else(|| args.num("h"))
+    .or_else(|| args.num("height"))
+    .unwrap_or(1.0);
+  let offset = args.num_or("offset", 0.0);
+  let reverse = args.bool_or("reverse", false);
+  let vadjustment = -args.num_or("valign", 0.0);
+  let kern = per_letter(args, "kern", letters.len().saturating_sub(1))
+    .unwrap_or_else(|| vec![0.0; letters.len().saturating_sub(1)]);
+
+  let lengths = cumulative_lengths(&path);
+  let total = *lengths.last().unwrap();
+  let text_length: f64 = lsize.iter().sum::<f64>() + kern.iter().sum::<f64>();
+  if text_length > total + EPS {
+    return args.err("the path is too short for the text");
+  }
+  let start = if args.bool_or("center", false) {
+    (total - text_length) / 2.0
+  } else {
+    0.0
+  };
+
+  // Each letter sits at the middle of its own advance, so the string reads
+  // evenly however the path curves.
+  let mut at = start;
+  let mut parts: Vec<ScadNode> = Vec::new();
+  for (i, letter) in letters.iter().enumerate() {
+    let centre = at + lsize[i] / 2.0;
+    at += lsize[i] + kern.get(i).copied().unwrap_or(0.0);
+    let (pos, tangent) = point_at_length(&path, &lengths, centre);
+
+    // The letter's own frame: it reads along the path, stands up towards
+    // `top`, and is extruded out of the plane the two of them span.
+    let y = crate::bosl::vecmath::unit_or(top, [0.0, 0.0, 1.0]);
+    let z = crate::bosl::vecmath::unit_or_none(crate::bosl::vecmath::cross(
+      tangent, y,
+    ));
+    let Some(z) = z else {
+      return args.err("the text's top direction runs along the path");
+    };
+    let z = if reverse {
+      crate::bosl::vecmath::mul(z, -1.0)
+    } else {
+      z
+    };
+    let x = crate::bosl::vecmath::cross(y, z);
+    let frame = Mat4([
+      x[0], y[0], z[0], pos[0], //
+      x[1], y[1], z[1], pos[1], //
+      x[2], y[2], z[2], pos[2], //
+      0.0, 0.0, 0.0, 1.0,
+    ]);
+
+    let glyph = ScadNode::LinearExtrude {
+      height: thickness as f32,
+      center: false,
+      twist: 0.0,
+      slices: 1,
+      scale: 1.0,
+      child: Box::new(ScadNode::Translate {
+        x: 0.0,
+        y: vadjustment as f32,
+        z: 0.0,
+        child: Box::new(ScadNode::Text {
+          text: letter.to_string(),
+          size: args.num_or("size", 10.0) as f32,
+          font: args.string("font").unwrap_or_default(),
+          halign: "center".to_string(),
+          valign: "baseline".to_string(),
+        }),
+      }),
+    };
+    // The extrusion is centred on the path, offset out of it if asked.
+    let placed = ScadNode::Translate {
+      x: 0.0,
+      y: 0.0,
+      z: (offset - thickness / 2.0) as f32,
+      child: Box::new(glyph),
+    };
+    parts.push(crate::bosl::attach::transform(placed, frame));
+  }
+  Ok(Some(ScadNode::Union(parts)))
 }
 
 const REGULAR_PRISM_PARAMS: &[&str] = &[
@@ -2003,6 +2430,162 @@ mod tests {
     assert!((lo[1] + 10.0).abs() < 1e-3, "{lo:?}");
     // The cap makes it taller than the circle it is built from.
     assert!(hi[2] > 15.0, "{hi:?}");
+  }
+
+  fn maybe_build(name: &'static str, code: &str) -> Option<ScadNode> {
+    let lua = mlua::Lua::new();
+    let v: mlua::Value = lua.load(code).eval().unwrap();
+    let mv = mlua::MultiValue::from_iter([v]);
+    let (params, f) = builder(name).expect("the shape has a native builder");
+    f(&Args::parse(name, params, &mv).unwrap()).unwrap()
+  }
+
+  #[test]
+  fn a_fillet_fills_the_corner_two_faces_leave() {
+    let n = build("fillet", "return { l = 10, r = 3, excess = 0, fn = 128 }");
+    // The corner square, less the quarter circle the arc cuts out of it.
+    let ideal = (9.0 - PI * 9.0 / 4.0) * 10.0;
+    assert!((volume(&n) - ideal).abs() / ideal < 0.01, "{}", volume(&n));
+    let (lo, hi) = bbox(&n);
+    // It sits in the corner, reaching one leg along each face.
+    assert!(lo[0].abs() < 1e-3 && lo[1].abs() < 1e-3, "{lo:?}");
+    assert!((hi[0] - 3.0).abs() < 1e-3, "{hi:?}");
+    assert!((hi[2] - 5.0).abs() < 1e-3, "{hi:?}");
+  }
+
+  #[test]
+  fn a_sharper_fillet_holds_more_material() {
+    let square = volume(&build(
+      "fillet",
+      "return { l = 10, r = 3, ang = 90, excess = 0, fn = 128 }",
+    ));
+    let sharp = volume(&build(
+      "fillet",
+      "return { l = 10, r = 3, ang = 60, excess = 0, fn = 128 }",
+    ));
+    // A sharper corner reaches further along both faces.
+    assert!(sharp > square, "{sharp} against {square}");
+  }
+
+  #[test]
+  fn a_tapered_fillet_lofts_between_its_two_radii() {
+    let n = build(
+      "fillet",
+      "return { l = 10, r1 = 2, r2 = 4, excess = 0, fn = 128 }",
+    );
+    let ends = [2.0f64, 4.0].map(|r| (r * r - PI * r * r / 4.0) * 10.0);
+    let v = volume(&n);
+    assert!(v > ends[0] && v < ends[1], "{v} outside {ends:?}");
+  }
+
+  #[test]
+  fn a_fillet_with_an_end_treatment_falls_back_to_openscad() {
+    assert!(
+      maybe_build("fillet", "return { l = 10, r = 3, rounding = 1 }").is_none()
+    );
+  }
+
+  #[test]
+  fn text3d_stands_the_letters_up_as_a_solid() {
+    let n = build("text3d", "return { 'Hi', size = 10, h = 2 }");
+    let (lo, hi) = bbox(&n);
+    assert!(volume(&n) > 0.0);
+    assert!((hi[2] - lo[2] - 2.0).abs() < 1e-3, "{lo:?} {hi:?}");
+    // The default anchor is the left of the baseline, so the letters run
+    // right from the origin and sit on it, give or take the side bearing.
+    assert!(lo[0] >= 0.0 && lo[0] < 2.0, "{lo:?}");
+    assert!(lo[1].abs() < 0.5, "{lo:?}");
+  }
+
+  #[test]
+  fn text3d_reads_its_alignment_off_the_anchor() {
+    let (_, right) = bbox(&build(
+      "text3d",
+      "return { 'Hi', size = 10, h = 2, anchor = { 1, 0, 0 } }",
+    ));
+    // Anchored right, the letters end at the origin instead of starting.
+    assert!(right[0] < 0.5, "{right:?}");
+  }
+
+  #[test]
+  fn text3d_with_font_options_falls_back_to_openscad() {
+    assert!(maybe_build("text3d", "return { 'Hi', spacing = 1.5 }").is_none());
+  }
+
+  #[test]
+  fn path_text_sets_the_letters_along_the_path() {
+    let n = build(
+      "path_text",
+      "return { path = { {0,0,0}, {60,0,0} }, text = 'ABC',
+                size = 10, lettersize = 10, thickness = 2 }",
+    );
+    let (lo, hi) = bbox(&n);
+    assert!(volume(&n) > 0.0);
+    // Three 10 mm letters laid end to end, centred on their own advances.
+    assert!(lo[0] > -1.0 && lo[0] < 5.0, "{lo:?}");
+    assert!(hi[0] > 20.0 && hi[0] < 30.0, "{lo:?} {hi:?}");
+    // They stand up in Z and are extruded across the path.
+    assert!(hi[2] > 5.0, "{hi:?}");
+    assert!((hi[1] - lo[1] - 2.0).abs() < 1e-3, "{lo:?} {hi:?}");
+  }
+
+  #[test]
+  fn path_text_bends_the_letters_round_a_curve() {
+    let straight = bbox(&build(
+      "path_text",
+      "return { path = { {0,0,0}, {60,0,0} }, text = 'ABC',
+                size = 10, lettersize = 10 }",
+    ));
+    let curved = bbox(&build(
+      "path_text",
+      "return { path = { {0,0,0}, {20,20,0}, {40,0,0} }, text = 'ABC',
+                size = 10, lettersize = 10 }",
+    ));
+    // The middle letter climbs with the path instead of staying on the axis.
+    assert!(curved.1[1] > straight.1[1] + 5.0, "{curved:?}");
+  }
+
+  #[test]
+  fn path_text_without_a_letter_size_falls_back_to_openscad() {
+    assert!(
+      maybe_build(
+        "path_text",
+        "return { path = { {0,0,0}, {60,0,0} }, text = 'ABC', size = 10 }",
+      )
+      .is_none()
+    );
+  }
+
+  #[test]
+  fn path_text_on_a_path_that_climbs_falls_back_to_openscad() {
+    // Without a `top` or `normal` the letters have nothing to stand up
+    // against once the path leaves the plane.
+    assert!(
+      maybe_build(
+        "path_text",
+        "return { path = { {0,0,0}, {30,0,20} }, text = 'A',
+                  size = 10, lettersize = 10 }",
+      )
+      .is_none()
+    );
+  }
+
+  #[test]
+  fn path_text_refuses_a_string_longer_than_its_path() {
+    let lua = mlua::Lua::new();
+    let v: mlua::Value = lua
+      .load(
+        "return { path = { {0,0,0}, {5,0,0} }, text = 'ABC',
+                  size = 10, lettersize = 10 }",
+      )
+      .eval()
+      .unwrap();
+    let mv = mlua::MultiValue::from_iter([v]);
+    let (params, f) = builder("path_text").unwrap();
+    let err = f(&Args::parse("path_text", params, &mv).unwrap())
+      .unwrap_err()
+      .to_string();
+    assert!(err.contains("too short"), "{err}");
   }
 
   #[test]
