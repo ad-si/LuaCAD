@@ -12,20 +12,25 @@
 
 pub mod args;
 pub mod attach;
+pub mod beziers;
 pub mod coords;
 pub mod distributors;
 pub mod edges;
 pub mod geom;
 pub mod linalg;
 pub mod lists;
+pub mod masks;
 pub mod math;
+pub mod paths;
 pub mod shapes2d;
 pub mod shapes3d;
+pub mod sweeps;
 pub mod transforms;
 pub mod value;
 pub mod vecmath;
 pub mod vectors;
 pub mod vnf;
+pub mod vnf_lua;
 
 #[cfg(feature = "csgrs")]
 use csgrs::mesh::Mesh as CsgMesh;
@@ -1004,74 +1009,15 @@ fn register_distributors(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_partitions(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Planar cutting
-      "half_of",
-      "left_half",
-      "right_half",
-      "front_half",
-      "back_half",
-      "bottom_half",
-      "top_half",
-      // Interlocking partitions
-      "partition_mask",
-      "partition_cut_mask",
-      "partition",
-    ],
-  )?;
-
-  Ok(())
+  masks::register(lua, bosl)
 }
 
 // ===========================================================================
 // masks.scad  (included via std.scad)
 // ===========================================================================
 
-fn register_masks(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // 2D masking shapes
-      "mask2d_roundover",
-      "mask2d_smooth",
-      "mask2d_teardrop",
-      "mask2d_cove",
-      "mask2d_chamfer",
-      "mask2d_rabbet",
-      "mask2d_dovetail",
-      "mask2d_ogee",
-      // 2D mask application
-      "face_profile",
-      "edge_profile",
-      "edge_profile_asym",
-      "corner_profile",
-      // 3D edge masks
-      "chamfer_edge_mask",
-      "rounding_edge_mask",
-      "teardrop_edge_mask",
-      "polygon_edge_mask",
-      // 3D corner masks
-      "chamfer_corner_mask",
-      "rounding_corner_mask",
-      "teardrop_corner_mask",
-      // 3D cylinder masks
-      "chamfer_cylinder_mask",
-      "rounding_cylinder_mask",
-      // 3D cylindrical hole masks
-      "rounding_hole_mask",
-      // 3D mask application
-      "face_mask",
-      "edge_mask",
-      "corner_mask",
-    ],
-  )?;
-
+fn register_masks(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered with the partitions, which share their machinery.
   Ok(())
 }
 
@@ -1080,29 +1026,7 @@ fn register_masks(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_paths(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      "path_length",
-      "path_segment_lengths",
-      "path_closest_point",
-      "path_tangent",
-      "path_normal",
-      "path_cut",
-      "path_cut_points",
-      "subdivide_path",
-      "resample_path",
-      "is_path",
-      "is_1region",
-      "force_path",
-      "force_region",
-      "path_merge_collinear",
-    ],
-  )?;
-
-  Ok(())
+  paths::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1110,14 +1034,7 @@ fn register_paths(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_drawing(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &["stroke", "dashed_stroke", "arc", "helix"],
-  )?;
-
-  Ok(())
+  sweeps::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1125,73 +1042,15 @@ fn register_drawing(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_beziers(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Bezier curves
-      "bezier_points",
-      "bezier_curve",
-      "bezier_derivative",
-      "bezier_tangent",
-      "bezier_curvature",
-      "bezier_closest_point",
-      "bezier_length",
-      "bezier_line_intersection",
-      // Bezier path functions
-      "bezpath_points",
-      "bezpath_curve",
-      "bezpath_closest_point",
-      "bezpath_length",
-      "path_to_bezpath",
-      "bezpath_close_to_axis",
-      "bezpath_offset",
-      // Cubic bezier path construction
-      "bez_begin",
-      "bez_tang",
-      "bez_joint",
-      "bez_end",
-      // Bezier surfaces
-      "is_bezier_patch",
-      "bezier_patch_flat",
-      "bezier_patch_reverse",
-      "bezier_patch_points",
-      "bezier_vnf",
-      "bezier_vnf_degenerate_patch",
-      "bezier_patch_normals",
-      "bezier_sheet",
-      "bezier_sweep",
-      "bezpath_sweep",
-      // Debugging
-      "debug_bezier",
-      "debug_bezier_patches",
-    ],
-  )?;
-
-  Ok(())
+  beziers::register(lua, bosl)
 }
 
 // ===========================================================================
 // rounding.scad  (included via std.scad)
 // ===========================================================================
 
-fn register_rounding(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      "round_corners",
-      "smooth_path",
-      "path_join",
-      "offset_stroke",
-      "offset_sweep",
-      "convex_offset_extrude",
-      "rounded_prism",
-    ],
-  )?;
-
+fn register_rounding(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered together with the other sweeps, which share their machinery.
   Ok(())
 }
 
@@ -1199,21 +1058,8 @@ fn register_rounding(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // skin.scad  (included via std.scad)
 // ===========================================================================
 
-fn register_skin(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      "skin",
-      "linear_sweep",
-      "spiral_sweep",
-      "path_sweep",
-      "path_sweep2d",
-      "sweep",
-    ],
-  )?;
-
+fn register_skin(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
+  // Registered together with the other sweeps, which share their machinery.
   Ok(())
 }
 
@@ -1222,30 +1068,7 @@ fn register_skin(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_vnf(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      "vnf_vertex_array",
-      "vnf_tri_array",
-      "vnf_join",
-      "vnf_from_polygons",
-      "vnf_from_region",
-      "vnf_merge_points",
-      "vnf_drop_unused_points",
-      "vnf_triangulate",
-      "vnf_slice",
-      "vnf_bend",
-      "vnf_reverse_faces",
-      "vnf_quantize",
-      "vnf_polyhedron",
-      "vnf_wireframe",
-      "debug_vnf",
-    ],
-  )?;
-
-  Ok(())
+  vnf_lua::register(lua, bosl)
 }
 
 // ===========================================================================

@@ -470,8 +470,10 @@ fn distributors_match_bosl2() {
   .map(|(n, c)| (n.to_string(), c))
   .collect();
 
-  let refs: Vec<(&str, &str)> =
-    cases.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
+  let refs: Vec<(&str, &str)> = cases
+    .iter()
+    .map(|(n, c)| (n.as_str(), c.as_str()))
+    .collect();
   check_all(&refs);
 }
 

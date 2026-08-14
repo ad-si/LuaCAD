@@ -1140,6 +1140,25 @@ fn poly_roots(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   }
 }
 
+/// The real roots of a polynomial, highest power first.
+pub fn real_roots_of(p: &[f64]) -> Vec<f64> {
+  let Some(roots) = poly_roots_of(p) else {
+    return vec![];
+  };
+  let bounds = root_error_bounds(&roots);
+  let mut out: Vec<f64> = roots
+    .iter()
+    .zip(bounds.iter())
+    .filter(|(z, bound)| {
+      let norm = (z[0] * z[0] + z[1] * z[1]).sqrt();
+      z[1].abs() <= 1e-9 * (1.0 + norm) + **bound
+    })
+    .map(|(z, _)| unsign_zero(z[0]))
+    .collect();
+  out.sort_by(f64::total_cmp);
+  out
+}
+
 fn real_roots(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   let p = a.need_vec("p")?;
   let Some(roots) = poly_roots_of(&p) else {
