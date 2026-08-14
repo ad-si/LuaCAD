@@ -50,6 +50,12 @@ pub fn norm(v: V3) -> f64 {
   dot(v, v).sqrt()
 }
 
+/// The unit vector along `v`, or nothing when `v` has no length.
+pub fn unit_or_none(v: V3) -> Option<V3> {
+  let n = norm(v);
+  if n < EPS { None } else { Some(mul(v, 1.0 / n)) }
+}
+
 /// The unit vector along `v`, or `dflt` when `v` has no length.
 pub fn unit_or(v: V3, dflt: V3) -> V3 {
   let n = norm(v);

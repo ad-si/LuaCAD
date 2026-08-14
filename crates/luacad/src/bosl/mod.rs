@@ -12,10 +12,19 @@
 
 pub mod args;
 pub mod attach;
+pub mod coords;
+pub mod distributors;
 pub mod edges;
+pub mod geom;
+pub mod linalg;
+pub mod lists;
+pub mod math;
 pub mod shapes2d;
 pub mod shapes3d;
+pub mod transforms;
+pub mod value;
 pub mod vecmath;
+pub mod vectors;
 pub mod vnf;
 
 #[cfg(feature = "csgrs")]
@@ -32,7 +41,7 @@ use crate::scad_export::{BoslPreviewParams, CylAxis, ScadNode};
 // ---------------------------------------------------------------------------
 
 /// Format a Lua value as an OpenSCAD argument string fragment.
-fn lua_val_to_scad(v: &LuaValue) -> String {
+pub(crate) fn lua_val_to_scad(v: &LuaValue) -> String {
   match v {
     LuaValue::Number(n) => format_f64(*n),
     LuaValue::Integer(n) => n.to_string(),
@@ -525,6 +534,25 @@ fn extract_scalar_preview(function: &str, val: f64) -> BoslPreviewParams {
   }
 }
 
+/// The node a BOSL2 call records for a module that wraps children.
+pub(crate) fn bosl_node_with_children(
+  module: &str,
+  function: &str,
+  args: String,
+  children: Vec<ScadNode>,
+  native: Option<ScadNode>,
+) -> ScadNode {
+  ScadNode::BoslCall {
+    module: module.to_string(),
+    function: function.to_string(),
+    args,
+    has_children: true,
+    children,
+    preview: BoslPreviewParams::None,
+    native: native.map(Box::new),
+  }
+}
+
 /// The node a BOSL2 call records, carrying the shape built from LuaCAD's own
 /// primitives when the function has a native implementation.
 fn bosl_node(
@@ -555,16 +583,9 @@ fn bosl_geometry_native(
 ) -> CsgGeometry {
   CsgGeometry {
     name: None,
-    mesh: {
-      #[cfg(feature = "csgrs")]
-      {
-        Some(CsgMesh::<()>::new())
-      }
-      #[cfg(not(feature = "csgrs"))]
-      {
-        None
-      }
-    },
+    // Left unmaterialized so the mesh is built from the native tree on
+    // demand, rather than starting out as an empty one that never fills.
+    mesh: None,
     color: None,
     scad: Some(bosl_node(module, function, args, preview, native)),
   }
@@ -668,6 +689,14 @@ enum Dim {
 /// implementation does not cover — a textured cylinder, say — so that the
 /// call falls back to OpenSCAD instead of quietly building the wrong solid.
 pub type NativeBuilder = fn(&args::Args) -> LuaResult<Option<ScadNode>>;
+
+/// Whether a BOSL2 shape is built from LuaCAD's own primitives.
+///
+/// Functions that compute a value rather than geometry are all native and do
+/// not appear here; this only answers for the shape-producing ones.
+pub fn builds_natively(function: &str) -> bool {
+  native_builder(function).is_some()
+}
 
 /// The parameter list and builder for a BOSL2 shape that has a native
 /// implementation, or `None` when the call always needs OpenSCAD.
@@ -831,90 +860,7 @@ fn register_constants(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_math(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  // Constants
-  bosl.set("PHI", (1.0_f64 + 5.0_f64.sqrt()) / 2.0)?;
-  bosl.set("EPSILON", 1e-9_f64)?;
-
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Interpolation and counting
-      "count",
-      "lerp",
-      "lerpn",
-      "bilerp",
-      "slerp",
-      "slerpn",
-      // Miscellaneous functions
-      "sqr",
-      "log2",
-      "hypot",
-      "factorial",
-      "binomial",
-      "binomial_coefficient",
-      "gcd",
-      "lcm",
-      // Hyperbolic trigonometry
-      "sinh",
-      "cosh",
-      "tanh",
-      "asinh",
-      "acosh",
-      "atanh",
-      // Quantization
-      "quant",
-      "quantdn",
-      "quantup",
-      // Constraints and modulos
-      "constrain",
-      "posmod",
-      "modang",
-      // Operations on lists
-      "sum",
-      "mean",
-      "median",
-      "deltas",
-      "cumsum",
-      "product",
-      "cumprod",
-      "convolve",
-      "sum_of_sines",
-      // Random number generation
-      "rand_int",
-      "random_points",
-      "gaussian_rands",
-      "exponential_rands",
-      "spherical_random_points",
-      "random_polygon",
-      // Calculus
-      "deriv",
-      "deriv2",
-      "deriv3",
-      // Complex numbers
-      "complex",
-      "c_mul",
-      "c_div",
-      "c_conj",
-      "c_real",
-      "c_imag",
-      "c_ident",
-      "c_norm",
-      // Polynomials
-      "quadratic_roots",
-      "polynomial",
-      "poly_mult",
-      "poly_div",
-      "poly_add",
-      "poly_roots",
-      "real_roots",
-      // Root finding
-      "root_find",
-    ],
-  )?;
-
-  Ok(())
+  math::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -922,47 +868,7 @@ fn register_math(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_linalg(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Matrix testing
-      "is_matrix",
-      "is_matrix_symmetric",
-      "is_rotation",
-      "echo_matrix",
-      // Matrix indexing
-      "column",
-      "submatrix",
-      // Matrix construction
-      "ident",
-      "diagonal_matrix",
-      "transpose",
-      "outer_product",
-      "submatrix_set",
-      "hstack",
-      "block_matrix",
-      // Solving and factorization
-      "linear_solve",
-      "linear_solve3",
-      "matrix_inverse",
-      "rot_inverse",
-      "null_space",
-      "qr_factor",
-      "back_substitute",
-      "cholesky",
-      // Matrix properties
-      "det2",
-      "det3",
-      "det4",
-      "determinant",
-      "norm_fro",
-      "matrix_trace",
-    ],
-  )?;
-
-  Ok(())
+  linalg::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -970,42 +876,7 @@ fn register_linalg(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_vectors(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Vector testing
-      "is_vector",
-      // Scalar operations on vectors
-      "add_scalar",
-      "v_mul",
-      "v_div",
-      "v_abs",
-      "v_ceil",
-      "v_floor",
-      "v_round",
-      "v_lookup",
-      // Vector properties
-      "unit",
-      "v_theta",
-      "vector_angle",
-      "vector_axis",
-      "vector_bisect",
-      "vector_perp",
-      // Searching
-      "closest_point",
-      "furthest_point",
-      "vector_search",
-      "vector_search_tree",
-      "vector_nearest",
-      // Bounds
-      "pointlist_bounds",
-      "fit_to_box",
-    ],
-  )?;
-
-  Ok(())
+  vectors::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1013,33 +884,7 @@ fn register_vectors(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_coords(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Coordinate manipulation
-      "point2d",
-      "path2d",
-      "point3d",
-      "path3d",
-      "point4d",
-      "path4d",
-      // Coordinate systems
-      "polar_to_xy",
-      "xy_to_polar",
-      "project_plane",
-      "lift_plane",
-      "cylindrical_to_xyz",
-      "xyz_to_cylindrical",
-      "spherical_to_xyz",
-      "xyz_to_spherical",
-      "altaz_to_xyz",
-      "xyz_to_altaz",
-    ],
-  )?;
-
-  Ok(())
+  coords::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1047,58 +892,7 @@ fn register_coords(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_lists(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // List query
-      "is_homogeneous",
-      "min_length",
-      "max_length",
-      "list_shape",
-      "in_list",
-      // List indexing
-      "select",
-      "slice",
-      "last",
-      "list_head",
-      "list_tail",
-      "bselect",
-      // List construction
-      "repeat",
-      "list_bset",
-      "list",
-      "force_list",
-      // List modification
-      "reverse",
-      "list_rotate",
-      "shuffle",
-      "repeat_entries",
-      "list_pad",
-      "list_set",
-      "list_insert",
-      "list_remove",
-      "list_remove_values",
-      // Iteration helpers
-      "idx",
-      // Subsets
-      "pair",
-      "triplet",
-      "combinations",
-      "permutations",
-      // Structure
-      "list_to_matrix",
-      "flatten",
-      "full_flatten",
-      // Set operations
-      "set_union",
-      "set_difference",
-      "set_intersection",
-    ],
-  )?;
-
-  Ok(())
+  lists::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1106,71 +900,7 @@ fn register_lists(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_geometry(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Lines, rays, segments
-      "is_point_on_line",
-      "is_collinear",
-      "point_line_distance",
-      "segment_distance",
-      "line_normal",
-      "line_intersection",
-      "line_closest_point",
-      "line_from_points",
-      // Planes
-      "is_coplanar",
-      "plane3pt",
-      "plane3pt_indexed",
-      "plane_from_normal",
-      "plane_from_points",
-      "plane_from_polygon",
-      "plane_normal",
-      "plane_offset",
-      "plane_line_intersection",
-      "plane_intersection",
-      "plane_line_angle",
-      "plane_closest_point",
-      "point_plane_distance",
-      "are_points_on_plane",
-      // Circle calculations
-      "circle_line_intersection",
-      "circle_circle_intersection",
-      "circle_2tangents",
-      "circle_3points",
-      "circle_point_tangents",
-      "circle_circle_tangents",
-      // Sphere calculations
-      "sphere_line_intersection",
-      // Polygons
-      "polygon_area",
-      "centroid",
-      "polygon_normal",
-      "point_in_polygon",
-      "polygon_line_intersection",
-      "polygon_triangulate",
-      "is_polygon_clockwise",
-      "clockwise_polygon",
-      "ccw_polygon",
-      "reverse_polygon",
-      "reindex_polygon",
-      "align_polygon",
-      "are_polygons_equal",
-      // Convex hull
-      "hull2d_path",
-      "hull3d_faces",
-      // Convex sets
-      "is_polygon_convex",
-      "convex_distance",
-      "convex_collision",
-      // Rotation decoding
-      "rot_decode",
-    ],
-  )?;
-
-  Ok(())
+  geom::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1258,44 +988,7 @@ fn register_shapes2d(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_transforms(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Translations
-      "move",
-      "left",
-      "right",
-      "xmove",
-      "fwd",
-      "back",
-      "ymove",
-      "down",
-      "up",
-      "zmove",
-      // Rotations
-      "rot",
-      "xrot",
-      "yrot",
-      "zrot",
-      "tilt",
-      // Scaling
-      "xscale",
-      "yscale",
-      "zscale",
-      // Reflection/mirroring
-      "xflip",
-      "yflip",
-      "zflip",
-      // Other
-      "frame_map",
-      "skew",
-      "apply",
-    ],
-  )?;
-
-  Ok(())
+  transforms::register(lua, bosl)
 }
 
 // ===========================================================================
@@ -1303,41 +996,7 @@ fn register_transforms(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // ===========================================================================
 
 fn register_distributors(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
-  register_functions(
-    lua,
-    bosl,
-    "std.scad",
-    &[
-      // Translating copies
-      "move_copies",
-      "xcopies",
-      "ycopies",
-      "zcopies",
-      "line_copies",
-      "grid_copies",
-      // Rotating copies
-      "rot_copies",
-      "xrot_copies",
-      "yrot_copies",
-      "zrot_copies",
-      "arc_copies",
-      "sphere_copies",
-      // Path-based placement
-      "path_copies",
-      // Mirroring/reflection
-      "xflip_copy",
-      "yflip_copy",
-      "zflip_copy",
-      "mirror_copy",
-      // Distribution
-      "xdistribute",
-      "ydistribute",
-      "zdistribute",
-      "distribute",
-    ],
-  )?;
-
-  Ok(())
+  distributors::register(lua, bosl)
 }
 
 // ===========================================================================

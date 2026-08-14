@@ -358,6 +358,124 @@ fn round_shapes_match_bosl2() {
 }
 
 #[test]
+fn transforms_match_bosl2() {
+  check_all(&[
+    ("up", "bosl.up(10, bosl.cuboid { {20, 20, 20} })"),
+    ("down", "bosl.down(10, bosl.cuboid { {20, 20, 20} })"),
+    ("left", "bosl.left(10, bosl.cuboid { {20, 20, 20} })"),
+    ("right", "bosl.right(10, bosl.cuboid { {20, 20, 20} })"),
+    ("fwd", "bosl.fwd(10, bosl.cuboid { {20, 20, 20} })"),
+    ("back", "bosl.back(10, bosl.cuboid { {20, 20, 20} })"),
+    (
+      "move",
+      "bosl.move({5, 10, 15}, bosl.cuboid { {20, 20, 20} })",
+    ),
+    (
+      "rot about z",
+      "bosl.rot({a = 30, p = bosl.cuboid { {30, 10, 10} }})",
+    ),
+    (
+      "rot by euler angles",
+      "bosl.rot({a = {10, 20, 30}, p = bosl.cuboid { {30, 10, 10} }})",
+    ),
+    (
+      "rot about an axis",
+      "bosl.rot({a = 45, v = {1, 1, 0}, p = bosl.cuboid { {30, 10, 10} }})",
+    ),
+    (
+      "rot from one direction to another",
+      "bosl.rot({from = {0,0,1}, to = {1,0,0}, p = bosl.cuboid { {30,10,10} }})",
+    ),
+    (
+      "rot about a centre",
+      "bosl.rot({a = 90, cp = {20, 0, 0}, p = bosl.cuboid { {10, 10, 10} }})",
+    ),
+    ("xrot", "bosl.xrot(45, bosl.cuboid { {30, 10, 10} })"),
+    ("yrot", "bosl.yrot(45, bosl.cuboid { {30, 10, 10} })"),
+    ("zrot", "bosl.zrot(45, bosl.cuboid { {30, 10, 10} })"),
+    ("xscale", "bosl.xscale(2, bosl.cuboid { {10, 10, 10} })"),
+    ("zscale", "bosl.zscale(0.5, bosl.cuboid { {10, 10, 10} })"),
+    (
+      "xflip",
+      "bosl.xflip(bosl.cuboid { {20, 20, 20}, anchor = {1, 0, 0} })",
+    ),
+    (
+      "zflip about an offset plane",
+      "bosl.zflip(bosl.cuboid { {20, 20, 20}, anchor = {0,0,-1} }, 10)",
+    ),
+    (
+      "skew",
+      "bosl.skew({p = bosl.cuboid { {20, 20, 20} }, sxz = 0.5})",
+    ),
+    (
+      "tilt",
+      "bosl.tilt({to = {1, 0, 0}, p = bosl.cuboid { {30, 10, 10} }})",
+    ),
+    (
+      "nested transforms",
+      "bosl.up(10, bosl.zrot(45, bosl.cuboid { {30, 10, 10} }))",
+    ),
+  ]);
+}
+
+#[test]
+fn distributors_match_bosl2() {
+  let cube = "bosl.cuboid { {10, 10, 10} }";
+  let cases: Vec<(String, String)> = [
+    ("xcopies", format!("bosl.xcopies {{spacing = 20, n = 3, p = {cube}}}")),
+    ("ycopies", format!("bosl.ycopies {{spacing = 20, n = 3, p = {cube}}}")),
+    ("zcopies", format!("bosl.zcopies {{spacing = 20, n = 3, p = {cube}}}")),
+    (
+      "xcopies by length",
+      format!("bosl.xcopies {{l = 60, n = 4, p = {cube}}}"),
+    ),
+    (
+      "move_copies",
+      format!("bosl.move_copies({{{{0,0,0}},{{30,0,0}},{{0,30,0}}}}, {cube})"),
+    ),
+    (
+      "line_copies",
+      format!("bosl.line_copies {{spacing = {{20, 10, 0}}, n = 4, p = {cube}}}"),
+    ),
+    (
+      "grid_copies",
+      format!("bosl.grid_copies {{spacing = 20, n = {{3, 2}}, p = {cube}}}"),
+    ),
+    (
+      "zrot_copies",
+      format!("bosl.zrot_copies {{n = 6, r = 30, p = {cube}}}"),
+    ),
+    (
+      "xrot_copies",
+      format!("bosl.xrot_copies {{n = 4, r = 30, p = {cube}}}"),
+    ),
+    (
+      "rot_copies about an axis",
+      format!("bosl.rot_copies {{n = 5, v = {{0,0,1}}, delta = {{25,0,0}}, p = {cube}}}"),
+    ),
+    (
+      "arc_copies",
+      format!("bosl.arc_copies {{n = 5, r = 30, sa = 0, ea = 180, p = {cube}}}"),
+    ),
+    (
+      "xflip_copy",
+      format!("bosl.xflip_copy {{offset = 20, p = {cube}}}"),
+    ),
+    (
+      "mirror_copy",
+      format!("bosl.mirror_copy {{v = {{1,1,0}}, offset = 20, p = {cube}}}"),
+    ),
+  ]
+  .into_iter()
+  .map(|(n, c)| (n.to_string(), c))
+  .collect();
+
+  let refs: Vec<(&str, &str)> =
+    cases.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
+  check_all(&refs);
+}
+
+#[test]
 fn extruded_2d_shapes_match_bosl2() {
   // The 2D shapes are compared through a linear extrusion, since a flat
   // sketch has no volume of its own to measure.

@@ -76,6 +76,51 @@ impl Args {
     Ok(parsed)
   }
 
+  /// Parse the arguments of a function that computes a value.
+  ///
+  /// These are called the way OpenSCAD calls them — `bosl.lerp(a, b, u)`,
+  /// `bosl.unit({1, 2, 3})` — so every argument is positional and a table
+  /// argument is the value itself, not a wrapper around an argument list.
+  /// That is the opposite of the shape modules, where the table *is* the
+  /// argument list.
+  ///
+  /// A trailing table carrying only string keys is taken as named arguments,
+  /// which is the one form that cannot be confused with a vector: every
+  /// vector, path and matrix has an array part.
+  pub fn parse_pure(
+    func: &'static str,
+    params: &'static [&'static str],
+    args: &mlua::MultiValue,
+  ) -> LuaResult<Args> {
+    let mut positional: Vec<LuaValue> = args.iter().cloned().collect();
+    let mut named = BTreeMap::new();
+
+    if let Some(LuaValue::Table(t)) = positional.last() {
+      let has_names = t
+        .clone()
+        .pairs::<LuaValue, LuaValue>()
+        .any(|p| matches!(p, Ok((LuaValue::String(_), _))));
+      if has_names && t.raw_len() == 0 {
+        for pair in t.clone().pairs::<LuaValue, LuaValue>() {
+          let (key, value) = pair?;
+          if let LuaValue::String(s) = key {
+            named.insert(s.to_str()?.to_string(), value);
+          }
+        }
+        positional.pop();
+      }
+    }
+
+    let parsed = Args {
+      func,
+      positional,
+      named,
+      params,
+    };
+    parsed.check_named()?;
+    Ok(parsed)
+  }
+
   /// Reject named parameters the module does not understand.
   ///
   /// Silently dropping them turns a typo — or the OpenSCAD habit of writing
