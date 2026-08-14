@@ -86,6 +86,10 @@ First stable release.
   build under MSVC.
 - A panic when reading the mesh of a geometry that had neither a mesh nor a
   SCAD tree; such a geometry is now simply empty.
+- `--via-openscad` staged its generated SCAD at a fixed temporary path, so two
+  exports running at once — a `watch` in another terminal, a parallel build —
+  could overwrite each other's source between writing it and OpenSCAD reading
+  it, and quietly export the wrong model.
 
 
 ## 2026-02-24 - 0.1.0

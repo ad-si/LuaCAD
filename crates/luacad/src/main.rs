@@ -116,10 +116,20 @@ fn export_via_openscad(
   }
 
   let scad_source = luacad::scad_export::generate_scad(&nodes);
-  let tmp_dir = std::env::temp_dir().join("luacad_openscad");
+
+  // The staging directory is unique per run. A fixed name would let two
+  // exports running at once — a `watch` in another terminal, a parallel
+  // build — overwrite each other's source between the write and OpenSCAD
+  // reading it, and the export would quietly produce the wrong model.
+  let stamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_nanos())
+    .unwrap_or(0);
+  let tmp_dir = std::env::temp_dir()
+    .join(format!("luacad_openscad-{}-{stamp}", std::process::id()));
   std::fs::create_dir_all(&tmp_dir)
     .map_err(|e| format!("Failed to create temp dir: {e}"))?;
-  let tmp_scad = tmp_dir.join("export_temp.scad");
+  let tmp_scad = tmp_dir.join("export.scad");
   std::fs::write(&tmp_scad, &scad_source)
     .map_err(|e| format!("Failed to write temp SCAD file: {e}"))?;
 
@@ -127,10 +137,12 @@ fn export_via_openscad(
     .arg("-o")
     .arg(output)
     .arg(&tmp_scad)
-    .output()
-    .map_err(|e| {
-      format!("Failed to run OpenSCAD: {e}. Is OpenSCAD installed and in PATH?")
-    })?;
+    .output();
+  let _ = std::fs::remove_dir_all(&tmp_dir);
+
+  let result = result.map_err(|e| {
+    format!("Failed to run OpenSCAD: {e}. Is OpenSCAD installed and in PATH?")
+  })?;
 
   if result.status.success() {
     Ok(())
