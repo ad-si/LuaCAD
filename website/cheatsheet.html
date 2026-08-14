@@ -46,11 +46,13 @@ cylinder { h = height, d = diameter }
 -- Polyhedron
 polyhedron { points = {...}, faces = {...} }
 
--- Pyramid
-pyramid { size = {x, y}, h = height }
+-- Pyramid (square base of `length`, apex at `height`)
+pyramid(x, y, z, length, height)
 
 -- Torus
-torus { r1 = major_radius, r2 = minor_radius }
+torus { R = major_radius, r = minor_radius }
+torus { major = major_radius, minor = minor_radius }
+torus { R = major, r = minor, segments = 64, segments_minor = 32 }
 
 -- Octahedron
 octahedron { r = radius }
@@ -76,11 +78,12 @@ square { size = width, center = false }
 -- Polygon
 polygon { points = {{x1,y1}, {x2,y2}, ...} }
 
--- Text (SCAD export only)
+-- Text (outlines a system font into a sketch)
 text("string", { size = 10, font = "Liberation Sans" })
+text("string", { size = 10, halign = "center", valign = "top" })
 
--- Text 3D
-text3d("string", { size = 10, h = 5 })</code></pre>
+-- Text 3D (text plus linear_extrude in one step)
+text3d("string", { size = 10, depth = 5 })</code></pre>
     </section>
 
     <section>
@@ -137,8 +140,9 @@ obj:minkowski(other)
 
 -- Offset (2D)
 shape:offset(delta)
-shape:offset { delta = d, chamfer = true }
-shape:offset { r = radius }</code></pre>
+shape:offset(delta, true)        -- chamfer the corners
+shape:offsetradius(radius)       -- round the corners instead
+shape:offsetradius(radius, true)</code></pre>
     </section>
 
     <section>
@@ -183,8 +187,14 @@ obj:render_node(convexity)</code></pre>
       <pre><code class="language-lua">-- Add geometry to output
 render(geometry)
 
--- Import external file (SCAD export only)
+-- Name an object (used as the 3MF object name)
+obj:name("bracket")
+
+-- Import a mesh (3MF, STL, OBJ, PLY, OFF, AMF) as a solid
 import("model.stl", convexity)
+
+-- Import SVG or DXF as a 2D sketch (DXF needs --via-openscad to export)
+import("logo.svg")
 
 -- Import surface heightmap (SCAD export only)
 surface("heightmap.dat", center, convexity)
@@ -213,6 +223,34 @@ print(...)</code></pre>
     </section>
 
     <section>
+      <h2>BOSL2</h2>
+      <pre><code class="language-lua">-- The Belfry OpenSCAD Library v2, reimplemented in LuaCAD.
+-- No OpenSCAD or BOSL2 installation needed.
+
+-- 3D shapes, with rounding, chamfering and anchor/spin/orient
+bosl.cuboid { {40, 40, 40}, rounding = 2 }
+bosl.cuboid { {40, 40, 40}, anchor = {0, 0, 1} }
+bosl.cyl { h = 20, r = 10, chamfer = 2 }
+bosl.prismoid { size1 = {40, 40}, size2 = {20, 20}, h = 30 }
+bosl.regular_prism { 5, r = 10, h = 25 }
+
+-- 2D shapes return a sketch, so extrusions apply to them
+bosl.rect { {20, 10}, rounding = 2 }
+bosl.star { n = 5, r = 10, ir = 5 }:linear_extrude(3)
+
+-- Parts libraries
+bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
+bosl.screw { "M6x1", length = 20 }
+
+-- Transforms take the object as `p`
+bosl.zrot { 45, p = cube(4) }
+
+-- The pure functions return real Lua values
+bosl.lerp(0, 10, 0.5)
+bosl.unit({3, 4, 0})</code></pre>
+    </section>
+
+    <section>
       <h2>Vector Operations</h2>
       <pre><code class="language-lua">-- Create vector
 local v = vector(x, y, z)
@@ -232,7 +270,6 @@ v:normal()  -- 2D normal
 v:scalar(v2)  -- dot product
 v:cross(v2)   -- cross product
 v:rot(angle)  -- rotate vector
-v:angle(v2)   -- angle between vectors
 
 -- Global functions
 cross(v1, v2)

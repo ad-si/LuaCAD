@@ -174,7 +174,8 @@
         <tr>
           <td>Create a polygon with paths</td>
           <td><code>polygon([points], [paths])</code></td>
-          <td><code>polygon{points, paths}</code></td>
+          <td><code>—</code> (paths are not supported; build the outline as
+            separate polygons and combine them)</td>
         </tr>
         <tr>
           <td>Create text</td>
@@ -290,7 +291,7 @@
         <tr>
           <td>Keep overlapping parts</td>
           <td><code>intersection() { obj1; obj2; }</code></td>
-          <td><code>obj1 & obj2</code></td>
+          <td><code>obj1 * obj2</code></td>
         </tr>
       </table>
     </section>
@@ -326,7 +327,7 @@
         <tr>
           <td>Resize object to absolute dimensions</td>
           <td><code>resize([x, y, z], auto, convexity)</code></td>
-          <td><code>obj:resize{{x, y, z}, auto, convexity}</code></td>
+          <td><code>obj:resize(x, y, z)</code></td>
         </tr>
         <tr>
           <td>Mirror object across plane</td>
@@ -374,7 +375,7 @@
         <tr>
           <td>Minkowski sum of objects</td>
           <td><code>minkowski()</code></td>
-          <td><code>obj:minkowski()</code></td>
+          <td><code>obj:minkowski(other)</code></td>
         </tr>
       </table>
     </section>
@@ -666,7 +667,7 @@
           <td>Intersect multiple iterations</td>
           <td><code>intersection_for(i = [start:end]) { … }</code></td>
           <td>
-            <code>local models = {} for i = start, stop do table.insert(models, …) end cad.intersection(models)</code>
+            <code>local model = nil for i = start, stop do local part = … model = model and model * part or part end</code>
           </td>
         </tr>
         <tr>
@@ -674,14 +675,14 @@
           <td><code>intersection_for(i = [start:step:end]) { … }</code>
           </td>
           <td>
-            <code>local models = {} for i = start, stop, step do table.insert(models, …) end cad.intersection(models)</code>
+            <code>local model = nil for i = start, stop, step do local part = … model = model and model * part or part end</code>
           </td>
         </tr>
         <tr>
           <td>Intersect list iterations</td>
           <td><code>intersection_for(i = […,…,…]) { … }</code></td>
           <td>
-            <code>local models = {} for _, i in ipairs({…,…,…}) do table.insert(models, …) end cad.intersection(models)</code>
+            <code>local model = nil for _, i in ipairs({…,…,…}) do local part = … model = model and model * part or part end</code>
           </td>
         </tr>
         <tr>
@@ -813,6 +814,65 @@
           <td>Power function</td>
           <td><code>pow(x, y)</code></td>
           <td><code>pow(x, y)</code> or <code>x ^ y</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section>
+      <h2>BOSL2</h2>
+      <p>The
+        <a href="https://github.com/BelfrySCAD/BOSL2/wiki">Belfry OpenSCAD
+          Library v2</a>
+        is available under <code>bosl.*</code>, reimplemented in LuaCAD, so it
+        needs neither OpenSCAD nor BOSL2 installed. A module's named arguments
+        carry over as a table; the ones BOSL2 does not declare are rejected
+        rather than ignored.
+      </p>
+      <table>
+        <tr>
+          <th>Description</th>
+          <th>OpenSCAD (with BOSL2)</th>
+          <th>LuaCAD</th>
+        </tr>
+        <tr>
+          <td>Include the library</td>
+          <td><code>include &lt;BOSL2/std.scad&gt;</code></td>
+          <td><code>—</code> (always available)</td>
+        </tr>
+        <tr>
+          <td>Rounded cuboid</td>
+          <td><code>cuboid([40,40,40], rounding=2);</code></td>
+          <td><code>bosl.cuboid { {40, 40, 40}, rounding = 2 }</code></td>
+        </tr>
+        <tr>
+          <td>Anchored shape</td>
+          <td><code>cuboid([40,40,40], anchor=TOP);</code></td>
+          <td><code>bosl.cuboid { {40, 40, 40}, anchor = {0, 0, 1} }</code></td>
+        </tr>
+        <tr>
+          <td>Chamfered cylinder</td>
+          <td><code>cyl(h=20, r=10, chamfer=2);</code></td>
+          <td><code>bosl.cyl { h = 20, r = 10, chamfer = 2 }</code></td>
+        </tr>
+        <tr>
+          <td>2D shape, then extrude</td>
+          <td><code>linear_extrude(3) star(n=5, r=10, ir=5);</code></td>
+          <td><code>bosl.star { n = 5, r = 10, ir = 5 }:linear_extrude(3)</code></td>
+        </tr>
+        <tr>
+          <td>Parts libraries</td>
+          <td><code>spur_gear(circ_pitch=5, teeth=20, thickness=5);</code></td>
+          <td><code>bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }</code></td>
+        </tr>
+        <tr>
+          <td>Transform an object</td>
+          <td><code>zrot(45) cube(4);</code></td>
+          <td><code>bosl.zrot { 45, p = cube(4) }</code></td>
+        </tr>
+        <tr>
+          <td>Call a pure function</td>
+          <td><code>lerp(0, 10, 0.5)</code></td>
+          <td><code>bosl.lerp(0, 10, 0.5)</code> (returns a Lua value)</td>
         </tr>
       </table>
     </section>
