@@ -876,6 +876,161 @@ impl CrossSection {
       )
     })
   }
+
+  /// Build a cross-section from a list of closed outlines.
+  ///
+  /// The outlines are resolved with the even-odd rule, so an outline drawn
+  /// inside another one is a hole however either of them winds. That is the
+  /// reading BOSL2 gives a region.
+  pub fn of_outlines(outlines: &[Vec<[f64; 2]>]) -> CrossSection {
+    Self::of_outlines_with_rule(outlines, false)
+  }
+
+  /// Build a cross-section from a list of closed outlines under either fill
+  /// rule.
+  ///
+  /// Even-odd, the default, makes an outline drawn inside another one a hole
+  /// however either winds. Non-zero keeps it solid unless it winds the other
+  /// way, which is what tells the two lobes of a figure-eight apart.
+  pub fn of_outlines_with_rule(
+    outlines: &[Vec<[f64; 2]>],
+    nonzero: bool,
+  ) -> CrossSection {
+    let rule = if nonzero {
+      manifold_sys::ManifoldFillRule_MANIFOLD_FILL_RULE_NON_ZERO
+    } else {
+      manifold_sys::ManifoldFillRule_MANIFOLD_FILL_RULE_EVEN_ODD
+    };
+    let simples: Vec<*mut manifold_sys::ManifoldSimplePolygon> = outlines
+      .iter()
+      .filter(|c| c.len() >= 3)
+      .map(|contour| {
+        let mut verts: Vec<manifold_sys::ManifoldVec2> = contour
+          .iter()
+          .map(|p| manifold_sys::ManifoldVec2 { x: p[0], y: p[1] })
+          .collect();
+        unsafe {
+          manifold_sys::manifold_simple_polygon(
+            manifold_sys::manifold_alloc_simple_polygon()
+              as *mut std::os::raw::c_void,
+            verts.as_mut_ptr(),
+            verts.len(),
+          )
+        }
+      })
+      .collect();
+    if simples.is_empty() {
+      return Self::empty();
+    }
+    unsafe {
+      let mut simples = simples;
+      let polys = manifold_sys::manifold_polygons(
+        manifold_sys::manifold_alloc_polygons() as *mut std::os::raw::c_void,
+        simples.as_mut_ptr(),
+        simples.len(),
+      );
+      let cs = Self(manifold_sys::manifold_cross_section_of_polygons(
+        Self::alloc(),
+        polys,
+        rule,
+      ));
+      manifold_sys::manifold_delete_polygons(polys);
+      for simple in simples {
+        manifold_sys::manifold_delete_simple_polygon(simple);
+      }
+      cs
+    }
+  }
+
+  /// Read the cross-section back out as a list of closed outlines.
+  pub fn outlines(&self) -> Vec<Vec<[f64; 2]>> {
+    let polys = self.to_polygons();
+    let mut out = Vec::new();
+    unsafe {
+      let n = manifold_sys::manifold_polygons_length(polys.ptr());
+      for i in 0..n {
+        let simple = manifold_sys::manifold_polygons_get_simple(
+          manifold_sys::manifold_alloc_simple_polygon()
+            as *mut std::os::raw::c_void,
+          polys.ptr(),
+          i,
+        );
+        let count = manifold_sys::manifold_simple_polygon_length(simple);
+        let mut contour = Vec::with_capacity(count);
+        for j in 0..count {
+          let p = manifold_sys::manifold_simple_polygon_get_point(simple, j);
+          contour.push([p.x, p.y]);
+        }
+        manifold_sys::manifold_delete_simple_polygon(simple);
+        if contour.len() >= 3 {
+          out.push(contour);
+        }
+      }
+    }
+    out
+  }
+}
+
+/// Which way two areas are combined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AreaOp {
+  Union,
+  Difference,
+  Intersection,
+  /// Whatever lies in one area or the other but not in both.
+  ExclusiveOr,
+}
+
+/// Combine two lists of closed outlines, and read the result back as
+/// outlines again.
+///
+/// This is Manifold's 2D boolean, which is what makes a set of overlapping
+/// or self-intersecting polygons into a well-defined area — the thing BOSL2
+/// calls a valid region.
+pub fn combine_outlines(
+  a: &[Vec<[f64; 2]>],
+  b: &[Vec<[f64; 2]>],
+  op: AreaOp,
+) -> Vec<Vec<[f64; 2]>> {
+  combine_outlines_with_rule(a, b, op, false)
+}
+
+/// Combine two lists of closed outlines, choosing how each side's own
+/// outlines are resolved against each other first.
+pub fn combine_outlines_with_rule(
+  a: &[Vec<[f64; 2]>],
+  b: &[Vec<[f64; 2]>],
+  op: AreaOp,
+  nonzero: bool,
+) -> Vec<Vec<[f64; 2]>> {
+  let left = CrossSection::of_outlines_with_rule(a, nonzero);
+  let right = CrossSection::of_outlines_with_rule(b, nonzero);
+  let apply = |op: u32, l: &CrossSection, r: &CrossSection| -> CrossSection {
+    CrossSection(unsafe {
+      manifold_sys::manifold_cross_section_boolean(
+        CrossSection::alloc(),
+        l.ptr(),
+        r.ptr(),
+        op,
+      )
+    })
+  };
+  let add = manifold_sys::ManifoldOpType_MANIFOLD_ADD;
+  let sub = manifold_sys::ManifoldOpType_MANIFOLD_SUBTRACT;
+  let and = manifold_sys::ManifoldOpType_MANIFOLD_INTERSECT;
+  let result = match op {
+    AreaOp::Union => apply(add, &left, &right),
+    AreaOp::Difference => apply(sub, &left, &right),
+    AreaOp::Intersection => apply(and, &left, &right),
+    // Manifold has no exclusive-or of its own, but it is everything in
+    // either area with the shared part taken back out.
+    AreaOp::ExclusiveOr => {
+      let both = apply(add, &left, &right);
+      let shared = apply(and, &left, &right);
+      apply(sub, &both, &shared)
+    }
+  };
+  result.outlines()
 }
 
 impl Drop for CrossSection {
