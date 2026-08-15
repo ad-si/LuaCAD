@@ -1,3 +1,6 @@
 /target
 .direnv
 *_todo_*
+
+# Writable copy of Emscripten's cache, seeded by the dev shell in flake.nix.
+/.emscripten-cache
