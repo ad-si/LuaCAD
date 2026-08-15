@@ -59,9 +59,15 @@ wasm:
 		website/playground/
 
 
+# An activated emsdk puts its own root on `PATH`, and that root holds a
+# `node` *directory* — which shadows the real interpreter and fails with
+# "Permission denied". Emscripten names the node it installed in
+# `EMSDK_NODE`, so prefer that whenever it is set.
+NODE ?= $(if $(EMSDK_NODE),$(EMSDK_NODE),node)
+
 .PHONY: test-wasm
 test-wasm: wasm
-	node crates/luacad-wasm/smoke_test.mjs website/playground
+	$(NODE) crates/luacad-wasm/smoke_test.mjs website/playground
 
 
 # Serves the website exactly as GitHub Pages does, so the playground can be

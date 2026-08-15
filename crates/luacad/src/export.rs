@@ -1067,7 +1067,13 @@ pub fn combine_outlines_with_rule(
 ) -> Vec<Vec<[f64; 2]>> {
   let left = CrossSection::of_outlines_with_rule(a, nonzero);
   let right = CrossSection::of_outlines_with_rule(b, nonzero);
-  let apply = |op: u32, l: &CrossSection, r: &CrossSection| -> CrossSection {
+  // The op is spelled with Manifold's own type: bindgen makes the C enum
+  // unsigned on Unix but signed on MSVC, so naming a fixed width here does
+  // not compile everywhere.
+  let apply = |op: manifold_sys::ManifoldOpType,
+               l: &CrossSection,
+               r: &CrossSection|
+   -> CrossSection {
     CrossSection(unsafe {
       manifold_sys::manifold_cross_section_boolean(
         CrossSection::alloc(),
