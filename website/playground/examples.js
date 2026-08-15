@@ -81,6 +81,24 @@ render(outline:linear_extrude { height = 5 })
 `,
   },
   {
+    name: "2D outline",
+    code: `-- A 2D shape is output in its own right: no extrusion needed.
+-- It draws flat here and exports to .scad as the calls that made it.
+-- Mesh formats need a solid, so add :linear_extrude(3) for those.
+
+local plate = square { 80, 50, center = true }
+  - circle { r = 10 }
+
+for _, x in ipairs({ -30, 30 }) do
+  for _, y in ipairs({ -17, 17 }) do
+    plate = plate - circle { r = 3 }:translate(x, y)
+  end
+end
+
+render(plate:color("steelblue"))
+`,
+  },
+  {
     name: "Loops and math",
     code: `-- A spiral of cubes, because a script can do arithmetic
 

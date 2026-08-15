@@ -223,13 +223,15 @@ fn cmd_info(args: &[String]) -> ExitCode {
 
   for geom in &geometries {
     if let Some(ref scad) = geom.scad {
-      let manifold = luacad::export::materialize_scad_manifold(scad);
-      let tri_count = manifold.num_tri();
+      // Dimension-aware, so an outline is reported by the triangles it
+      // tessellates into rather than as an empty object.
+      let mesh = luacad::export::materialize_scad_display_mesh(scad);
+      let tri_count = mesh.triangles.len();
       total_triangles += tri_count;
       per_object.push(tri_count);
 
       if tri_count > 0 {
-        let (bb_min, bb_max) = manifold.bounding_box();
+        let (bb_min, bb_max) = mesh.bounding_box();
         overall_min[0] = overall_min[0].min(bb_min[0]);
         overall_min[1] = overall_min[1].min(bb_min[1]);
         overall_min[2] = overall_min[2].min(bb_min[2]);
@@ -276,7 +278,8 @@ fn cmd_info(args: &[String]) -> ExitCode {
 
   // `info` reports on the model rather than producing one, so an unsupported
   // construct is a warning here — the triangle counts above just exclude it.
-  let blockers = luacad::export::geometries_unsupported(&geometries);
+  let blockers =
+    luacad::export::geometries_unsupported_for_display(&geometries);
   if !blockers.is_empty() {
     println!();
     println!("Warning: some constructs contribute no triangles:");

@@ -84,7 +84,12 @@ text("string", { size = 10, font = "Liberation Sans" })
 text("string", { size = 10, halign = "center", valign = "top" })
 
 -- Text 3D (text plus linear_extrude in one step)
-text3d("string", { size = 10, depth = 5 })</code></pre>
+text3d("string", { size = 10, depth = 5 })
+
+-- 2D shapes are output in their own right: they export to SCAD and
+-- preview flat. Mesh formats need an extrusion first.
+render(square { 60, 40 } - circle { r = 8 })
+render(circle { r = 10 }:linear_extrude(3))  -- solid, exports to STL</code></pre>
     </section>
 
     <section>

@@ -245,6 +245,17 @@ return
 The other formats cannot express separate objects,
 so they flatten everything into a single mesh.
 
+A 2D shape is output in its own right — render it without extruding first:
+
+```lua
+render(square { 60, 40, center = true } - circle { r = 8 })
+```
+
+It exports to SCAD as the 2D calls it is made of, and previews as a flat
+area on the build plate, in the CLI's PNG renderer, in Studio and in the
+playground. The mesh formats need a solid and say so, since an outline has
+no volume to print — give it a `linear_extrude(height)` for those.
+
 
 ## Supported Import Formats
 

@@ -942,6 +942,68 @@ impl CrossSection {
     }
   }
 
+  /// Triangulate the area into a flat mesh lying in the z = 0 plane, so that
+  /// a viewer can draw an outline the same way it draws a solid.
+  ///
+  /// Holes are respected: the triangulation runs over the whole polygon set
+  /// rather than contour by contour.
+  pub fn triangulate(&self) -> ManifoldMesh {
+    use std::alloc::{Layout, alloc};
+    use std::os::raw::c_void;
+
+    let polys = self.to_polygons();
+    unsafe {
+      // The triangulation indexes points as one run over every contour, so
+      // the vertices have to be collected in exactly that order.
+      let mut vertices: Vec<[f32; 3]> = Vec::new();
+      let contours = manifold_sys::manifold_polygons_length(polys.ptr());
+      for i in 0..contours {
+        let simple = manifold_sys::manifold_polygons_get_simple(
+          manifold_sys::manifold_alloc_simple_polygon()
+            as *mut std::os::raw::c_void,
+          polys.ptr(),
+          i,
+        );
+        let count = manifold_sys::manifold_simple_polygon_length(simple);
+        for j in 0..count {
+          let p = manifold_sys::manifold_simple_polygon_get_point(simple, j);
+          vertices.push([p.x as f32, p.y as f32, 0.0]);
+        }
+        manifold_sys::manifold_delete_simple_polygon(simple);
+      }
+
+      // -1 asks Manifold to choose the tolerance from the polygons' own size.
+      let triangulation = manifold_sys::manifold_triangulate(
+        manifold_sys::manifold_alloc_triangulation() as *mut c_void,
+        polys.ptr(),
+        -1.0,
+      );
+      let n_tri =
+        manifold_sys::manifold_triangulation_num_tri(triangulation) as usize;
+
+      let triangles = if n_tri == 0 {
+        Vec::new()
+      } else {
+        let layout = Layout::array::<u32>(n_tri * 3).unwrap();
+        let ptr = alloc(layout) as *mut u32;
+        manifold_sys::manifold_triangulation_tri_verts(
+          ptr as *mut c_void,
+          triangulation,
+        );
+        let raw = Vec::from_raw_parts(ptr, n_tri * 3, n_tri * 3);
+        (0..n_tri)
+          .map(|i| [raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]])
+          .collect()
+      };
+      manifold_sys::manifold_delete_triangulation(triangulation);
+
+      ManifoldMesh {
+        vertices,
+        triangles,
+      }
+    }
+  }
+
   /// Read the cross-section back out as a list of closed outlines.
   pub fn outlines(&self) -> Vec<Vec<[f64; 2]>> {
     let polys = self.to_polygons();
@@ -1862,10 +1924,66 @@ impl std::fmt::Display for Unsupported {
 }
 
 /// The materialization context a node is evaluated in: solids or sketches.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Dim {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dimension {
   Three,
   Two,
+}
+
+/// What `node` evaluates to.
+///
+/// Wrappers and booleans take the dimension of what they hold; a construct
+/// the backend cannot evaluate at all counts as a solid, since that is the
+/// context it will be reported in.
+pub fn node_dimension(node: &crate::scad_export::ScadNode) -> Dimension {
+  use crate::scad_export::ScadNode;
+
+  match node {
+    ScadNode::Circle { .. }
+    | ScadNode::Square { .. }
+    | ScadNode::Polygon { .. }
+    | ScadNode::Text { .. }
+    | ScadNode::Offset { .. }
+    | ScadNode::Projection { .. } => Dimension::Two,
+
+    // `import` is 2D or 3D depending on what is being read.
+    ScadNode::Import { file, .. } => {
+      let ext = std::path::Path::new(file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+      match ext.as_str() {
+        "svg" | "dxf" => Dimension::Two,
+        _ => Dimension::Three,
+      }
+    }
+
+    ScadNode::Translate { child, .. }
+    | ScadNode::Rotate { child, .. }
+    | ScadNode::Scale { child, .. }
+    | ScadNode::Mirror { child, .. }
+    | ScadNode::Color { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Modifier { child, .. }
+    | ScadNode::Hull(child) => node_dimension(child),
+
+    // A boolean is whatever it operates on; an empty one is a solid.
+    ScadNode::Union(children)
+    | ScadNode::Difference(children)
+    | ScadNode::Intersection(children)
+    | ScadNode::Minkowski(children) => children
+      .first()
+      .map(node_dimension)
+      .unwrap_or(Dimension::Three),
+
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => node_dimension(native),
+
+    _ => Dimension::Three,
+  }
 }
 
 /// Collect the constructs in `node` that the Manifold backend cannot turn into
@@ -1878,13 +1996,13 @@ pub fn unsupported_constructs(
   node: &crate::scad_export::ScadNode,
 ) -> Vec<Unsupported> {
   let mut found = Vec::new();
-  collect_unsupported(node, Dim::Three, &mut found);
+  collect_unsupported(node, Dimension::Three, &mut found);
   found
 }
 
 fn collect_unsupported(
   node: &crate::scad_export::ScadNode,
-  dim: Dim,
+  dim: Dimension,
   found: &mut Vec<Unsupported>,
 ) {
   use crate::scad_export::{ModifierKind, ScadNode};
@@ -1901,16 +2019,16 @@ fn collect_unsupported(
 
   // Wrong-dimension use of a primitive: a 2D shape in a solid context needs an
   // extrusion, a 3D solid in a sketch context is simply invalid.
-  let mismatch = |dim: Dim| match dim {
-    Dim::Three => UnsupportedReason::NeedsExtrusion,
-    Dim::Two => UnsupportedReason::NeedsSketch,
+  let mismatch = |dim: Dimension| match dim {
+    Dimension::Three => UnsupportedReason::NeedsExtrusion,
+    Dimension::Two => UnsupportedReason::NeedsSketch,
   };
 
   match node {
     // Text is outlined from the font, so it behaves like any other sketch:
     // usable under an extrusion, meaningless as a solid on its own.
     ScadNode::Text { .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("text()", mismatch(dim))
       }
     }
@@ -1944,39 +2062,39 @@ fn collect_unsupported(
 
     // --- 3D primitives ---
     ScadNode::Cube { .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("cube()", mismatch(dim))
       }
     }
     ScadNode::Sphere { .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("sphere()", mismatch(dim))
       }
     }
     ScadNode::Cylinder { .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("cylinder()", mismatch(dim))
       }
     }
     ScadNode::Polyhedron { .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("polyhedron()", mismatch(dim))
       }
     }
 
     // --- 2D primitives ---
     ScadNode::Circle { .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("circle()", mismatch(dim))
       }
     }
     ScadNode::Square { .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("rect()", mismatch(dim))
       }
     }
     ScadNode::Polygon { .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("polygon()", mismatch(dim))
       }
     }
@@ -1992,7 +2110,7 @@ fn collect_unsupported(
 
       match ext.as_str() {
         "svg" => {
-          if dim == Dim::Three {
+          if dim == Dimension::Three {
             report("import() of an SVG file", mismatch(dim))
           } else if !std::path::Path::new(file).exists() {
             report(
@@ -2006,7 +2124,7 @@ fn collect_unsupported(
           report("import() of a DXF file", UnsupportedReason::NotImplemented)
         }
         _ if crate::mesh_import::is_mesh_file(file) => {
-          if dim == Dim::Two {
+          if dim == Dimension::Two {
             report("import() of a mesh file", mismatch(dim))
           } else if !std::path::Path::new(file).exists() {
             // Checked here so a typo'd path fails with one clear message
@@ -2027,37 +2145,37 @@ fn collect_unsupported(
     // --- Extrusions: 2D child, 3D result ---
     ScadNode::LinearExtrude { child, .. }
     | ScadNode::RotateExtrude { child, .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("linear_extrude()/rotate_extrude()", mismatch(dim));
       }
-      collect_unsupported(child, Dim::Two, found);
+      collect_unsupported(child, Dimension::Two, found);
     }
 
     // --- Projection: 3D child, 2D result ---
     ScadNode::Projection { child, .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("projection()", mismatch(dim));
       }
-      collect_unsupported(child, Dim::Three, found);
+      collect_unsupported(child, Dimension::Three, found);
     }
 
     // --- offset() only applies to sketches ---
     ScadNode::Offset { child, .. } => {
-      if dim == Dim::Three {
+      if dim == Dimension::Three {
         report("offset()", mismatch(dim));
       }
-      collect_unsupported(child, Dim::Two, found);
+      collect_unsupported(child, Dimension::Two, found);
     }
 
     // --- Transforms that only exist for solids ---
     ScadNode::Multmatrix { child, .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("multmatrix()", mismatch(dim));
       }
       collect_unsupported(child, dim, found);
     }
     ScadNode::Resize { child, .. } => {
-      if dim == Dim::Two {
+      if dim == Dimension::Two {
         report("resize()", mismatch(dim));
       }
       collect_unsupported(child, dim, found);
@@ -2094,10 +2212,38 @@ fn collect_unsupported(
 
 /// [`unsupported_constructs`] over every geometry a script returned.
 pub fn geometries_unsupported(geometries: &[CsgGeometry]) -> Vec<Unsupported> {
+  geometries_unsupported_with(geometries, unsupported_constructs)
+}
+
+/// [`unsupported_constructs`], judged in the dimension the node itself
+/// produces rather than as a solid.
+///
+/// A viewer can draw an outline, so a 2D shape at the top is output there,
+/// not a mistake; only a mesh file needs it extruded first.
+pub fn unsupported_constructs_for_display(
+  node: &crate::scad_export::ScadNode,
+) -> Vec<Unsupported> {
+  let mut found = Vec::new();
+  collect_unsupported(node, node_dimension(node), &mut found);
+  found
+}
+
+/// [`unsupported_constructs_for_display`] over every geometry a script
+/// returned.
+pub fn geometries_unsupported_for_display(
+  geometries: &[CsgGeometry],
+) -> Vec<Unsupported> {
+  geometries_unsupported_with(geometries, unsupported_constructs_for_display)
+}
+
+fn geometries_unsupported_with(
+  geometries: &[CsgGeometry],
+  constructs: fn(&crate::scad_export::ScadNode) -> Vec<Unsupported>,
+) -> Vec<Unsupported> {
   let mut found = Vec::new();
   for geom in geometries {
     if let Some(ref scad) = geom.scad {
-      for item in unsupported_constructs(scad) {
+      for item in constructs(scad) {
         if !found.contains(&item) {
           found.push(item);
         }
@@ -2130,6 +2276,38 @@ pub fn describe_unsupported(items: &[Unsupported]) -> String {
 pub struct ManifoldMesh {
   pub vertices: Vec<[f32; 3]>,
   pub triangles: Vec<[u32; 3]>,
+}
+
+impl ManifoldMesh {
+  /// The extent of the mesh. An empty mesh reports a box at the origin.
+  pub fn bounding_box(&self) -> ([f32; 3], [f32; 3]) {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for vertex in &self.vertices {
+      for axis in 0..3 {
+        min[axis] = min[axis].min(vertex[axis]);
+        max[axis] = max[axis].max(vertex[axis]);
+      }
+    }
+    if self.vertices.is_empty() {
+      return ([0.0; 3], [0.0; 3]);
+    }
+    (min, max)
+  }
+}
+
+/// Tessellate `node` for a viewer: a solid becomes its own mesh, an outline
+/// a flat triangulation in the z = 0 plane.
+///
+/// This is what a preview should call. The mesh exporters deliberately do
+/// not: a flat triangulation is something to look at, not a printable solid.
+pub fn materialize_scad_display_mesh(
+  node: &crate::scad_export::ScadNode,
+) -> ManifoldMesh {
+  match node_dimension(node) {
+    Dimension::Three => extract_manifold_mesh(&materialize_scad_manifold(node)),
+    Dimension::Two => materialize_scad_cross_section(node).triangulate(),
+  }
 }
 
 /// Extract the triangle mesh (vertices + triangles) from a Manifold object.
@@ -2667,6 +2845,85 @@ mod unsupported_tests {
     let found = unsupported_constructs(&circle());
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reason, UnsupportedReason::NeedsExtrusion);
+  }
+
+  #[test]
+  fn a_sketch_is_output_in_its_own_right_for_a_viewer() {
+    // A mesh file still needs it extruded; a preview draws it flat.
+    assert!(unsupported_constructs_for_display(&circle()).is_empty());
+    assert!(unsupported_constructs_for_display(&text()).is_empty());
+  }
+
+  #[test]
+  fn a_viewer_is_still_told_what_cannot_be_evaluated() {
+    let found = unsupported_constructs_for_display(&surface());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].reason, UnsupportedReason::NotImplemented);
+  }
+
+  #[test]
+  fn the_dimension_of_a_node_follows_what_it_holds() {
+    assert_eq!(node_dimension(&cube()), Dimension::Three);
+    assert_eq!(node_dimension(&circle()), Dimension::Two);
+    assert_eq!(node_dimension(&extrude(circle())), Dimension::Three);
+    assert_eq!(
+      node_dimension(&ScadNode::Translate {
+        x: 1.0,
+        y: 0.0,
+        z: 0.0,
+        child: Box::new(circle()),
+      }),
+      Dimension::Two
+    );
+    assert_eq!(
+      node_dimension(&ScadNode::Difference(vec![circle(), circle()])),
+      Dimension::Two
+    );
+  }
+
+  #[test]
+  fn a_sketch_tessellates_flat_for_display() {
+    let mesh = materialize_scad_display_mesh(&ScadNode::Square {
+      w: 10.0,
+      h: 4.0,
+      center: false,
+    });
+    assert!(!mesh.triangles.is_empty());
+    assert!(mesh.vertices.iter().all(|v| v[2] == 0.0));
+
+    let (min, max) = mesh.bounding_box();
+    assert_eq!((min, max), ([0.0, 0.0, 0.0], [10.0, 4.0, 0.0]));
+  }
+
+  #[test]
+  fn a_hole_survives_into_the_display_mesh() {
+    let plate = ScadNode::Difference(vec![
+      ScadNode::Square {
+        w: 10.0,
+        h: 10.0,
+        center: true,
+      },
+      ScadNode::Circle {
+        r: 3.0,
+        segments: 32,
+      },
+    ]);
+    let mesh = materialize_scad_display_mesh(&plate);
+
+    // 100 minus the disc, give or take the polygonal approximation.
+    let area: f32 = mesh
+      .triangles
+      .iter()
+      .map(|t| {
+        let [a, b, c] = t.map(|i| mesh.vertices[i as usize]);
+        ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs()
+          / 2.0
+      })
+      .sum();
+    assert!(
+      (area - (100.0 - std::f32::consts::PI * 9.0)).abs() < 1.0,
+      "area was {area}"
+    );
   }
 
   #[test]

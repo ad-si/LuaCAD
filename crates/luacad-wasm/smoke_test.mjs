@@ -101,6 +101,26 @@ if (colored.ok) {
   check("the color came through", mesh.hasColor && mesh.color[0] === 1, mesh.color.join(","))
 }
 
+// A 2D outline is output in its own right, drawn flat at z = 0.
+const outline = call("luacad_run", `render(square { 30, 20 } - circle { r = 6 })`)
+check("a 2D outline runs", outline.ok, new TextDecoder().decode(outline.payload))
+if (outline.ok) {
+  const [mesh] = decodeMeshes(outline.payload)
+  check("the outline tessellated", mesh.indices.length > 0)
+  check(
+    "the outline is flat",
+    mesh.vertices.filter((_, i) => i % 3 === 2).every((z) => z === 0),
+  )
+}
+
+// Mesh formats need a solid, and have to say so rather than write an empty file.
+const outlineExport = call("luacad_export", "stl")
+check("exporting an outline to STL is refused", !outlineExport.ok)
+check(
+  "the refusal names the fix",
+  new TextDecoder().decode(outlineExport.payload).includes("linear_extrude"),
+)
+
 // Lua errors have to arrive as messages rather than as a dead module.
 const broken = call("luacad_run", `cube({ size = { 1, 1, 1 } })) -- unbalanced`)
 check("a broken script fails cleanly", !broken.ok)

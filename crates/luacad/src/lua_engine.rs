@@ -1107,8 +1107,33 @@ pub fn execute_lua_with_path(
 
     // ---- render() ----
     let collector_clone = collector.clone();
-    let render_fn = lua.create_function(move |_, ud: mlua::AnyUserData| {
-      let geom = ud.borrow::<CsgGeometry>()?.clone();
+    let render_fn = lua.create_function(move |_, value: mlua::Value| {
+      // A 2D shape is output in its own right: it exports to .scad and draws
+      // in a preview. Only the mesh formats need it extruded first, and they
+      // say so themselves.
+      let geom = match value.as_userdata() {
+        Some(ud) if ud.is::<CsgGeometry>() => {
+          ud.borrow::<CsgGeometry>()?.clone()
+        }
+        Some(ud) if ud.is::<CsgSketch>() => {
+          let sketch = ud.borrow::<CsgSketch>()?;
+          CsgGeometry {
+            mesh: None,
+            color: sketch.color,
+            scad: sketch.scad.clone(),
+            name: None,
+          }
+        }
+        // Whatever was passed, saying what render() wants beats reporting a
+        // failed conversion to a type the script never mentions.
+        _ => {
+          return Err(mlua::Error::RuntimeError(format!(
+            "render() takes a shape, such as cube{{ 10, 10, 10 }} or \
+             circle{{ r = 5 }}, but was given a {}",
+            value.type_name()
+          )));
+        }
+      };
       collector_clone.borrow_mut().push(geom);
       Ok(())
     })?;
@@ -1669,12 +1694,21 @@ pub fn execute_lua_with_path(
 
   match result {
     Ok(returns) => {
-      // Auto-render any CsgGeometry returned from top-level
+      // Auto-render any shape returned from top-level, 2D as well as 3D —
+      // the same values render() accepts.
       for val in returns.iter() {
-        if let LuaValue::UserData(ud) = val
-          && let Ok(geom) = ud.borrow::<CsgGeometry>()
-        {
+        let LuaValue::UserData(ud) = val else {
+          continue;
+        };
+        if let Ok(geom) = ud.borrow::<CsgGeometry>() {
           collector.borrow_mut().push(geom.clone());
+        } else if let Ok(sketch) = ud.borrow::<CsgSketch>() {
+          collector.borrow_mut().push(CsgGeometry {
+            mesh: None,
+            color: sketch.color,
+            scad: sketch.scad.clone(),
+            name: None,
+          });
         }
       }
       Ok(collector.borrow().clone())
@@ -1984,6 +2018,28 @@ mod tests {
     let scad = generate_scad(&nodes);
     assert!(scad.contains("linear_extrude(height = 10)"));
     assert!(scad.contains("circle(r = 5"));
+  }
+
+  #[test]
+  fn e2e_render_takes_a_2d_shape() {
+    let nodes = run_lua_scad("render(circle(5))");
+    assert_eq!(nodes.len(), 1);
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("circle(r = 5"));
+  }
+
+  #[test]
+  fn e2e_render_keeps_a_2d_shapes_color() {
+    let geometries = execute_lua("render(circle(5):color(\"red\"))")
+      .expect("Lua execution failed");
+    assert_eq!(geometries.len(), 1);
+    assert_eq!(geometries[0].color, Some([1.0, 0.0, 0.0]));
+  }
+
+  #[test]
+  fn e2e_render_rejects_a_value_that_is_no_shape() {
+    let err = execute_lua("render(42)").expect_err("should not have run");
+    assert!(err.contains("render() takes a shape"), "{err}");
   }
 
   #[test]

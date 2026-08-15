@@ -510,11 +510,11 @@ pub fn compute_fit_distance(
       Some(s) => s,
       None => continue,
     };
-    let manifold = luacad::export::materialize_scad_manifold(scad);
-    if manifold.num_tri() == 0 {
+    let mesh = luacad::export::materialize_scad_display_mesh(scad);
+    if mesh.triangles.is_empty() {
       continue;
     }
-    let (bb_min, bb_max) = manifold.bounding_box();
+    let (bb_min, bb_max) = mesh.bounding_box();
     // Check all 8 corners, converting CAD (x,y,z) → GL (y,z,x)
     for &cx in &[bb_min[0], bb_max[0]] {
       for &cy in &[bb_min[1], bb_max[1]] {

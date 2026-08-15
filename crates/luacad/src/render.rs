@@ -4,7 +4,7 @@
 //! with smooth vertex normals and Blinn-Phong shading matching the
 //! studio's lighting setup.
 
-use crate::export::{extract_manifold_mesh, materialize_scad_manifold};
+use crate::export::materialize_scad_display_mesh;
 use crate::geometry::CsgGeometry;
 use crate::scad_export::ScadNode;
 use std::collections::HashMap;
@@ -144,7 +144,7 @@ pub fn render_to_png(
 ) -> Result<(), String> {
   // Name whatever the backend cannot tessellate rather than reporting an
   // empty scene.
-  let blockers = crate::export::geometries_unsupported(geometries);
+  let blockers = crate::export::geometries_unsupported_for_display(geometries);
   if !blockers.is_empty() {
     return Err(crate::export::describe_unsupported(&blockers));
   }
@@ -318,11 +318,12 @@ fn collect_smooth_triangles(
     collect_colored_leaves(scad, base_color, &[], &mut leaves);
 
     for (color, leaf) in &leaves {
-      let manifold = materialize_scad_manifold(leaf);
-      if manifold.num_tri() == 0 {
+      // Dimension-aware: an outline tessellates flat rather than not at all.
+      let mesh = materialize_scad_display_mesh(leaf);
+      if mesh.triangles.is_empty() {
         continue;
       }
-      materialize_mesh(&mut all_triangles, &manifold, *color, smooth);
+      materialize_mesh(&mut all_triangles, &mesh, *color, smooth);
     }
   }
 
@@ -462,12 +463,10 @@ type VertexNormalMap = HashMap<[i32; 3], Vec<[f32; 3]>>;
 /// Materialize a Manifold's mesh into SmoothTriangles.
 fn materialize_mesh(
   out: &mut Vec<SmoothTriangle>,
-  manifold: &crate::export::Manifold,
+  mesh: &crate::export::ManifoldMesh,
   color: [f32; 3],
   smooth: bool,
 ) {
-  let mesh = extract_manifold_mesh(manifold);
-
   // Precompute face normals (normalized)
   let face_normals: Vec<[f32; 3]> = mesh
     .triangles

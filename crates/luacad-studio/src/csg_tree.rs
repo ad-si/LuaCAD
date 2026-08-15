@@ -4,7 +4,10 @@
 //! tagged as Intersection or Subtraction. Complex CSG trees (nested unions, etc.) are
 //! decomposed into multiple OpenCSG render calls (one per [`CsgGroup`]).
 
-use luacad::export::{extract_manifold_mesh, materialize_scad_manifold};
+use luacad::export::{
+  Dimension, extract_manifold_mesh, materialize_scad_display_mesh,
+  materialize_scad_manifold, node_dimension,
+};
 use luacad::geometry::CsgGeometry;
 use luacad::scad_export::{BoslPreviewParams, CylAxis, ModifierKind, ScadNode};
 use opencsg_sys::{INTERSECTION, SUBTRACTION};
@@ -242,6 +245,12 @@ fn flatten_node(
 /// — they have no leaf tessellation to hand OpenCSG. Whatever doesn't fit is
 /// computed by Manifold instead and rendered as a plain mesh.
 fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
+  // A 2D shape has no OpenCSG form at all: its booleans combine areas, which
+  // is Manifold's job, and the result draws as one flat mesh.
+  if node_dimension(node) == Dimension::Two {
+    return false;
+  }
+
   match node {
     // Not tessellatable: needs Manifold materialization regardless of shape.
     ScadNode::Minkowski(_)
@@ -315,6 +324,12 @@ fn flatten_inner(
   match node {
     // --- CSG booleans ---
     ScadNode::Union(children) => {
+      // An area union is resolved by Manifold, not by drawing the operands
+      // over each other — coplanar shapes would fight for the same depth.
+      if node_dimension(node) == Dimension::Two {
+        collect_modifier_effects(node, ctx, sink);
+        return manifold_preview(node, ctx, op, 1);
+      }
       // Each child of a union becomes its own group (separate OpenCSG render call).
       // Propagate `op` so that when a union appears inside a Difference (as a
       // subtracted operand), its leaves inherit the SUBTRACTION operation.
@@ -495,6 +510,11 @@ fn flatten_inner(
     ScadNode::Polyhedron { points, faces } => {
       let verts = tessellate_polyhedron(points, faces);
       make_leaf_group(verts, ctx, op, 1)
+    }
+
+    // --- 2D shapes: tessellated flat by Manifold ---
+    node if node_dimension(node) == Dimension::Two => {
+      manifold_preview(node, ctx, op, 1)
     }
 
     // --- Extrusions / Hull / Minkowski: not directly tessellatable ---
@@ -919,8 +939,7 @@ fn overlay_mesh(
   ctx: &Ctx,
   color: [f32; 4],
 ) -> Option<OverlayMesh> {
-  let manifold = materialize_scad_manifold(node);
-  let mesh = extract_manifold_mesh(&manifold);
+  let mesh = materialize_scad_display_mesh(node);
   if mesh.triangles.is_empty() {
     return None;
   }
@@ -1041,8 +1060,8 @@ fn manifold_preview(
   op: c_int,
   convexity: u32,
 ) -> Vec<CsgGroup> {
-  let manifold = materialize_scad_manifold(node);
-  let mesh = extract_manifold_mesh(&manifold);
+  // Dimension-aware, so a 2D shape shows up flat instead of not at all.
+  let mesh = materialize_scad_display_mesh(node);
   let mut verts = Vec::with_capacity(mesh.triangles.len() * 3);
   for tri in &mesh.triangles {
     verts.push(mesh.vertices[tri[0] as usize]);
@@ -1522,5 +1541,45 @@ mod product_tests {
       .map(|p| p.operation)
       .collect();
     assert_eq!(ops, vec![INTERSECTION, INTERSECTION, SUBTRACTION]);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use luacad::scad_export::ScadNode;
+
+  fn geometry(scad: ScadNode) -> CsgGeometry {
+    CsgGeometry {
+      mesh: None,
+      color: None,
+      scad: Some(scad),
+      name: None,
+    }
+  }
+
+  /// A 2D shape is output in its own right, so the viewport has to receive
+  /// something to draw for it rather than an empty group.
+  #[test]
+  fn an_outline_reaches_the_viewport() {
+    let scene = flatten_geometries(&[geometry(ScadNode::Difference(vec![
+      ScadNode::Square {
+        w: 20.0,
+        h: 10.0,
+        center: true,
+      },
+      ScadNode::Circle {
+        r: 3.0,
+        segments: 32,
+      },
+    ]))]);
+
+    let vertices: usize = scene
+      .groups
+      .iter()
+      .flat_map(|group| &group.primitives)
+      .map(|leaf| leaf.vertices.len())
+      .sum();
+    assert!(vertices > 0, "a 2D shape produced nothing to draw");
   }
 }

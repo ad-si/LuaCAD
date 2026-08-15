@@ -44,7 +44,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use luacad::export::{
   ManifoldMesh, clear_subtree_cache, describe_unsupported,
-  extract_manifold_mesh, geometries_unsupported, materialize_scad_manifold,
+  geometries_unsupported_for_display, materialize_scad_display_mesh,
 };
 use luacad::geometry::CsgGeometry;
 use luacad::lua_engine::execute_lua;
@@ -145,8 +145,9 @@ fn run(code: &str) -> Result<Vec<u8>, String> {
   let geometries = execute_lua(code)?;
 
   // Constructs the Manifold backend cannot build produce a silently empty
-  // preview otherwise, which reads as "my script is broken".
-  let unsupported = geometries_unsupported(&geometries);
+  // preview otherwise, which reads as "my script is broken". A 2D outline is
+  // not one of them: it draws flat.
+  let unsupported = geometries_unsupported_for_display(&geometries);
   if !unsupported.is_empty() {
     return Err(describe_unsupported(&unsupported));
   }
@@ -155,11 +156,11 @@ fn run(code: &str) -> Result<Vec<u8>, String> {
     .iter()
     .filter_map(|geom| {
       let scad = geom.scad.as_ref()?;
-      let manifold = materialize_scad_manifold(scad);
-      if manifold.num_tri() == 0 {
+      let mesh = materialize_scad_display_mesh(scad);
+      if mesh.triangles.is_empty() {
         return None;
       }
-      Some((extract_manifold_mesh(&manifold), geom))
+      Some((mesh, geom))
     })
     .collect();
 
@@ -169,8 +170,8 @@ fn run(code: &str) -> Result<Vec<u8>, String> {
 
   if meshes.is_empty() {
     return Err(
-      "The script produced no 3D geometry. A model has to end up as a \
-       solid — a 2D outline on its own has nothing to show."
+      "The script produced no geometry. Pass a shape to render(), or leave \
+       it as the last value of the script."
         .to_string(),
     );
   }
