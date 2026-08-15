@@ -23,12 +23,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-emscripten
+
+      # Pinned rather than tracking `latest`: the emsdk decides how the wasm
+      # is linked, and the site should not change underneath a commit that
+      # only touched prose.
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.6
+          actions-cache-folder: emsdk-cache
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32-unknown-emscripten
+
+      # Builds the playground's engine into ./website/playground and checks
+      # that it still runs a script, so a broken module is never published.
+      - name: Build the playground engine
+        run: make test-wasm
+
       - name: Setup Pages
         uses: actions/configure-pages@v6
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: './website'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

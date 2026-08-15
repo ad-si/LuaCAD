@@ -1782,6 +1782,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "luacad-wasm"
+version = "1.0.0"
+dependencies = [
+ "luacad",
+]
+
+[[package]]
 name = "luajit-src"
 version = "210.7.2+b925b3e"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,38 @@
+# Link options for the browser build (`make wasm`, crates/luacad-wasm).
+#
+# Emscripten is the only wasm target that works here: the engine links Lua and
+# Manifold, both of which are C/C++ that needs a libc and a C++ runtime.
+[target.wasm32-unknown-emscripten]
+rustflags = [
+  # Hand back a factory function instead of polluting the global scope, so the
+  # worker can decide when to instantiate the module.
+  "-C", "link-arg=-sMODULARIZE=1",
+  "-C", "link-arg=-sEXPORT_NAME=createLuaCAD",
+  # `node` is in the list so the artifact can be smoke-tested outside a
+  # browser; the extra glue it costs is a few hundred bytes of JavaScript.
+  "-C", "link-arg=-sENVIRONMENT=web,worker,node",
+  # `malloc`/`free` back `stringToNewUTF8` on the JavaScript side.
+  "-C", "link-arg=-sEXPORTED_FUNCTIONS=_main,_malloc,_free,_luacad_run,_luacad_export,_luacad_free,_luacad_version",
+  "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToNewUTF8,UTF8ToString,HEAPU8,HEAPU32",
+  # A model is built from whatever the script asks for, so the heap has to be
+  # allowed to grow; 4 GiB is the wasm32 ceiling.
+  "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
+  "-C", "link-arg=-sMAXIMUM_MEMORY=4294967296",
+  # With growth enabled, Emscripten hands the heap to JavaScript as a
+  # resizable ArrayBuffer wherever it believes the browser supports one. The
+  # Web Crypto API refuses a resizable view, so Emscripten's own
+  # `crypto.getRandomValues` call throws — and that call is what seeds the
+  # hash maps in Rust's standard library, so every single run fails. A plain
+  # buffer costs only the view rebuild on each grow.
+  "-C", "link-arg=-sGROWABLE_ARRAYBUFFERS=0",
+  # The default 64 KiB stack is not enough for Lua's interpreter recursion on
+  # top of Manifold's boolean tree walks.
+  "-C", "link-arg=-sSTACK_SIZE=4194304",
+  # Lua signals errors with longjmp, and lua-src compiles it with the wasm
+  # lowering, so the link step has to agree.
+  "-C", "link-arg=-sSUPPORT_LONGJMP=wasm",
+  # Rust's panic runtime calls `_Unwind_RaiseException`; emcc only links the
+  # unwinder that defines it when asked.
+  "-C", "link-arg=-lunwind",
+  "-C", "link-arg=-O3",
+]

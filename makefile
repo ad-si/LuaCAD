@@ -37,6 +37,42 @@ test:
 	cargo test
 
 
+# The browser build behind https://luacad.ad-si.com/playground.
+#
+# Needs Emscripten on the shell: `nix develop` provides it, as does sourcing
+# an emsdk's `emsdk_env.sh`. The per-target compiler variables are set because
+# a `CC` inherited from the environment — a Nix dev shell sets one, for
+# instance — otherwise wins over the `emcc` the `cc` crate would pick for this
+# target on its own.
+.PHONY: wasm
+wasm:
+	@command -v emcc > /dev/null \
+		|| (echo "No emcc on this shell: run \`nix develop\`," \
+			"or source <emsdk>/emsdk_env.sh" && exit 1)
+	CC_wasm32_unknown_emscripten=emcc \
+	CXX_wasm32_unknown_emscripten=em++ \
+	AR_wasm32_unknown_emscripten=emar \
+		cargo build --package luacad-wasm --release \
+			--target wasm32-unknown-emscripten
+	cp target/wasm32-unknown-emscripten/release/luacad-wasm.js \
+		target/wasm32-unknown-emscripten/release/luacad_wasm.wasm \
+		website/playground/
+
+
+.PHONY: test-wasm
+test-wasm: wasm
+	node crates/luacad-wasm/smoke_test.mjs website/playground
+
+
+# Serves the website exactly as GitHub Pages does, so the playground can be
+# tried out locally. The wasm module needs a real HTTP server; opening the
+# file directly does not work.
+.PHONY: serve-website
+serve-website: wasm
+	@echo "→ http://localhost:8000/playground/"
+	cd website && python3 -m http.server 8000
+
+
 .PHONY: run
 run:
 	cargo run --package luacad-studio

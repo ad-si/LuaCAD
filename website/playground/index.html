@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LuaCAD Playground</title>
+  <meta name="description"
+    content="Write LuaCAD scripts in the browser and see the model straight away.
+      The full engine, compiled to WebAssembly.">
+  <link rel="stylesheet" href="../screen.css">
+  <link rel="stylesheet" href="playground.css">
+</head>
+
+<body>
+  <h1>
+    <a href="../index.html" style="color: var(--primary-color); text-decoration: none;">
+      Lua<span style="color: var(--secondary-color)">CAD</span>
+    </a>
+  </h1>
+
+  <div class="navbar">
+    <a href="../index.html" class="nav-link">Home</a>
+    <a href="../cheatsheet.html" class="nav-link">Cheatsheet</a>
+    <a href="../examples.html" class="nav-link">Examples</a>
+    <a href="index.html" class="nav-link active">Playground</a>
+    <a href="../openscad-to-luacad.html" class="nav-link">OpenSCAD to LuaCAD</a>
+  </div>
+
+  <main class="pg-main">
+    <div class="pg-toolbar">
+      <button id="run" type="button" class="pg-primary">Run <kbd>⌘⏎</kbd></button>
+      <button id="stop" type="button">Stop</button>
+
+      <label for="examples" class="pg-label">Example</label>
+      <select id="examples">
+        <option value="">Load an example…</option>
+      </select>
+
+      <span class="pg-spacer"></span>
+
+      <button id="fit" type="button">Fit view</button>
+      <button id="share" type="button">Copy link</button>
+
+      <label for="export-format" class="pg-label">Export</label>
+      <select id="export-format">
+        <option value="stl">STL</option>
+        <option value="3mf">3MF</option>
+        <option value="obj">OBJ</option>
+        <option value="ply">PLY</option>
+        <option value="off">OFF</option>
+        <option value="amf">AMF</option>
+      </select>
+      <button id="export" type="button">Download</button>
+    </div>
+
+    <div class="pg-panes">
+      <div class="pg-pane">
+        <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off"
+          autocorrect="off" aria-label="LuaCAD script"></textarea>
+      </div>
+      <div class="pg-pane pg-viewer">
+        <canvas id="view"></canvas>
+        <p class="pg-hint">Drag to orbit · Shift-drag to pan · Scroll to zoom · Double-click to fit</p>
+      </div>
+    </div>
+
+    <div class="pg-status" id="status"></div>
+    <pre class="pg-output" id="output"></pre>
+
+    <p class="pg-note">
+      The whole LuaCAD engine — Lua 5.4 and the
+      <a href="https://github.com/elalish/manifold">Manifold</a> geometry
+      kernel — runs in this tab as WebAssembly. Nothing is uploaded: scripts
+      stay in the browser, and <em>Copy link</em> puts the script in the
+      fragment of the URL, which no server ever sees. For large assemblies, or
+      to keep a live preview open beside your own editor, use
+      <a href="https://github.com/ad-si/LuaCAD">LuaCAD Studio</a> instead.
+    </p>
+  </main>
+
+  <footer>
+    <p>For more information, check out the <a href="https://github.com/ad-si/LuaCAD">GitHub Repository</a></p>
+  </footer>
+
+  <script type="module" src="playground.js"></script>
+</body>
+
+</html>

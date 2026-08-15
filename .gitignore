@@ -2,5 +2,9 @@
 .direnv
 *_todo_*
 
+# Built by `make wasm` and by CI before the site is deployed.
+/website/playground/luacad-wasm.js
+/website/playground/luacad_wasm.wasm
+
 # Writable copy of Emscripten's cache, seeded by the dev shell in flake.nix.
 /.emscripten-cache

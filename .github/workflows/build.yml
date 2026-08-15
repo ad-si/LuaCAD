@@ -190,6 +190,34 @@ jobs:
       - name: Test with csgrs feature
         run: cargo test --package luacad --features csgrs
 
+  # The same build the website deploy runs, so a change that breaks the
+  # browser engine fails on the pull request instead of on `main`.
+  wasm:
+    runs-on: ubuntu-latest
+    name: Build wasm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-emscripten
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.6
+          actions-cache-folder: emsdk-cache
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32-unknown-emscripten
+
+      - name: Build and smoke-test the wasm module
+        run: make test-wasm
+
   build:
     strategy:
       fail-fast: false

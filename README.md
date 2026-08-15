@@ -88,6 +88,32 @@ so a boolean shows up as soon as the script runs,
 without waiting for a mesh to be built for it.
 
 
+### Playground
+
+<https://luacad.ad-si.com/playground>
+
+The same engine, compiled to WebAssembly and running in the browser —
+no installation, and nothing is uploaded.
+Write a script, see the model, download it as STL, 3MF, OBJ, PLY, OFF or AMF.
+*Copy link* puts the script in the URL fragment, which makes a model
+shareable without a server ever seeing it.
+
+Building it locally needs [Emscripten](https://emscripten.org/) and a Rust
+toolchain with the `wasm32-unknown-emscripten` target. The dev shell brings
+both:
+
+```sh
+nix develop        # Or: source <emsdk>/emsdk_env.sh
+make test-wasm     # Build the module and check that it still runs a script
+make serve-website # Serve the site at http://localhost:8000/playground/
+```
+
+Without Nix, install the target with
+`rustup target add wasm32-unknown-emscripten`.
+
+The deployed copy is rebuilt by CI on every push to `main`.
+
+
 ## Example
 
 ```lua

@@ -1,0 +1,18 @@
+[package]
+name = "luacad-wasm"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+edition = "2024"
+description = "WebAssembly build of the LuaCAD engine, powering the web playground"
+license = "AGPL-3.0-or-later"
+# The artifact is a wasm module served by the website, not a crate anyone
+# depends on.
+publish = false
+
+[[bin]]
+name = "luacad-wasm"
+path = "src/main.rs"
+
+[dependencies]
+luacad = { version = "1.0.0", path = "../luacad" }
