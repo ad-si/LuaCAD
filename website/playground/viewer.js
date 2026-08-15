@@ -306,7 +306,9 @@ export class Viewer {
       lastY = event.clientY
 
       if (dragging === "orbit") {
-        this.azimuth += dx * 0.4
+        // Dragging right swings the camera left, so the model turns with the
+        // cursor instead of against it.
+        this.azimuth -= dx * 0.4
         this.elevation = Math.max(-89.9, Math.min(89.9, this.elevation + dy * 0.4))
       } else {
         // Pan across the plane the camera faces, scaled so the model tracks
