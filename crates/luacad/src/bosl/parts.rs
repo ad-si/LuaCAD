@@ -1832,6 +1832,8 @@ pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
     ("cubetruss_corner", cubetruss_corner),
     ("knuckle_hinge", knuckle_hinge),
     ("living_hinge_mask", living_hinge_mask),
+    // BOSL2 renamed this; the old name builds the same slot.
+    ("folding_hinge_mask", living_hinge_mask),
     ("generic_bottle_neck", generic_bottle_neck),
     ("generic_bottle_cap", generic_bottle_cap),
     ("regular_polyhedron", regular_polyhedron),

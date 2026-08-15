@@ -491,77 +491,99 @@ fn modular_hose_radius(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   }
 }
 
+/// Every SP closure series, as nominal diameter to real thread diameter.
+const SP_SPECS: &[(i64, &[(i64, f64)])] = &[
+  (
+    400,
+    &[
+      (18, 17.68),
+      (20, 19.69),
+      (22, 21.69),
+      (24, 23.67),
+      (28, 27.38),
+      (30, 28.37),
+      (33, 31.83),
+      (35, 34.34),
+      (38, 37.19),
+      (40, 39.75),
+      (43, 41.63),
+      (45, 43.82),
+      (48, 47.12),
+      (51, 49.56),
+      (53, 52.07),
+      (58, 56.06),
+      (60, 59.06),
+      (63, 62.08),
+      (66, 65.07),
+      (70, 69.06),
+      (75, 73.56),
+      (77, 76.66),
+      (83, 82.58),
+      (89, 88.75),
+      (100, 99.57),
+      (110, 109.58),
+      (120, 119.56),
+    ],
+  ),
+  (
+    410,
+    &[
+      (18, 17.68),
+      (20, 19.59),
+      (22, 21.69),
+      (24, 23.67),
+      (28, 27.38),
+    ],
+  ),
+  (
+    415,
+    &[
+      (13, 12.90),
+      (15, 14.61),
+      (18, 17.68),
+      (20, 19.69),
+      (22, 21.69),
+      (24, 23.67),
+      (28, 27.38),
+      (33, 31.83),
+    ],
+  ),
+];
+
+/// The real thread diameter of an SP-series bottle closure, by nominal
+/// diameter and closure series.
+pub fn sp_thread_diameter(diam: f64, sp_type: i64) -> Option<f64> {
+  let table: &[(i64, &[(i64, f64)])] = SP_SPECS;
+  let (_, rows) = table.iter().find(|(t, _)| *t == sp_type)?;
+  rows
+    .iter()
+    .find(|(d, _)| *d == diam.round() as i64)
+    .map(|(_, v)| *v)
+}
+
+/// The nominal diameters each SP series is made in.
+pub fn sp_sizes(sp_type: i64) -> Option<Vec<i64>> {
+  let table: &[(i64, &[(i64, f64)])] = SP_SPECS;
+  table
+    .iter()
+    .find(|(t, _)| *t == sp_type)
+    .map(|(_, rows)| rows.iter().map(|(d, _)| *d).collect())
+}
+
 /// The real thread diameter of an SP-series bottle closure.
 fn sp_diameter(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   let diam = a.need_num("diam")?;
   let sp_type = a.num_or("type", 400.0) as i64;
-  let table: &[(i64, &[(i64, f64)])] = &[
-    (
-      400,
-      &[
-        (18, 17.68),
-        (20, 19.69),
-        (22, 21.69),
-        (24, 23.67),
-        (28, 27.38),
-        (30, 28.37),
-        (33, 31.83),
-        (35, 34.34),
-        (38, 37.19),
-        (40, 39.75),
-        (43, 41.63),
-        (45, 43.82),
-        (48, 47.12),
-        (51, 49.56),
-        (53, 52.07),
-        (58, 56.06),
-        (60, 59.06),
-        (63, 62.08),
-        (66, 65.07),
-        (70, 69.06),
-        (75, 73.56),
-        (77, 76.66),
-        (83, 82.58),
-        (89, 88.75),
-        (100, 99.57),
-        (110, 109.58),
-        (120, 119.56),
-      ],
-    ),
-    (
-      410,
-      &[
-        (18, 17.68),
-        (20, 19.59),
-        (22, 21.69),
-        (24, 23.67),
-        (28, 27.38),
-      ],
-    ),
-    (
-      415,
-      &[
-        (13, 12.90),
-        (15, 14.61),
-        (18, 17.68),
-        (20, 19.69),
-        (22, 21.69),
-        (24, 23.67),
-        (28, 27.38),
-        (33, 31.83),
-      ],
-    ),
-  ];
-  let Some((_, rows)) = table.iter().find(|(t, _)| *t == sp_type) else {
+  let Some(sizes) = sp_sizes(sp_type) else {
     return a.err("type must be 400, 410 or 415");
   };
-  match rows.iter().find(|(d, _)| *d == diam.round() as i64) {
-    Some((_, v)) => Ok(LuaValue::Number(*v)),
+  match sp_thread_diameter(diam, sp_type) {
+    Some(v) => Ok(LuaValue::Number(v)),
     None => a.err(format!(
       "SP{sp_type} has no {diam} closure; the sizes are {}",
-      rows
+      sizes
         .iter()
-        .map(|(d, _)| d.to_string())
+        .map(|d| d.to_string())
         .collect::<Vec<_>>()
         .join(", ")
     )),
