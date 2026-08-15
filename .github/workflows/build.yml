@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -283,3 +284,70 @@ jobs:
           path: |
             target/${{ matrix.target }}/release/luacad-studio
             target/${{ matrix.target }}/release/luacad-studio.exe
+
+  # Packs the binaries of a `v*` tag into one archive per target and attaches
+  # them to the tag's release. Waits for the test job as well, so a tag that
+  # builds but does not work never gets assets.
+  release:
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    name: Attach release assets
+    permissions:
+      contents: write
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Build archives
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          version="${VERSION#v}"
+          mkdir -p dist stage
+
+          # The targets come from the artifact names rather than a second copy
+          # of the build matrix, so adding a platform there is enough.
+          for path in artifacts/luacad-studio-*; do
+            target="${path#artifacts/luacad-studio-}"
+            dir="luacad-$version-$target"
+            mkdir -p "stage/$dir"
+            # `find` rather than a glob: the binary sits at the artifact root
+            # today, but a nested path would copy nothing and go unnoticed.
+            find "artifacts/luacad-$target" "artifacts/luacad-studio-$target" \
+              -type f -exec cp {} "stage/$dir/" \;
+            count=$(find "stage/$dir" -type f | wc -l)
+            if [ "$count" -ne 2 ]; then
+              echo "Expected 2 binaries for $target, found $count"
+              exit 1
+            fi
+            # `upload-artifact` drops the executable bit.
+            chmod +x "stage/$dir"/*
+            if [[ "$target" == *windows* ]]; then
+              (cd stage && zip -q -r "../dist/$dir.zip" "$dir")
+            else
+              tar -C stage -czf "dist/$dir.tar.gz" "$dir"
+            fi
+          done
+
+          cd dist && sha256sum luacad-*.tar.gz luacad-*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag pushed on its own has no release yet; leave that one as a
+          # draft to be written up and published by hand.
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" \
+              --draft \
+              --title "LuaCAD ${TAG#v}" \
+              --generate-notes
+          fi
+
+          gh release upload "$TAG" dist/* --clobber

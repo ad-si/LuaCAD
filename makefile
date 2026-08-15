@@ -108,8 +108,10 @@ release:
 	@echo '     cargo publish -p opencsg-sys'
 	@echo '     cargo publish -p luacad'
 	@echo '     cargo publish -p luacad-studio'
-	@echo '5. Create a new GitHub release at' \
+	@echo '5. Push a `v*` tag, or create the release at' \
 		'https://github.com/ad-si/LuaCAD/releases/new'
+	@echo '   The `release` job attaches the binaries of every platform and'
+	@echo '   their checksums; a bare tag gets a draft release to publish.'
 	@echo -e \
 		"6. Announce release on \n" \
 		"   - https://x.com \n" \
