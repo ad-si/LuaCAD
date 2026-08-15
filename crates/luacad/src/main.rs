@@ -4,6 +4,20 @@ use std::time::SystemTime;
 
 const FORMATS: &[&str] = &["stl", "obj", "ply", "off", "amf", "3mf", "scad"];
 
+/// Extensions the renderer writes. `convert` and `watch` produce geometry
+/// files, so asking them for one of these is a mistake worth naming instead
+/// of reporting as an unknown format.
+const RENDER_FORMATS: &[&str] = &["png"];
+
+/// Point a `convert`/`watch` invocation at `luacad render`.
+fn render_format_error(fmt: &str) -> String {
+  format!(
+    "'{fmt}' is an image format, so it is written by the renderer, \
+     not by an exporter.\n\
+     Render it instead: luacad render <file.lua> <output.{fmt}>"
+  )
+}
+
 fn print_help() {
   let version = env!("CARGO_PKG_VERSION");
   println!("luacad {version} — Execute LuaCAD code from the command line");
@@ -53,6 +67,10 @@ fn print_help() {
   );
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
+  println!(
+    "Images ({}) are written by `luacad render`, not by convert / watch.",
+    RENDER_FORMATS.join(", ")
+  );
 }
 
 fn print_version() {
@@ -98,6 +116,7 @@ fn export(
     "stl" | "obj" | "ply" | "off" | "amf" | "3mf" => {
       luacad::export::export_manifold(geometries, format, output)
     }
+    fmt if RENDER_FORMATS.contains(&fmt) => Err(render_format_error(fmt)),
     other => Err(format!(
       "Unknown format: {other}\nSupported formats: {}",
       FORMATS.join(", ")
@@ -508,6 +527,20 @@ fn resolve_format<'a>(
 where
   'static: 'a,
 {
+  // The renderer's formats never reach `infer_format`, so catch them from
+  // both the override and the extension before the generic errors below.
+  let requested = format_override.map(str::to_ascii_lowercase).or_else(|| {
+    output_path
+      .extension()
+      .and_then(|e| e.to_str())
+      .map(|e| e.to_ascii_lowercase())
+  });
+  if let Some(fmt) = requested.filter(|f| RENDER_FORMATS.contains(&f.as_str()))
+  {
+    eprintln!("{}", render_format_error(&fmt));
+    return Err(ExitCode::FAILURE);
+  }
+
   if let Some(fmt) = format_override {
     Ok(fmt)
   } else if let Some(fmt) = infer_format(output_path) {
@@ -743,5 +776,35 @@ fn main_impl() -> ExitCode {
       eprintln!("Run `luacad --help` for usage.");
       ExitCode::FAILURE
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_png_extension_points_at_the_renderer() {
+    let out = Path::new("preview.png");
+    assert!(resolve_format(None, out, "preview.png").is_err());
+  }
+
+  #[test]
+  fn a_png_format_override_points_at_the_renderer() {
+    let out = Path::new("model.stl");
+    assert!(resolve_format(Some("PNG"), out, "model.stl").is_err());
+  }
+
+  #[test]
+  fn exporting_png_names_the_render_subcommand() {
+    let err = export(&[], "png", Path::new("preview.png")).unwrap_err();
+    assert!(err.contains("luacad render"), "{err}");
+  }
+
+  #[test]
+  fn mesh_formats_still_resolve() {
+    let out = Path::new("model.stl");
+    assert_eq!(resolve_format(None, out, "model.stl"), Ok("stl"));
+    assert_eq!(resolve_format(Some("3mf"), out, "model.stl"), Ok("3mf"));
   }
 }

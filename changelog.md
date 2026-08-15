@@ -8,6 +8,15 @@ so that the CLI and Studio can share them; they are internal and may change in
 any release.
 
 
+## Unreleased
+
+### Changed
+
+- `luacad convert` and `luacad watch` point at `luacad render` when asked for
+  a `.png` output — whether by extension or `--format png` — instead of
+  reporting it as an unknown format. Images stay the renderer's job.
+
+
 ## 2026-08-14 - 1.0.0
 
 First stable release.
