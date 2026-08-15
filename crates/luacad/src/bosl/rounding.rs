@@ -1037,6 +1037,19 @@ fn overlap_point(p: V3, end: &JoinEnd, dir: f64) -> V3 {
   }
 }
 
+/// Read a closed outline, given either as points or as a 2D shape.
+///
+/// Taking a sketch is what lets `bosl.circle{r=15}` be swept or joined
+/// directly, rather than having its points written out by hand.
+pub fn read_outline(a: &Args, name: &str) -> Option<Vec<[f64; 2]>> {
+  if let Some(LuaValue::UserData(ud)) = a.raw(name)
+    && let Ok(sketch) = ud.borrow::<crate::geometry::CsgSketch>()
+  {
+    return crate::bosl::sweeps::outline_of(sketch.scad.as_ref());
+  }
+  a.points2(name).filter(|p| p.len() >= 3)
+}
+
 /// Read a 4×4 transformation matrix parameter, defaulting to the identity.
 fn matrix_arg(a: &Args, name: &str) -> LuaResult<Mat4> {
   let Some(v) = a.val(name) else {
@@ -1113,8 +1126,8 @@ fn join_end(
 /// from. A negative fillet against a plane rounds the joint the other way,
 /// cutting into the prism instead of adding material around it.
 fn join_prism(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
-  let Some(polygon) = a.points2("polygon") else {
-    return a.err("polygon must be a 2D outline");
+  let Some(polygon) = read_outline(a, "polygon") else {
+    return a.err("polygon must be a 2D outline or a sketch");
   };
   if polygon.len() < 3 {
     return a.err("polygon must have at least three points");
@@ -1374,8 +1387,8 @@ fn bent_cutout_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   if r - thickness <= 0.0 {
     return a.err("thickness is too large for the radius");
   }
-  let Some(path) = a.points2("path") else {
-    return a.err("path must be a 2D outline");
+  let Some(path) = read_outline(a, "path") else {
+    return a.err("path must be a 2D outline or a sketch");
   };
   if path.len() < 3 {
     return a.err("path must have at least three points");

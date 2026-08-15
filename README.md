@@ -134,10 +134,27 @@ bosl.regular_prism { 5, r = 10, h = 25 }
 bosl.spur_gear { circ_pitch = 5, teeth = 20, thickness = 5 }
 ```
 
-The whole library is reimplemented in LuaCAD, so it renders, previews and
-exports to a mesh without OpenSCAD or BOSL2 installed. Exporting to `.scad`
-still writes the BOSL2 call itself, which keeps the exported file as short as
-the script that produced it.
+All 712 of its geometry functions are reimplemented in LuaCAD, so they
+render, preview and export to a mesh without OpenSCAD or BOSL2 installed.
+Exporting to `.scad` still writes the BOSL2 call itself, which keeps the
+exported file as short as the script that produced it.
+
+What is deliberately left out is the part of BOSL2 that exists to work
+around OpenSCAD not being a real language — `fnliterals.scad`,
+`strings.scad`, `utility.scad`, `structs.scad` and the BOSL1 compatibility
+names. Lua has closures, a string library and tables of its own.
+
+Two things read differently here, because a shape in LuaCAD is a value
+rather than a child of the call that made it:
+
+```lua
+-- Attaching is a function of two shapes, not a wrapper around one.
+local slab = bosl.cuboid { {40, 40, 10} }
+local post = bosl.attach(slab, bosl.cyl { d = 10, h = 20 }, bosl.TOP)
+
+-- A tag rides on the shape, and diff() reads it off the list.
+bosl.diff { slab, post, bosl.tag(bosl.cyl { d = 5, h = 60 }, "remove") }
+```
 
 `surface()`, `scad()` and `import()` of a DXF file do still need OpenSCAD;
 `luacad` names them rather than exporting a file without them.

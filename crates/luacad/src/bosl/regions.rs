@@ -25,6 +25,15 @@ const EPS: f64 = 1e-9;
 /// A bare outline counts as a region of one, which is what `force_region`
 /// does, so callers can pass either.
 pub fn read_region(a: &Args, name: &str) -> LuaResult<Vec<Vec<[f64; 2]>>> {
+  // A 2D shape is a region already — its outlines, holes and all.
+  if let Some(mlua::Value::UserData(ud)) = a.raw(name)
+    && let Ok(sketch) = ud.borrow::<crate::geometry::CsgSketch>()
+  {
+    return match crate::bosl::sweeps::outlines_of(sketch.scad.as_ref()) {
+      Some(r) => Ok(r),
+      None => a.err(format!("{name} is a shape with no outline in it")),
+    };
+  }
   let Some(v) = a.val(name) else {
     return a.err(format!("{name} is required"));
   };

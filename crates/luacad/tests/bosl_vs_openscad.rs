@@ -513,6 +513,53 @@ fn joined_prisms_match_bosl2() {
 }
 
 #[test]
+fn attachments_match_bosl2() {
+  check_all(&[
+    (
+      "attach on top",
+      "(function() \
+         local s = bosl.cuboid { {40,40,10} } \
+         return s + bosl.attach(s, bosl.cyl { d = 10, h = 20 }, bosl.TOP) \
+       end)()",
+    ),
+    (
+      "position on a side",
+      "(function() \
+         local s = bosl.cuboid { {40,40,10} } \
+         return s + bosl.position(s, bosl.cyl { d = 8, h = 20 }, bosl.RIGHT) \
+       end)()",
+    ),
+    (
+      "diff with a tagged hole",
+      "bosl.diff { bosl.cuboid { {40,40,10} }, \
+       bosl.tag(bosl.cyl { d = 5, h = 60 }, 'remove') }",
+    ),
+    (
+      "conv_hull of two shapes",
+      "bosl.conv_hull { bosl.cuboid { {20,20,5} }, \
+       bosl.up(20, bosl.cuboid { {5,5,5} }) }",
+    ),
+  ]);
+}
+
+#[test]
+fn a_sketch_can_be_swept_like_a_point_list() {
+  // The 2D shapes are usable wherever an outline is, which is what lets
+  // `bosl.circle{…}` be joined or swept without writing its points out.
+  check_all(&[
+    (
+      "join_prism from a circle",
+      "bosl.join_prism { polygon = bosl.circle { r = 15, fn = 60 }, \
+       base = 'plane', length = 18, fillet = 3, n = 12 }",
+    ),
+    (
+      "offset_sweep from a rect",
+      "bosl.offset_sweep { path = bosl.rect { {30,20} }, height = 10, r = 2 }",
+    ),
+  ]);
+}
+
+#[test]
 fn transforms_match_bosl2() {
   check_all(&[
     ("up", "bosl.up(10, bosl.cuboid { {20, 20, 20} })"),

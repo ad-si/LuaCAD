@@ -22,22 +22,38 @@ First stable release.
 - OFF and AMF export, alongside the existing 3MF, STL, OBJ, PLY and SCAD.
 - Every value a script returns becomes its own 3MF object, so slicers load
   them as individually movable parts. Name them with `:name(…)`.
-- The Belfry OpenSCAD Library v2 (BOSL2) under `bosl.*`, reimplemented in
-  full. All 527 functions are built or computed by LuaCAD itself, so they
-  render, preview and export to a mesh with neither OpenSCAD nor BOSL2
-  installed:
+- The Belfry OpenSCAD Library v2 (BOSL2) under `bosl.*`. All 712 of its
+  geometry functions are built or computed by LuaCAD itself, so they render,
+  preview and export to a mesh with neither OpenSCAD nor BOSL2 installed:
   - The 2D and 3D shapes, with their `anchor`/`spin`/`orient` placement, the
     `edges`/`except` selectors, and per-end and per-corner rounding and
     chamfering.
   - The transforms, distributors, partitions and 2D and 3D masks.
-  - Paths, drawing, Bézier curves and patches, rounding, skinning, sweeps
-    and the VNF functions.
+  - Paths, regions, drawing, turtle graphics, Bézier curves and patches,
+    NURBS curves and surfaces, rounding, skinning, sweeps and the VNF
+    functions.
+  - `join_prism()`, which blends a prism into a plane, cylinder or sphere,
+    so a fillet round a boss wraps its corners rather than stopping short at
+    each one.
+  - The `os_*` end treatments, and the 22 named textures.
+  - Metaballs and arbitrary isosurfaces, meshed by marching tetrahedra.
   - The parts libraries: threading, screws and nuts from the ISO metric
-    tables, gears, joiners, sliders, bearings, NEMA steppers, wiring,
-    walls, cubetruss, hinges, bottlecaps, polyhedra and tripod mounts.
+    tables, gears, joiners, sliders, bearings, NEMA steppers, wiring, walls,
+    cubetruss, hinges, bottlecaps, polyhedra, hose fittings and tripod
+    mounts.
   - The pure functions — math, vectors, coordinates, lists, linear algebra
     and geometry — which return real Lua values rather than OpenSCAD source,
     so a script can compute with them.
+
+  Attachments read differently, because a shape here is a value rather than
+  a child of the call that made it: `attach(parent, child, TOP)` is a
+  function of two shapes, and `diff{ body, tag(hole, "remove") }` reads its
+  tags off a list. Anchors resolve against a shape's own measurements.
+
+  Left out on purpose is the part of BOSL2 that works around OpenSCAD not
+  being a real language — `fnliterals.scad`, `strings.scad`, `utility.scad`,
+  `structs.scad` and the BOSL1 compatibility names. Lua has closures, a
+  string library and tables already.
 
   The shapes are tested against the same call rendered by OpenSCAD with BOSL2
   installed, and agree to within half a percent of volume.

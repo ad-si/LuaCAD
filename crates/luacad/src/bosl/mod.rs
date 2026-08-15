@@ -12,6 +12,7 @@
 
 pub mod args;
 pub mod attach;
+pub mod attachments;
 pub mod beziers;
 pub mod coords;
 pub mod distributors;
@@ -29,6 +30,7 @@ pub mod metric;
 pub mod nurbs;
 pub mod offset2d;
 pub mod parts;
+pub mod parts_extra;
 pub mod paths;
 pub mod regions;
 pub mod rounding;
@@ -39,6 +41,7 @@ pub mod sweeps;
 pub mod textures;
 pub mod threading;
 pub mod transforms;
+pub mod turtle;
 pub mod value;
 pub mod vecmath;
 pub mod vectors;
@@ -69,6 +72,23 @@ pub(crate) fn lua_val_to_scad(v: &LuaValue) -> String {
       format!("\"{}\"", s)
     }
     LuaValue::Table(t) => lua_table_to_scad_array(t),
+    // A 2D shape handed to something that wants an outline — a sweep, a
+    // prism to join — writes out as the outline itself. Left as `undef` the
+    // exported call would be missing the very thing it works on.
+    LuaValue::UserData(ud) => match ud.borrow::<CsgSketch>() {
+      Ok(sketch) => match sweeps::outline_of(sketch.scad.as_ref()) {
+        Some(path) => format!(
+          "[{}]",
+          path
+            .iter()
+            .map(|p| format!("[{}, {}]", format_f64(p[0]), format_f64(p[1])))
+            .collect::<Vec<_>>()
+            .join(", ")
+        ),
+        None => "undef".to_string(),
+      },
+      Err(_) => "undef".to_string(),
+    },
     LuaValue::Nil => "undef".to_string(),
     _ => "undef".to_string(),
   }
@@ -841,6 +861,9 @@ pub fn register_bosl(lua: &Lua) -> LuaResult<()> {
   isosurface::register(lua, &bosl)?;
   nurbs::register(lua, &bosl)?;
   metric::register(lua, &bosl)?;
+  parts_extra::register(lua, &bosl)?;
+  turtle::register(lua, &bosl)?;
+  attachments::register(lua, &bosl)?;
   register_drawing(lua, &bosl)?;
   register_beziers(lua, &bosl)?;
   register_rounding(lua, &bosl)?;

@@ -396,8 +396,8 @@ fn combine(name: &'static str) -> impl Fn(&Lua, &Args) -> LuaResult<LuaValue> {
 /// takes and returns a point list rather than a shape.
 fn offset(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   use crate::bosl::offset2d::{Corners, JoinStyle};
-  let Some(path) = a.points2("path") else {
-    return a.err("path must be a 2D outline");
+  let Some(path) = crate::bosl::rounding::read_outline(a, "path") else {
+    return a.err("path must be a 2D outline or a sketch");
   };
   if path.len() < 3 {
     return a.err("path must have at least three points");

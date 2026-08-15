@@ -96,7 +96,9 @@ fn read_profile(a: &Args, name: &str) -> LuaResult<Vec<[f64; 2]>> {
   if let Some(LuaValue::UserData(ud)) = a.raw(name)
     && let Ok(sketch) = ud.borrow::<CsgSketch>()
   {
-    if let Some(path) = outline_of(sketch.scad.as_ref()) {
+    if let Some(path) = outline_of(sketch.scad.as_ref())
+      && path.len() >= 3
+    {
       return Ok(path);
     }
     return a.err(format!("{name} is a sketch with no outline to sweep"));
@@ -114,19 +116,32 @@ fn read_profile(a: &Args, name: &str) -> LuaResult<Vec<[f64; 2]>> {
 }
 
 /// Pull a polygon outline back out of a sketch's node tree.
-fn outline_of(node: Option<&ScadNode>) -> Option<Vec<[f64; 2]>> {
-  match node? {
-    ScadNode::Polygon { points } => {
-      Some(points.iter().map(|p| [p[0] as f64, p[1] as f64]).collect())
-    }
-    ScadNode::BoslCall {
-      native: Some(n), ..
-    } => outline_of(Some(n)),
-    ScadNode::Translate { child, .. }
-    | ScadNode::Rotate { child, .. }
-    | ScadNode::Color { child, .. } => outline_of(Some(child)),
-    _ => None,
-  }
+pub(crate) fn outline_of(node: Option<&ScadNode>) -> Option<Vec<[f64; 2]>> {
+  let all = outlines_of(node)?;
+  // A sketch may be several outlines — a washer, a letter with a counter —
+  // and a sweep follows only one, so the one enclosing the most area is
+  // taken as the shape and the rest as its holes.
+  all
+    .into_iter()
+    .max_by(|a, b| {
+      crate::bosl::regions::signed_area(a)
+        .abs()
+        .total_cmp(&crate::bosl::regions::signed_area(b).abs())
+    })
+    .filter(|p| p.len() >= 3)
+}
+
+/// Every closed outline a 2D shape is made of.
+///
+/// The shape is resolved the same way it would be for extruding, so
+/// transforms, booleans and offsets all land where they actually are —
+/// reading the node tree by hand would miss every one of them.
+pub(crate) fn outlines_of(
+  node: Option<&ScadNode>,
+) -> Option<Vec<Vec<[f64; 2]>>> {
+  let cs = crate::export::materialize_scad_cross_section(node?);
+  let out = cs.outlines();
+  (!out.is_empty()).then_some(out)
 }
 
 /// The cross-sections a loft runs through, all resampled to one point count.
