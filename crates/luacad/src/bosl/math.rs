@@ -656,6 +656,15 @@ fn deriv(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   Val::List(out).to_lua(lua)
 }
 
+/// A weighted sum of the entries at the given positions.
+fn weighted(data: &[Val], terms: &[(usize, f64)], k: f64) -> Option<Val> {
+  let mut acc = data[terms[0].0].scale(terms[0].1);
+  for (i, w) in &terms[1..] {
+    acc = acc.add(&data[*i].scale(*w))?;
+  }
+  Some(acc.scale(k))
+}
+
 fn deriv2(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   let (data, h, closed) = deriv_input(a)?;
   let l = data.len();
@@ -663,25 +672,42 @@ fn deriv2(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     return a.err("data must have at least 3 elements");
   }
   let k = 1.0 / (h * h);
-  let second = |i0: usize, i1: usize, i2: usize| -> Option<Val> {
-    data[i0]
-      .add(&data[i2])?
-      .add(&data[i1].scale(-2.0))?
-      .scale(k)
-      .into()
-  };
   let mut out = Vec::with_capacity(l);
   for i in 0..l {
-    let v = if closed {
-      second((l + i - 1) % l, i, (i + 1) % l)
+    // The ends have no neighbour on one side. A three-point estimate there
+    // is a whole order less accurate than the interior's, so BOSL2 reaches
+    // further in — as far as five points once the data is long enough — to
+    // keep the accuracy even along the whole list.
+    let terms: Vec<(usize, f64)> = if closed {
+      vec![((l + i - 1) % l, 1.0), (i, -2.0), ((i + 1) % l, 1.0)]
     } else if i == 0 {
-      second(0, 1, 2)
+      match l {
+        3 => vec![(0, 1.0), (1, -2.0), (2, 1.0)],
+        4 => vec![(0, 2.0), (1, -5.0), (2, 4.0), (3, -1.0)],
+        _ => vec![
+          (0, 35.0 / 12.0),
+          (1, -104.0 / 12.0),
+          (2, 114.0 / 12.0),
+          (3, -56.0 / 12.0),
+          (4, 11.0 / 12.0),
+        ],
+      }
     } else if i == l - 1 {
-      second(l - 3, l - 2, l - 1)
+      match l {
+        3 => vec![(l - 1, 1.0), (l - 2, -2.0), (l - 3, 1.0)],
+        4 => vec![(l - 1, -2.0), (l - 2, 5.0), (l - 3, -4.0), (l - 4, 1.0)],
+        _ => vec![
+          (l - 1, 35.0 / 12.0),
+          (l - 2, -104.0 / 12.0),
+          (l - 3, 114.0 / 12.0),
+          (l - 4, -56.0 / 12.0),
+          (l - 5, 11.0 / 12.0),
+        ],
+      }
     } else {
-      second(i - 1, i, i + 1)
+      vec![(i - 1, 1.0), (i, -2.0), (i + 1, 1.0)]
     };
-    match v {
+    match weighted(&data, &terms, k) {
       Some(v) => out.push(v),
       None => return a.err("the entries of data are not the same shape"),
     }
@@ -696,27 +722,42 @@ fn deriv3(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     return a.err("data must have at least 5 elements");
   }
   let k = 1.0 / (2.0 * h * h * h);
-  let third = |i: [usize; 4]| -> Option<Val> {
-    data[i[0]]
-      .scale(-1.0)
-      .add(&data[i[1]].scale(2.0))?
-      .add(&data[i[2]].scale(-2.0))?
-      .add(&data[i[3]])?
-      .scale(k)
-      .into()
-  };
   let mut out = Vec::with_capacity(l);
   for i in 0..l {
-    let idx = if closed {
-      [(l + i - 2) % l, (l + i - 1) % l, (i + 1) % l, (i + 2) % l]
-    } else if i < 2 {
-      [0, 1, 3, 4]
-    } else if i >= l - 2 {
-      [l - 5, l - 4, l - 2, l - 1]
+    // As with the second derivative, each of the two points at either end
+    // gets its own one-sided five-point estimate rather than borrowing the
+    // interior formula from further along.
+    let terms: Vec<(usize, f64)> = if closed {
+      vec![
+        ((l + i - 2) % l, -1.0),
+        ((l + i - 1) % l, 2.0),
+        ((i + 1) % l, -2.0),
+        ((i + 2) % l, 1.0),
+      ]
+    } else if i == 0 {
+      vec![(0, -5.0), (1, 18.0), (2, -24.0), (3, 14.0), (4, -3.0)]
+    } else if i == 1 {
+      vec![(0, -3.0), (1, 10.0), (2, -12.0), (3, 6.0), (4, -1.0)]
+    } else if i == l - 1 {
+      vec![
+        (l - 1, 5.0),
+        (l - 2, -18.0),
+        (l - 3, 24.0),
+        (l - 4, -14.0),
+        (l - 5, 3.0),
+      ]
+    } else if i == l - 2 {
+      vec![
+        (l - 1, 3.0),
+        (l - 2, -10.0),
+        (l - 3, 12.0),
+        (l - 4, -6.0),
+        (l - 5, 1.0),
+      ]
     } else {
-      [i - 2, i - 1, i + 1, i + 2]
+      vec![(i - 2, -1.0), (i - 1, 2.0), (i + 1, -2.0), (i + 2, 1.0)]
     };
-    match third(idx) {
+    match weighted(&data, &terms, k) {
       Some(v) => out.push(v),
       None => return a.err("the entries of data are not the same shape"),
     }
