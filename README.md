@@ -20,6 +20,16 @@ or generates [SCAD] code for external rendering.
 
 ## Installation
 
+### Via Homebrew
+
+Installs the prebuilt `luacad` and `luacad-studio` binaries,
+so nothing has to be compiled:
+
+```sh
+brew install ad-si/tap/luacad
+```
+
+
 ### Via Crates
 
 ```sh
