@@ -205,7 +205,7 @@ jobs:
           targets: wasm32-unknown-emscripten
 
       - name: Install Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           version: 6.0.6
           actions-cache-folder: emsdk-cache
