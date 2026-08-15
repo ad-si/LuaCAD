@@ -542,7 +542,389 @@ fn path_cut(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   Val::list(pieces.into_iter().map(Val::List)).to_lua(lua)
 }
 
+// ---------------------------------------------------------------------------
+// How a path curves
+// ---------------------------------------------------------------------------
+
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+  [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ]
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+  a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn scale3(a: [f64; 3], k: f64) -> [f64; 3] {
+  [a[0] * k, a[1] * k, a[2] * k]
+}
+
+fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+  [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+/// The first derivative along a path, one entry per point.
+///
+/// Interior points use a central difference. On an open path the two ends
+/// have a neighbour on one side only, so they use a one-sided estimate of the
+/// same order rather than a lopsided central one.
+fn derivative(path: &[[f64; 3]], closed: bool) -> Vec<[f64; 3]> {
+  let n = path.len();
+  (0..n)
+    .map(|i| {
+      if closed {
+        scale3(sub(path[(i + 1) % n], path[(n + i - 1) % n]), 0.5)
+      } else if i == 0 {
+        scale3(
+          add3(
+            add3(scale3(path[0], -3.0), scale3(path[1], 4.0)),
+            scale3(path[2], -1.0),
+          ),
+          0.5,
+        )
+      } else if i == n - 1 {
+        scale3(
+          add3(
+            add3(scale3(path[n - 1], 3.0), scale3(path[n - 2], -4.0)),
+            path[n - 3],
+          ),
+          0.5,
+        )
+      } else {
+        scale3(sub(path[i + 1], path[i - 1]), 0.5)
+      }
+    })
+    .collect()
+}
+
+/// A weighted sum of the points at the given positions.
+fn weighted3(path: &[[f64; 3]], terms: &[(usize, f64)], k: f64) -> [f64; 3] {
+  let mut acc = [0.0; 3];
+  for (i, w) in terms {
+    acc = add3(acc, scale3(path[*i], *w));
+  }
+  scale3(acc, k)
+}
+
+/// The second derivative along a path.
+///
+/// The two ends have no neighbour on one side, and a three-point estimate
+/// there would be a whole order less accurate than the interior's, so they
+/// reach as far in as the data allows to keep the accuracy even.
+fn derivative2(path: &[[f64; 3]], closed: bool) -> Vec<[f64; 3]> {
+  let n = path.len();
+  (0..n)
+    .map(|i| {
+      let terms: Vec<(usize, f64)> = if closed {
+        vec![((n + i - 1) % n, 1.0), (i, -2.0), ((i + 1) % n, 1.0)]
+      } else if i == 0 {
+        match n {
+          3 => vec![(0, 1.0), (1, -2.0), (2, 1.0)],
+          4 => vec![(0, 2.0), (1, -5.0), (2, 4.0), (3, -1.0)],
+          _ => vec![
+            (0, 35.0 / 12.0),
+            (1, -104.0 / 12.0),
+            (2, 114.0 / 12.0),
+            (3, -56.0 / 12.0),
+            (4, 11.0 / 12.0),
+          ],
+        }
+      } else if i == n - 1 {
+        match n {
+          3 => vec![(n - 1, 1.0), (n - 2, -2.0), (n - 3, 1.0)],
+          4 => vec![(n - 1, -2.0), (n - 2, 5.0), (n - 3, -4.0), (n - 4, 1.0)],
+          _ => vec![
+            (n - 1, 35.0 / 12.0),
+            (n - 2, -104.0 / 12.0),
+            (n - 3, 114.0 / 12.0),
+            (n - 4, -56.0 / 12.0),
+            (n - 5, 11.0 / 12.0),
+          ],
+        }
+      } else {
+        vec![(i - 1, 1.0), (i, -2.0), (i + 1, 1.0)]
+      };
+      weighted3(path, &terms, 1.0)
+    })
+    .collect()
+}
+
+/// The third derivative along a path.
+fn derivative3(path: &[[f64; 3]], closed: bool) -> Vec<[f64; 3]> {
+  let n = path.len();
+  (0..n)
+    .map(|i| {
+      let terms: Vec<(usize, f64)> = if closed {
+        vec![
+          ((n + i - 2) % n, -1.0),
+          ((n + i - 1) % n, 2.0),
+          ((i + 1) % n, -2.0),
+          ((i + 2) % n, 1.0),
+        ]
+      } else if i == 0 {
+        vec![(0, -5.0), (1, 18.0), (2, -24.0), (3, 14.0), (4, -3.0)]
+      } else if i == 1 {
+        vec![(0, -3.0), (1, 10.0), (2, -12.0), (3, 6.0), (4, -1.0)]
+      } else if i == n - 1 {
+        vec![
+          (n - 1, 5.0),
+          (n - 2, -18.0),
+          (n - 3, 24.0),
+          (n - 4, -14.0),
+          (n - 5, 3.0),
+        ]
+      } else if i == n - 2 {
+        vec![
+          (n - 1, 3.0),
+          (n - 2, -10.0),
+          (n - 3, 12.0),
+          (n - 4, -6.0),
+          (n - 5, 1.0),
+        ]
+      } else {
+        vec![(i - 2, -1.0), (i - 1, 2.0), (i + 1, -2.0), (i + 2, 1.0)]
+      };
+      weighted3(path, &terms, 0.5)
+    })
+    .collect()
+}
+
+/// How sharply the path bends at each point — one over the radius of the
+/// circle that best fits it there.
+fn path_curvature(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_path(a, "path")?;
+  let closed = a.bool_or("closed", false);
+  if path.len() < 3 {
+    return a.err("path must have at least three points");
+  }
+  let d1 = derivative(&path, closed);
+  let d2 = derivative2(&path, closed);
+  let out: Vec<f64> = (0..path.len())
+    .map(|i| {
+      let speed = norm(d1[i]);
+      if speed < EPS {
+        return 0.0;
+      }
+      let a = (norm(d1[i]) * norm(d2[i])).powi(2);
+      let b = dot3(d1[i], d2[i]).powi(2);
+      (a - b).max(0.0).sqrt() / speed.powi(3)
+    })
+    .collect();
+  num_list(lua, &out)
+}
+
+/// How sharply the path twists out of its own plane at each point.
+fn path_torsion(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_path(a, "path")?;
+  let closed = a.bool_or("closed", false);
+  if path.len() < 5 {
+    return a.err("torsion needs a path of at least five points");
+  }
+  let d1 = derivative(&path, closed);
+  let d2 = derivative2(&path, closed);
+  let d3 = derivative3(&path, closed);
+  let out: Vec<f64> = (0..path.len())
+    .map(|i| {
+      let c = cross3(d1[i], d2[i]);
+      let len2 = dot3(c, c);
+      if len2 < EPS {
+        0.0
+      } else {
+        dot3(c, d3[i]) / len2
+      }
+    })
+    .collect();
+  num_list(lua, &out)
+}
+
+/// How far along the path each point sits, as a fraction of the whole.
+fn path_length_fractions(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_path(a, "path")?;
+  let closed = a.bool_or("closed", false);
+  let cum = cumulative(&path, closed);
+  let total = *cum.last().unwrap_or(&0.0);
+  if total < EPS {
+    return num_list(lua, &vec![0.0; cum.len()]);
+  }
+  let out: Vec<f64> = cum.iter().map(|d| d / total).collect();
+  num_list(lua, &out)
+}
+
+// ---------------------------------------------------------------------------
+// Self-intersection
+// ---------------------------------------------------------------------------
+
+fn cross2(a: [f64; 2], b: [f64; 2]) -> f64 {
+  a[0] * b[1] - a[1] * b[0]
+}
+
+fn sub2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+  [a[0] - b[0], a[1] - b[1]]
+}
+
+/// Every place a 2D path crosses itself, as `(segment, u, segment, u)`.
+fn self_intersections(
+  path: &[[f64; 2]],
+  closed: bool,
+  eps: f64,
+) -> Vec<(usize, f64, usize, f64)> {
+  let n = path.len();
+  let segs = if closed { n } else { n - 1 };
+  let mut out = Vec::new();
+  for i in 0..segs {
+    let (p1, p2) = (path[i], path[(i + 1) % n]);
+    for j in (i + 1)..segs {
+      // Segments that share an endpoint always meet there; that is the path
+      // turning a corner, not crossing itself.
+      if j == i + 1 || (closed && i == 0 && j == segs - 1) {
+        continue;
+      }
+      let (q1, q2) = (path[j], path[(j + 1) % n]);
+      let r = sub2(p2, p1);
+      let s = sub2(q2, q1);
+      let denom = cross2(r, s);
+      if denom.abs() < eps {
+        continue;
+      }
+      let qp = sub2(q1, p1);
+      let t = cross2(qp, s) / denom;
+      let u = cross2(qp, r) / denom;
+      if t >= -eps && t <= 1.0 + eps && u >= -eps && u <= 1.0 + eps {
+        out.push((i, t, j, u));
+      }
+    }
+  }
+  out
+}
+
+/// Whether a 2D path ever doubles back on itself or crosses itself.
+fn is_path_simple(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_path(a, "path")?;
+  let closed = a.bool_or("closed", false);
+  let eps = a.num_or("eps", EPS);
+  let _ = lua;
+  let n = path.len();
+  if n < 3 {
+    return Ok(LuaValue::Boolean(true));
+  }
+  // A reversal — two segments meeting at a full turn — counts as touching
+  // itself even though no two segments cross.
+  let last = if closed { n } else { n - 2 };
+  for i in 0..last {
+    let v1 = sub(path[(i + 1) % n], path[i]);
+    let v2 = sub(path[(i + 2) % n], path[(i + 1) % n]);
+    let (n1, n2) = (norm(v1), norm(v2));
+    if n1 < eps || n2 < eps {
+      continue;
+    }
+    if (dot3(v1, v2) / (n1 * n2) + 1.0).abs() < 1e-9 {
+      return Ok(LuaValue::Boolean(false));
+    }
+  }
+  let flat: Vec<[f64; 2]> = path.iter().map(|p| [p[0], p[1]]).collect();
+  Ok(LuaValue::Boolean(
+    self_intersections(&flat, closed, eps).is_empty(),
+  ))
+}
+
+/// Cut a path into pieces wherever it crosses itself.
+fn split_path_at_self_crossings(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_path(a, "path")?;
+  let dim = path_dim(a, "path");
+  let closed = a.bool_or("closed", true);
+  let eps = a.num_or("eps", EPS);
+  let flat: Vec<[f64; 2]> = path.iter().map(|p| [p[0], p[1]]).collect();
+  let n = path.len();
+
+  // Where each segment gets cut, in order along it.
+  let mut cuts: Vec<Vec<f64>> = vec![Vec::new(); n];
+  for (i, t, j, u) in self_intersections(&flat, closed, eps) {
+    cuts[i].push(t);
+    cuts[j].push(u);
+  }
+  for c in &mut cuts {
+    c.sort_by(f64::total_cmp);
+    c.dedup_by(|x, y| (*x - *y).abs() < eps);
+  }
+
+  let segs = if closed { n } else { n - 1 };
+  let mut pieces: Vec<Vec<Val>> = Vec::new();
+  let mut current: Vec<Val> = vec![out_point(path[0], dim)];
+  for i in 0..segs {
+    let (p, q) = (path[i], path[(i + 1) % n]);
+    for t in &cuts[i] {
+      if *t <= eps || *t >= 1.0 - eps {
+        continue;
+      }
+      let at = add3(p, scale3(sub(q, p), *t));
+      current.push(out_point(at, dim));
+      pieces.push(std::mem::replace(&mut current, vec![out_point(at, dim)]));
+    }
+    current.push(out_point(q, dim));
+  }
+  if current.len() > 1 {
+    pieces.push(current);
+  }
+  Val::list(pieces.into_iter().map(Val::List)).to_lua(lua)
+}
+
+/// Break a self-crossing polygon into the simple outlines it is made of.
+fn polygon_parts(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let poly = read_path(a, "poly")?;
+  let nonzero = a.bool_or("nonzero", false);
+  let flat: Vec<Vec<[f64; 2]>> =
+    vec![poly.iter().map(|p| [p[0], p[1]]).collect()];
+  let parts = crate::export::combine_outlines_with_rule(
+    &flat,
+    &[],
+    crate::export::AreaOp::Union,
+    nonzero,
+  );
+  Val::list(
+    parts
+      .iter()
+      .map(|path| Val::list(path.iter().map(|p| Val::vec(*p)))),
+  )
+  .to_lua(lua)
+}
+
 pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  register_all(
+    lua,
+    bosl,
+    &[
+      (
+        "path_curvature",
+        &["path", "closed"],
+        path_curvature as PureFn,
+      ),
+      ("path_torsion", &["path", "closed"], path_torsion),
+      (
+        "path_length_fractions",
+        &["path", "closed"],
+        path_length_fractions,
+      ),
+      ("is_path_simple", &["path", "closed", "eps"], is_path_simple),
+      (
+        "split_path_at_self_crossings",
+        &["path", "closed", "eps"],
+        split_path_at_self_crossings,
+      ),
+      ("polygon_parts", &["poly", "nonzero", "eps"], polygon_parts),
+      // BOSL2 exposes the recursion behind `path_cut_points` under its own
+      // name; it computes the same thing, so it is the same function here.
+      (
+        "path_cut_points_recurse",
+        &[
+          "path", "dists", "closed", "pind", "dtotal", "dind", "result",
+        ],
+        path_cut_points,
+      ),
+    ],
+  )?;
   register_all(
     lua,
     bosl,

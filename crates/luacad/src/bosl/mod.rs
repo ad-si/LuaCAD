@@ -16,18 +16,27 @@ pub mod beziers;
 pub mod coords;
 pub mod distributors;
 pub mod edges;
+pub mod extras;
 pub mod gears;
 pub mod geom;
+pub mod heightfield;
+pub mod isosurface;
 pub mod linalg;
 pub mod lists;
 pub mod masks;
 pub mod math;
+pub mod metric;
+pub mod nurbs;
+pub mod offset2d;
 pub mod parts;
 pub mod paths;
+pub mod regions;
+pub mod rounding;
 pub mod screws;
 pub mod shapes2d;
 pub mod shapes3d;
 pub mod sweeps;
+pub mod textures;
 pub mod threading;
 pub mod transforms;
 pub mod value;
@@ -74,18 +83,53 @@ fn format_f64(v: f64) -> String {
 }
 
 /// Convert a Lua table to an OpenSCAD array like `[1, 2, 3]`.
-/// Only processes sequential integer keys (the array portion).
+///
+/// A table with only string keys is one of BOSL2's structs — the end
+/// treatment an `os_*` constructor hands back, say — which OpenSCAD spells as
+/// a flat list of alternating keys and values, `["type", "circle", "r", 3]`.
+/// Reading only the array part would export it as `[]`, which BOSL2 reads as
+/// "no treatment at all" and silently builds the wrong shape.
 fn lua_table_to_scad_array(t: &mlua::Table) -> String {
   let len = t.len().unwrap_or(0);
-  if len == 0 {
-    return "[]".to_string();
+  if len > 0 {
+    let mut parts = Vec::new();
+    for i in 1..=len {
+      if let Ok(v) = t.get::<LuaValue>(i) {
+        parts.push(lua_val_to_scad(&v));
+      }
+    }
+    return format!("[{}]", parts.join(", "));
   }
-  let mut parts = Vec::new();
-  for i in 1..=len {
-    if let Ok(v) = t.get::<LuaValue>(i) {
-      parts.push(lua_val_to_scad(&v));
+
+  let mut fields: Vec<(String, String)> = Vec::new();
+  if let Ok(pairs) = t
+    .pairs::<LuaValue, LuaValue>()
+    .collect::<Result<Vec<_>, _>>()
+  {
+    for (k, v) in pairs {
+      if let LuaValue::String(key) = k {
+        let key = key.to_str().map(|s| s.to_string()).unwrap_or_default();
+        fields.push((key, lua_val_to_scad(&v)));
+      }
     }
   }
+  if fields.is_empty() {
+    return "[]".to_string();
+  }
+  // Sorted so the same struct always exports the same way, with the two
+  // fields that say what the struct is for leading.
+  fields.sort_by(|a, b| {
+    let rank = |k: &str| match k {
+      "for" => 0,
+      "type" => 1,
+      _ => 2,
+    };
+    rank(&a.0).cmp(&rank(&b.0)).then_with(|| a.0.cmp(&b.0))
+  });
+  let parts: Vec<String> = fields
+    .iter()
+    .flat_map(|(k, v)| [format!("\"{k}\""), v.clone()])
+    .collect();
   format!("[{}]", parts.join(", "))
 }
 
@@ -94,7 +138,7 @@ fn lua_table_to_scad_array(t: &mlua::Table) -> String {
 ///
 /// Positional (integer-keyed) values are emitted first, then named keys
 /// in alphabetical order.
-fn lua_table_to_scad_args(t: &mlua::Table) -> String {
+pub(crate) fn lua_table_to_scad_args(t: &mlua::Table) -> String {
   let mut positional = Vec::new();
   let mut named = Vec::new();
 
@@ -791,6 +835,12 @@ pub fn register_bosl(lua: &Lua) -> LuaResult<()> {
   register_partitions(lua, &bosl)?;
   register_masks(lua, &bosl)?;
   register_paths(lua, &bosl)?;
+  register_regions(lua, &bosl)?;
+  extras::register(lua, &bosl)?;
+  heightfield::register(lua, &bosl)?;
+  isosurface::register(lua, &bosl)?;
+  nurbs::register(lua, &bosl)?;
+  metric::register(lua, &bosl)?;
   register_drawing(lua, &bosl)?;
   register_beziers(lua, &bosl)?;
   register_rounding(lua, &bosl)?;
@@ -979,6 +1029,7 @@ fn register_shapes3d(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
       "path_text",
       // Miscellaneous
       "fillet",
+      "interior_fillet",
     ],
   )?;
 
@@ -1068,6 +1119,14 @@ fn register_paths(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 }
 
 // ===========================================================================
+// regions.scad  (included via std.scad)
+// ===========================================================================
+
+fn register_regions(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  regions::register(lua, bosl)
+}
+
+// ===========================================================================
 // drawing.scad  (included via std.scad)
 // ===========================================================================
 
@@ -1087,18 +1146,20 @@ fn register_beziers(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
 // rounding.scad  (included via std.scad)
 // ===========================================================================
 
-fn register_rounding(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
-  // Registered together with the other sweeps, which share their machinery.
-  Ok(())
+fn register_rounding(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  // The sweeps themselves are registered together with the rest of their
+  // machinery; this is the end-treatment specs they are steered by.
+  rounding::register(lua, bosl)
 }
 
 // ===========================================================================
 // skin.scad  (included via std.scad)
 // ===========================================================================
 
-fn register_skin(_lua: &Lua, _bosl: &mlua::Table) -> LuaResult<()> {
-  // Registered together with the other sweeps, which share their machinery.
-  Ok(())
+fn register_skin(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  // The sweeps themselves are registered with the rest of their machinery;
+  // this is the texture catalogue they tile a surface with.
+  textures::register(lua, bosl)
 }
 
 // ===========================================================================

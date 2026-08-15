@@ -958,6 +958,56 @@ pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
     path_copies,
   )?;
 
+  // The names BOSL2 used before it settled on `*_copies`. They take the same
+  // arguments and do the same thing, so a script written against the older
+  // library still runs.
+  add(
+    lua,
+    bosl,
+    "line_of",
+    &["spacing", "n", "l", "p1", "p2", "p"],
+    line_copies,
+  )?;
+  add(
+    lua,
+    bosl,
+    "grid2d",
+    &["spacing", "n", "size", "stagger", "inside", "nonzero", "p"],
+    grid_copies,
+  )?;
+  add(
+    lua,
+    bosl,
+    "arc_of",
+    &[
+      "n", "r", "rx", "ry", "d", "dx", "dy", "sa", "ea", "rot", "cp", "p",
+    ],
+    arc_copies,
+  )?;
+  add(
+    lua,
+    bosl,
+    "ovoid_spread",
+    &["n", "r", "d", "cone_ang", "scale", "perp", "p"],
+    sphere_copies,
+  )?;
+  add(
+    lua,
+    bosl,
+    "path_spread",
+    &[
+      "path",
+      "n",
+      "spacing",
+      "sp",
+      "dist",
+      "rotate_children",
+      "closed",
+      "p",
+    ],
+    path_copies,
+  )?;
+
   for (name, axis, param) in [
     ("xflip_copy", 0usize, "x"),
     ("yflip_copy", 1, "y"),

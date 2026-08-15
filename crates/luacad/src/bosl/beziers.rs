@@ -7,6 +7,7 @@
 use mlua::{Lua, Result as LuaResult, Value as LuaValue};
 
 use crate::bosl::value::{Args, PureFn, Val, num_list, register_all, v3};
+use crate::scad_export::ScadNode;
 
 const EPS: f64 = 1e-12;
 
@@ -779,7 +780,399 @@ pub fn vnf_to_lua(
   .to_lua(lua)
 }
 
+// ---------------------------------------------------------------------------
+// Writing a cubic Bézier path by its joints
+// ---------------------------------------------------------------------------
+
+/// The direction a `bez_*` joint leaves in, however it was given.
+///
+/// Either as a vector — whose length sets the handle unless a radius says
+/// otherwise — or as a compass bearing with an optional elevation, which is
+/// how a 3D joint is aimed without writing the vector out.
+fn joint_direction(
+  a: &Args,
+  angle: &str,
+  radius: Option<f64>,
+  elevation: &str,
+) -> LuaResult<Option<[f64; 3]>> {
+  let Some(raw) = a.raw(angle) else {
+    return Ok(None);
+  };
+  if let Some(v) = crate::bosl::args::as_nums(raw) {
+    if v.len() < 2 {
+      return a.err(format!("{angle} must be a direction or an angle"));
+    }
+    let dir = v3(&v);
+    let len = norm(dir);
+    if len < EPS {
+      return a.err(format!("{angle} must not be zero"));
+    }
+    let r = radius.unwrap_or(len);
+    return Ok(Some(scale(dir, r / len)));
+  }
+  let Some(theta) = crate::bosl::args::as_num(raw) else {
+    return a.err(format!("{angle} must be a direction or an angle"));
+  };
+  let Some(r) = radius else {
+    return a.err(format!("a radius is needed alongside the angle {angle}"));
+  };
+  let phi = a.num_or(elevation, 90.0);
+  let (st, ct) = theta.to_radians().sin_cos();
+  let (sp, cp) = phi.to_radians().sin_cos();
+  Ok(Some([r * ct * sp, r * st * sp, r * cp]))
+}
+
+fn joint_point(a: &Args) -> LuaResult<[f64; 3]> {
+  match a.points3("pt").as_deref() {
+    Some([p]) => Ok(*p),
+    _ => match a.vec3("pt") {
+      Some(p) => Ok(p),
+      None => a.err("pt must be a point"),
+    },
+  }
+}
+
+/// The two control points that start a cubic Bézier path.
+fn bez_begin(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let pt = joint_point(a)?;
+  let Some(d) = joint_direction(a, "a", a.num("r"), "p")? else {
+    return a.err("a direction or angle is required");
+  };
+  let dim =
+    if a.vec3("pt").map(|_| a.nums("pt").map(|v| v.len())) == Some(Some(2)) {
+      2
+    } else {
+      3
+    };
+  Val::list([out_point(pt, dim), out_point(add(pt, d), dim)]).to_lua(lua)
+}
+
+/// The two control points that finish a cubic Bézier path.
+fn bez_end(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let pt = joint_point(a)?;
+  let Some(d) = joint_direction(a, "a", a.num("r"), "p")? else {
+    return a.err("a direction or angle is required");
+  };
+  let dim = a.nums("pt").map(|v| v.len()).unwrap_or(3).min(3);
+  Val::list([out_point(add(pt, d), dim), out_point(pt, dim)]).to_lua(lua)
+}
+
+/// The three control points of a smooth joint, where the path runs straight
+/// through with the same tangent either side.
+fn bez_tang(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let pt = joint_point(a)?;
+  let dim = a.nums("pt").map(|v| v.len()).unwrap_or(3).min(3);
+  let r1 = a.num("r1");
+  let out = joint_direction(a, "a", r1, "p")?;
+  let Some(out_dir) = out else {
+    return a.err("a direction or angle is required");
+  };
+  // The handle behind the point mirrors the one in front, at its own length.
+  let back_len = r1.unwrap_or_else(|| norm(out_dir));
+  let r2 = a.num("r2").unwrap_or(back_len);
+  let unit_dir = unit(out_dir);
+  Val::list([
+    out_point(sub(pt, scale(unit_dir, back_len)), dim),
+    out_point(pt, dim),
+    out_point(add(pt, scale(unit_dir, r2)), dim),
+  ])
+  .to_lua(lua)
+}
+
+/// The three control points of a corner, where the path arrives along one
+/// direction and leaves along another.
+fn bez_joint(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let pt = joint_point(a)?;
+  let dim = a.nums("pt").map(|v| v.len()).unwrap_or(3).min(3);
+  let Some(d1) = joint_direction(a, "a1", a.num("r1"), "p1")? else {
+    return a.err("a1 is required");
+  };
+  let Some(d2) = joint_direction(a, "a2", a.num("r2"), "p2")? else {
+    return a.err("a2 is required");
+  };
+  Val::list([
+    out_point(add(pt, d1), dim),
+    out_point(pt, dim),
+    out_point(add(pt, d2), dim),
+  ])
+  .to_lua(lua)
+}
+
+/// Turn a polyline into a cubic Bézier path that rounds off its corners.
+///
+/// Each corner gets two control points set back along its two edges, so the
+/// curve leaves and rejoins the polyline smoothly. `size` measures that
+/// setback outright; `relsize` measures it as a fraction of the shorter edge.
+fn path_to_bezcornerpath(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let path = read_curve(a, "path")?;
+  let dim = curve_dim(a, "path");
+  let closed = a.bool_or("closed", false);
+  let n = path.len();
+  if n < 2 {
+    return a.err("path must have at least two points");
+  }
+  if a.has("size") && a.has("relsize") {
+    return a.err("give either size or relsize, not both");
+  }
+  let relative = !a.has("size");
+  let amount = a.num("size").or_else(|| a.num("relsize")).unwrap_or(0.5);
+  if amount <= 0.0 {
+    return a.err("size or relsize must be greater than zero");
+  }
+
+  let mut out: Vec<Val> = Vec::new();
+  let corner_handles = |i: usize| -> ([f64; 3], [f64; 3]) {
+    let here = path[i];
+    let prev = path[(i + n - 1) % n];
+    let next = path[(i + 1) % n];
+    let back = sub(prev, here);
+    let fwd = sub(next, here);
+    let reach = |v: [f64; 3]| {
+      let len = norm(v);
+      if len < EPS {
+        return [0.0; 3];
+      }
+      let d = if relative { len * amount / 2.0 } else { amount };
+      scale(v, d.min(len) / len)
+    };
+    (add(here, reach(back)), add(here, reach(fwd)))
+  };
+
+  if closed {
+    for (i, here) in path.iter().enumerate() {
+      let (back, fwd) = corner_handles(i);
+      out.push(out_point(back, dim));
+      out.push(out_point(*here, dim));
+      out.push(out_point(fwd, dim));
+    }
+    // A closed path comes back round to where it started.
+    out.rotate_left(1);
+    let first = out[0].clone();
+    out.push(first);
+  } else {
+    out.push(out_point(path[0], dim));
+    for (i, here) in path.iter().enumerate().take(n - 1).skip(1) {
+      let (back, fwd) = corner_handles(i);
+      out.push(out_point(back, dim));
+      out.push(out_point(*here, dim));
+      out.push(out_point(fwd, dim));
+    }
+    out.push(out_point(path[n - 1], dim));
+  }
+  Val::List(out).to_lua(lua)
+}
+
+/// Give a Bézier patch a thickness, so it becomes a solid shell.
+fn bezier_sheet(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let patch = read_patch(a, "patch")?;
+  let thickness = a.need_num("thickness")?;
+  if thickness.abs() < EPS {
+    return a.err("thickness must not be zero");
+  }
+  let steps = a.int("splinesteps").unwrap_or(16).max(1) as usize;
+
+  let normal_at = |u: f64, v: f64| -> [f64; 3] {
+    let h = 1e-5;
+    let du = sub(
+      patch_at(&patch, (u + h).min(1.0), v),
+      patch_at(&patch, (u - h).max(0.0), v),
+    );
+    let dv = sub(
+      patch_at(&patch, u, (v + h).min(1.0)),
+      patch_at(&patch, u, (v - h).max(0.0)),
+    );
+    unit(cross(du, dv))
+  };
+
+  // The surface, then the same surface pushed out along its own normals.
+  let mut front: Vec<Vec<[f64; 3]>> = Vec::with_capacity(steps + 1);
+  let mut back: Vec<Vec<[f64; 3]>> = Vec::with_capacity(steps + 1);
+  for j in 0..=steps {
+    let v = 1.0 - j as f64 / steps as f64;
+    let mut row_f = Vec::with_capacity(steps + 1);
+    let mut row_b = Vec::with_capacity(steps + 1);
+    for i in 0..=steps {
+      let u = i as f64 / steps as f64;
+      let p = patch_at(&patch, u, v);
+      row_f.push(p);
+      row_b.push(add(p, scale(normal_at(u, v), thickness)));
+    }
+    front.push(row_f);
+    back.push(row_b);
+  }
+
+  // The two sheets meet all the way round their edges, so stacking the front
+  // rows, then the back rows reversed, closes the solid without a seam.
+  let mut rows = front;
+  rows.extend(back.into_iter().rev());
+  let vnf = crate::bosl::vnf::Vnf::vertex_array(
+    &rows,
+    crate::bosl::vnf::Caps::NONE,
+    false,
+    true,
+  );
+  crate::bosl::vnf_lua::write_vnf(lua, &vnf)
+}
+
+/// Draw a Bézier path with its control points, so it can be looked at.
+fn debug_bezier(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let bezpath = read_curve(a, "bezpath")?;
+  let width = a.num_or("width", 1.0);
+  let degree = a.int("N").unwrap_or(3).max(1) as usize;
+  if bezpath.len() % degree != 1 {
+    return a.err(format!(
+      "a degree {degree} bezier path needs a multiple of {degree} points, \
+       plus one"
+    ));
+  }
+  // The curve itself, and the control polygon it is steered by.
+  let mut curve: Vec<[f64; 3]> = Vec::new();
+  for seg in 0..(bezpath.len() - 1) / degree {
+    let ctrl = &bezpath[seg * degree..seg * degree + degree + 1];
+    for k in 0..=16 {
+      curve.push(bezier_at(ctrl, k as f64 / 16.0));
+    }
+  }
+  let node = ScadNode::Union(
+    polyline_bars(&curve, width)
+      .into_iter()
+      .chain(polyline_bars(&bezpath, width / 2.0))
+      .collect(),
+  );
+  as_debug_geometry(lua, "debug_bezier", a, node)
+}
+
+/// Draw a list of Bézier patches with their control nets.
+fn debug_bezier_patches(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let patches = read_patch_list(a)?;
+  let steps = a.int("splinesteps").unwrap_or(16).max(1) as usize;
+  let show_cps = a.bool_or("showcps", true);
+  let size = a.num_or("size", 1.0);
+
+  let mut parts: Vec<ScadNode> = Vec::new();
+  for patch in &patches {
+    let rows: Vec<Vec<[f64; 3]>> = (0..=steps)
+      .map(|j| {
+        let v = j as f64 / steps as f64;
+        (0..=steps)
+          .map(|i| patch_at(patch, i as f64 / steps as f64, v))
+          .collect()
+      })
+      .collect();
+    parts.push(
+      crate::bosl::vnf::Vnf::vertex_array(
+        &rows,
+        crate::bosl::vnf::Caps::NONE,
+        false,
+        false,
+      )
+      .to_node(),
+    );
+    if show_cps {
+      for row in patch {
+        parts.extend(polyline_bars(row, size / 3.0));
+      }
+    }
+  }
+  as_debug_geometry(lua, "debug_bezier_patches", a, ScadNode::Union(parts))
+}
+
+/// A run of thin bars along a polyline, for drawing it.
+fn polyline_bars(path: &[[f64; 3]], width: f64) -> Vec<ScadNode> {
+  path
+    .windows(2)
+    .filter_map(|w| {
+      let d = sub(w[1], w[0]);
+      let len = norm(d);
+      if len < EPS {
+        return None;
+      }
+      let yaw = d[1].atan2(d[0]).to_degrees();
+      let pitch = (d[2] / len).clamp(-1.0, 1.0).acos().to_degrees();
+      Some(ScadNode::Translate {
+        x: w[0][0] as f32,
+        y: w[0][1] as f32,
+        z: w[0][2] as f32,
+        child: Box::new(ScadNode::Rotate {
+          x: 0.0,
+          y: pitch as f32,
+          z: yaw as f32,
+          child: Box::new(ScadNode::Cylinder {
+            r1: (width / 2.0) as f32,
+            r2: (width / 2.0) as f32,
+            h: len as f32,
+            center: false,
+            segments: 8,
+          }),
+        }),
+      })
+    })
+    .collect()
+}
+
+fn as_debug_geometry(
+  lua: &Lua,
+  name: &'static str,
+  a: &Args,
+  node: ScadNode,
+) -> LuaResult<LuaValue> {
+  let scad = crate::bosl::bosl_node_with_children(
+    "std.scad",
+    name,
+    a.scad_args().to_string(),
+    vec![],
+    Some(node),
+  );
+  Ok(LuaValue::UserData(lua.create_userdata(
+    crate::geometry::CsgGeometry {
+      name: None,
+      mesh: None,
+      color: None,
+      scad: Some(scad),
+    },
+  )?))
+}
+
 pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  register_all(
+    lua,
+    bosl,
+    &[
+      ("bez_begin", &["pt", "a", "r", "p"], bez_begin as PureFn),
+      ("bez_end", &["pt", "a", "r", "p"], bez_end),
+      ("bez_tang", &["pt", "a", "r1", "r2", "p"], bez_tang),
+      (
+        "bez_joint",
+        &["pt", "a1", "a2", "r1", "r2", "p1", "p2"],
+        bez_joint,
+      ),
+      (
+        "path_to_bezcornerpath",
+        &["path", "closed", "size", "relsize"],
+        path_to_bezcornerpath,
+      ),
+      (
+        "bezier_sheet",
+        &["patch", "thickness", "splinesteps", "style"],
+        bezier_sheet,
+      ),
+      ("debug_bezier", &["bezpath", "width", "N"], debug_bezier),
+      (
+        "debug_bezier_patches",
+        &[
+          "patches",
+          "size",
+          "splinesteps",
+          "showcps",
+          "showdots",
+          "showpatch",
+          "convexity",
+          "style",
+        ],
+        debug_bezier_patches,
+      ),
+    ],
+  )?;
   register_all(
     lua,
     bosl,

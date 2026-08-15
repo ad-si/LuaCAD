@@ -1491,7 +1491,7 @@ fn hull2d_path(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
 }
 
 /// The faces of the convex hull of 3D points, built incrementally.
-fn hull3d(points: &[[f64; 3]]) -> Option<Vec<[usize; 3]>> {
+pub(crate) fn hull3d(points: &[[f64; 3]]) -> Option<Vec<[usize; 3]>> {
   let n = points.len();
   if n < 4 {
     return None;

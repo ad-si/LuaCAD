@@ -1626,7 +1626,9 @@ pub fn builder(name: &str) -> Option<(&'static [&'static str], Build)> {
       &["r", "ang", "cap_h", "d", "circum", "realign"],
       build_onion as Build,
     ),
-    "fillet" => (
+    // BOSL2 renamed this to `fillet`; the old name still builds the same
+    // shape, so both reach the same builder.
+    "fillet" | "interior_fillet" => (
       &[
         "l",
         "r",

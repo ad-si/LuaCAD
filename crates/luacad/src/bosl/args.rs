@@ -31,6 +31,12 @@ pub struct Args {
   named: BTreeMap<String, LuaValue>,
   /// Positional parameter names, in the order the BOSL2 module declares them.
   params: &'static [&'static str],
+  /// The call's arguments written back out as OpenSCAD source.
+  ///
+  /// A `.scad` export writes the BOSL2 call rather than the mesh LuaCAD
+  /// built, so it needs the arguments the call was made with; without them
+  /// the exported file is a call to a module with nothing to work on.
+  scad_args: String,
 }
 
 impl Args {
@@ -71,6 +77,7 @@ impl Args {
       positional,
       named,
       params,
+      scad_args: render_scad_args(args),
     };
     parsed.check_named()?;
     Ok(parsed)
@@ -116,9 +123,15 @@ impl Args {
       positional,
       named,
       params,
+      scad_args: render_scad_args(args),
     };
     parsed.check_named()?;
     Ok(parsed)
+  }
+
+  /// The call's arguments as OpenSCAD source, for the `.scad` export.
+  pub fn scad_args(&self) -> &str {
+    &self.scad_args
   }
 
   /// Reject named parameters the module does not understand.
@@ -390,6 +403,27 @@ impl Args {
 
   pub fn orient(&self) -> [f64; 3] {
     self.vec3("orient").unwrap_or([0.0, 0.0, 1.0])
+  }
+}
+
+/// Write a call's arguments back out as OpenSCAD source.
+///
+/// A single table argument covers both calling conventions: a shape module's
+/// argument table renders as its positional and named parts, and a bare value
+/// such as a path renders as one positional argument, because a path has only
+/// an array part.
+fn render_scad_args(args: &mlua::MultiValue) -> String {
+  match args.len() {
+    0 => String::new(),
+    1 => match &args[0] {
+      LuaValue::Table(t) => crate::bosl::lua_table_to_scad_args(t),
+      other => crate::bosl::lua_val_to_scad(other),
+    },
+    _ => args
+      .iter()
+      .map(crate::bosl::lua_val_to_scad)
+      .collect::<Vec<_>>()
+      .join(", "),
   }
 }
 

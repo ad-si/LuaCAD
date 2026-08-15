@@ -36,6 +36,32 @@ fn as_geometry(
   })?))
 }
 
+/// Turn a built mask upside down.
+///
+/// The two `rounding_angled_*` names measure a corner from the opposite end
+/// to the ones that replaced them, which is a mirror in Z and nothing more.
+fn flip_z(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
+  let LuaValue::UserData(ud) = &value else {
+    return Ok(value);
+  };
+  let geom = ud.borrow::<CsgGeometry>()?;
+  let Some(node) = geom.scad.clone() else {
+    return Ok(value.clone());
+  };
+  let flipped = ScadNode::Scale {
+    x: 1.0,
+    y: 1.0,
+    z: -1.0,
+    child: Box::new(node),
+  };
+  Ok(LuaValue::UserData(lua.create_userdata(CsgGeometry {
+    name: None,
+    mesh: None,
+    color: None,
+    scad: Some(flipped),
+  })?))
+}
+
 /// Wrap a built outline as a BOSL2 call.
 fn as_sketch(
   lua: &Lua,
@@ -970,6 +996,28 @@ pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
       "height",
     ],
     rounding_edge_mask,
+  )?;
+  // BOSL2 renamed these two; the old names build the same masks, with the
+  // corner one flipped because it used to be measured from the other end.
+  register_one(
+    lua,
+    bosl,
+    "rounding_angled_edge_mask",
+    &[
+      "l", "r", "ang", "r1", "r2", "excess", "d1", "d2", "d", "length", "h",
+      "height",
+    ],
+    rounding_edge_mask,
+  )?;
+  register_one(
+    lua,
+    bosl,
+    "rounding_angled_corner_mask",
+    &["r", "ang", "d", "style", "excess"],
+    |lua, a| {
+      let mask = rounding_corner_mask(lua, a)?;
+      flip_z(lua, mask)
+    },
   )?;
   register_one(
     lua,

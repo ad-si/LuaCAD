@@ -361,6 +361,157 @@ fn round_shapes_match_bosl2() {
   ]);
 }
 
+/// A square and a hexagon, spelled out because a case is one expression.
+const SQ: &str = "{{8,8},{-8,8},{-8,-8},{8,-8}}";
+const HEX: &str = "{{10,0},{5,8.66},{-5,8.66},{-10,0},{-5,-8.66},{5,-8.66}}";
+
+#[test]
+fn end_treatments_match_bosl2() {
+  check_all(&[
+    (
+      "offset_sweep round",
+      &format!("bosl.offset_sweep {{ path = {SQ}, height = 12, r = 3 }}"),
+    ),
+    (
+      "offset_sweep flare",
+      &format!("bosl.offset_sweep {{ path = {SQ}, height = 12, r = -3 }}"),
+    ),
+    (
+      "os_circle",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_circle {{ r = 3 }} }}"
+      ),
+    ),
+    (
+      "os_circle by cut",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_circle {{ cut = 2 }} }}"
+      ),
+    ),
+    (
+      "os_chamfer",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_chamfer {{ width = 3 }} }}"
+      ),
+    ),
+    (
+      "os_teardrop",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_teardrop {{ r = 3 }} }}"
+      ),
+    ),
+    (
+      "os_smooth",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_smooth {{ joint = 3 }} }}"
+      ),
+    ),
+    (
+      "os_profile",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         top = bosl.os_profile {{ points = {{{{0,0}},{{1,1}},{{1,3}},{{3,3}}}} }} }}"
+      ),
+    ),
+    (
+      "both ends",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         bottom = bosl.os_circle {{ r = -2 }}, \
+         top = bosl.os_chamfer {{ width = 2 }} }}"
+      ),
+    ),
+    (
+      "ends together",
+      &format!(
+        "bosl.offset_sweep {{ path = {SQ}, height = 12, \
+         ends = bosl.os_circle {{ r = 2 }} }}"
+      ),
+    ),
+    (
+      "hexagonal outline",
+      &format!("bosl.offset_sweep {{ path = {HEX}, height = 10, r = 2 }}"),
+    ),
+  ]);
+}
+
+#[test]
+fn joined_prisms_match_bosl2() {
+  // A circular prism on a curved base is left out on purpose: the join's far
+  // end is capped with a single non-planar polygon, and OpenSCAD and Manifold
+  // split it into triangles differently, so the volumes disagree by several
+  // percent while the surfaces are identical to a micron. The cap is buried
+  // inside the base once the two are unioned, so nothing turns on it.
+  check_all(&[
+    (
+      "join to a plane",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'plane', \
+         length = 18, fillet = 3, n = 12 }}"
+      ),
+    ),
+    (
+      "join with no fillet",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'plane', \
+         length = 18, fillet = 0, n = 12 }}"
+      ),
+    ),
+    (
+      "join with a negative fillet",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'plane', \
+         length = 18, fillet = -3, n = 12 }}"
+      ),
+    ),
+    (
+      "join with a rounded end",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'plane', \
+         length = 18, fillet = 3, end_round = 2, n = 12 }}"
+      ),
+    ),
+    (
+      "join to a cylinder",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'cyl', base_r = 30, \
+         length = 18, fillet = 3, n = 12 }}"
+      ),
+    ),
+    (
+      "join inside a cylinder",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'cyl', base_r = -30, \
+         length = 18, fillet = 3, n = 12 }}"
+      ),
+    ),
+    (
+      "join to a sphere",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'sphere', base_r = 30, \
+         length = 18, fillet = 3, n = 12 }}"
+      ),
+    ),
+    (
+      "join with a scaled end",
+      &format!(
+        "bosl.join_prism {{ polygon = {SQ}, base = 'plane', \
+         length = 18, fillet = 3, scale = 0.5, n = 12 }}"
+      ),
+    ),
+    (
+      "bent cutout mask",
+      "bosl.bent_cutout_mask { r = 40, thickness = 4, \
+       path = {{-20,-8},{20,-8},{20,8},{-20,8}} }",
+    ),
+  ]);
+}
+
 #[test]
 fn transforms_match_bosl2() {
   check_all(&[

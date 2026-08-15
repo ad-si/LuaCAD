@@ -584,7 +584,773 @@ fn debug_vnf(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   vnf_wireframe(lua, a)
 }
 
+// ---------------------------------------------------------------------------
+// Measuring and inspecting a mesh
+// ---------------------------------------------------------------------------
+
+fn v_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+  [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn v_cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+  [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ]
+}
+
+fn v_dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+  a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn v_norm(a: [f64; 3]) -> f64 {
+  v_dot(a, a).sqrt()
+}
+
+/// A face's area vector: the direction it faces, scaled by its area.
+///
+/// Summing the edge cross-products this way works for any planar polygon,
+/// convex or not, and does not care where the vertices start.
+fn face_area_vector(poly: &[[f64; 3]]) -> [f64; 3] {
+  let n = poly.len();
+  let mut acc = [0.0; 3];
+  for i in 0..n {
+    let c = v_cross(poly[i], poly[(i + 1) % n]);
+    for k in 0..3 {
+      acc[k] += c[k];
+    }
+  }
+  [acc[0] / 2.0, acc[1] / 2.0, acc[2] / 2.0]
+}
+
+/// Whether a value looks like a VNF: a pair of a point list and a face list.
+fn looks_like_vnf(v: &Val) -> bool {
+  let Some(items) = v.as_list() else {
+    return false;
+  };
+  if items.len() != 2 {
+    return false;
+  }
+  let (Some(points), Some(faces)) = (items[0].as_list(), items[1].as_list())
+  else {
+    return false;
+  };
+  let points_ok = points.is_empty()
+    || (points.len() >= 3
+      && points[0].as_vec().map(|p| p.len() == 3).unwrap_or(false));
+  let faces_ok = faces.is_empty() || faces[0].as_vec().is_some();
+  points_ok && faces_ok
+}
+
+fn is_vnf(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  Ok(LuaValue::Boolean(
+    a.val("x").map(|v| looks_like_vnf(&v)).unwrap_or(false),
+  ))
+}
+
+fn is_vnf_list(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let ok = a
+    .val("x")
+    .and_then(|v| Some(v.as_list()?.iter().all(looks_like_vnf)))
+    .unwrap_or(false);
+  Ok(LuaValue::Boolean(ok))
+}
+
+fn vnf_vertices(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  Val::list(vnf.points.iter().map(|p| Val::vec(*p))).to_lua(lua)
+}
+
+fn vnf_faces(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  Val::list(
+    vnf
+      .faces
+      .iter()
+      .map(|f| Val::vec(f.iter().map(|i| *i as f64))),
+  )
+  .to_lua(lua)
+}
+
+/// The volume a closed mesh encloses.
+///
+/// Each face is fanned into triangles from its first vertex and each triangle
+/// spans a tetrahedron back to the origin; the signed volumes cancel
+/// everywhere outside the solid. A mesh with holes or inconsistently wound
+/// faces gives a meaningless answer rather than an error, as in BOSL2.
+fn vnf_volume(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let mut total = 0.0;
+  for face in &vnf.faces {
+    for j in 1..face.len().saturating_sub(1) {
+      let (p0, p1, p2) = (
+        vnf.points[face[0]],
+        vnf.points[face[j]],
+        vnf.points[face[j + 1]],
+      );
+      total += v_dot(v_cross(p2, p1), p0);
+    }
+  }
+  Ok(LuaValue::Number(total / 6.0))
+}
+
+fn vnf_area(_lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let total: f64 = vnf
+    .faces
+    .iter()
+    .map(|f| {
+      let poly: Vec<[f64; 3]> = f.iter().map(|i| vnf.points[*i]).collect();
+      v_norm(face_area_vector(&poly))
+    })
+    .sum();
+  Ok(LuaValue::Number(total))
+}
+
+/// The box a mesh fits in.
+///
+/// `fast` measures every point in the list; the careful reading measures only
+/// the points some face actually uses, so a stray vertex left behind by an
+/// edit does not enlarge the answer.
+fn vnf_bounds(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let fast = a.bool_or("fast", false);
+  let used: Vec<[f64; 3]> = if fast {
+    vnf.points.clone()
+  } else {
+    vnf
+      .faces
+      .iter()
+      .flatten()
+      .filter_map(|i| vnf.points.get(*i).copied())
+      .collect()
+  };
+  if used.is_empty() {
+    return Ok(LuaValue::Nil);
+  }
+  let mut lo = [f64::INFINITY; 3];
+  let mut hi = [f64::NEG_INFINITY; 3];
+  for p in &used {
+    for k in 0..3 {
+      lo[k] = lo[k].min(p[k]);
+      hi[k] = hi[k].max(p[k]);
+    }
+  }
+  Val::list([Val::vec(lo), Val::vec(hi)]).to_lua(lua)
+}
+
+/// Join the edges that only one face uses into loops.
+///
+/// On a closed mesh every edge is shared by two faces, so nothing comes back.
+/// On an open one the leftovers trace its rim.
+fn boundary_loops(vnf: &Vnf) -> Vec<Vec<usize>> {
+  use std::collections::HashMap;
+  let mut counts: HashMap<(usize, usize), i32> = HashMap::new();
+  let mut directed: Vec<(usize, usize)> = Vec::new();
+  for face in &vnf.faces {
+    for i in 0..face.len() {
+      let (u, v) = (face[i], face[(i + 1) % face.len()]);
+      *counts.entry((u.min(v), u.max(v))).or_insert(0) += 1;
+      directed.push((u, v));
+    }
+  }
+  let mut open: Vec<(usize, usize)> = directed
+    .into_iter()
+    .filter(|(u, v)| counts[&((*u).min(*v), (*u).max(*v))] == 1)
+    .collect();
+
+  let mut loops: Vec<Vec<usize>> = Vec::new();
+  while let Some(start) = open.pop() {
+    let mut path = vec![start.0, start.1];
+    loop {
+      let tail = *path.last().unwrap();
+      match open.iter().position(|(u, _)| *u == tail) {
+        Some(i) => {
+          let (_, v) = open.remove(i);
+          if v == path[0] {
+            break;
+          }
+          path.push(v);
+        }
+        None => break,
+      }
+    }
+    if path.len() >= 3 {
+      loops.push(path);
+    }
+  }
+  loops
+}
+
+fn vnf_boundary(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let merge = a.bool_or("merge", true);
+  let idx = a.bool_or("idx", false);
+  if idx && merge {
+    return a.err("indices can only be returned when merge is false");
+  }
+  let vnf = if merge { vnf.merged(EPS) } else { vnf };
+  let loops = boundary_loops(&vnf);
+  Val::list(loops.iter().map(|path| {
+    if idx {
+      Val::vec(path.iter().map(|i| *i as f64))
+    } else {
+      Val::list(path.iter().map(|i| Val::vec(vnf.points[*i])))
+    }
+  }))
+  .to_lua(lua)
+}
+
+fn vnf_hull(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  // A bare 3D point list is accepted as well as a whole mesh.
+  let points: Vec<[f64; 3]> = match read_vnf(a, "vnf") {
+    // Only the points some face actually uses, so a vertex left behind by an
+    // edit does not stretch the hull.
+    Ok(vnf) => {
+      let mut used: Vec<usize> = vnf.faces.iter().flatten().copied().collect();
+      used.sort_unstable();
+      used.dedup();
+      used
+        .iter()
+        .filter_map(|i| vnf.points.get(*i).copied())
+        .collect()
+    }
+    Err(_) => match a.points3("vnf") {
+      Some(p) => p,
+      None => return a.err("vnf must be a VNF or a list of 3D points"),
+    },
+  };
+  let Some(tris) = crate::bosl::geom::hull3d(&points) else {
+    return a.err("the points are all in one plane, so they enclose nothing");
+  };
+  write_vnf(
+    lua,
+    &Vnf {
+      points,
+      faces: tris.iter().map(|t| t.to_vec()).collect(),
+    },
+  )
+}
+
+/// Move every vertex out along the average of the normals meeting there.
+///
+/// Each face's normal is weighted by how much of the corner it takes up, so a
+/// vertex where a broad face meets a narrow one follows the broad one. Only
+/// good for offsets small enough not to fold the surface over.
+fn offset_points(vnf: &Vnf, delta: f64) -> Vec<[f64; 3]> {
+  let normals: Vec<[f64; 3]> = vnf
+    .faces
+    .iter()
+    .map(|f| {
+      let poly: Vec<[f64; 3]> = f.iter().map(|i| vnf.points[*i]).collect();
+      let n = face_area_vector(&poly);
+      let len = v_norm(n);
+      if len < EPS {
+        [0.0; 3]
+      } else {
+        [n[0] / len, n[1] / len, n[2] / len]
+      }
+    })
+    .collect();
+
+  let mut acc = vec![[0.0f64; 3]; vnf.points.len()];
+  for (fi, face) in vnf.faces.iter().enumerate() {
+    let m = face.len();
+    for (k, vi) in face.iter().enumerate() {
+      let prev = vnf.points[face[(k + m - 1) % m]];
+      let here = vnf.points[*vi];
+      let next = vnf.points[face[(k + 1) % m]];
+      let u = v_sub(prev, here);
+      let v = v_sub(next, here);
+      let (lu, lv) = (v_norm(u), v_norm(v));
+      if lu < EPS || lv < EPS {
+        continue;
+      }
+      let angle = (v_dot(u, v) / (lu * lv)).clamp(-1.0, 1.0).acos();
+      for c in 0..3 {
+        acc[*vi][c] += normals[fi][c] * angle;
+      }
+    }
+  }
+  vnf
+    .points
+    .iter()
+    .enumerate()
+    .map(|(i, p)| {
+      let len = v_norm(acc[i]);
+      if len < EPS {
+        *p
+      } else {
+        [
+          p[0] + acc[i][0] / len * delta,
+          p[1] + acc[i][1] / len * delta,
+          p[2] + acc[i][2] / len * delta,
+        ]
+      }
+    })
+    .collect()
+}
+
+fn vnf_small_offset(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let delta = a.need_num("delta")?;
+  let merge = a.bool_or("merge", true);
+  let vnf = if merge { vnf.merged(EPS) } else { vnf };
+  write_vnf(
+    lua,
+    &Vnf {
+      points: offset_points(&vnf, delta),
+      faces: vnf.faces.clone(),
+    },
+  )
+}
+
+/// Give an open surface a thickness, so it becomes a solid shell.
+///
+/// The surface is offset inward by `thickness`, the copy is turned to face
+/// the other way, and the two are stitched together around every rim.
+fn vnf_sheet(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let thickness = a.need_num("thickness")?;
+  let merge = a.bool_or("merge", true);
+  let vnf = if merge { vnf.merged(EPS) } else { vnf };
+
+  let inner = offset_points(&vnf, -thickness);
+  let n = vnf.points.len();
+  let mut points = vnf.points.clone();
+  points.extend(inner);
+
+  let mut faces: Vec<Vec<usize>> = vnf.faces.clone();
+  // The offset copy faces the other way, so its winding is reversed.
+  for face in &vnf.faces {
+    faces.push(face.iter().rev().map(|i| i + n).collect());
+  }
+  // A wall around each rim joins the two surfaces into one solid. The rim
+  // runs the way the outer surface's faces do, so the wall has to be wound
+  // against it to face outward.
+  for path in boundary_loops(&vnf) {
+    for i in 0..path.len() {
+      let (u, v) = (path[i], path[(i + 1) % path.len()]);
+      faces.push(vec![u, u + n, v + n, v]);
+    }
+  }
+  write_vnf(lua, &Vnf { points, faces })
+}
+
+/// Keep only the part of a mesh on one side of a plane.
+///
+/// The plane is `[a, b, c, d]`, and the side kept is where `ax + by + cz >= d`.
+/// Faces straddling it are cut, and unless `closed` is false the opening left
+/// behind is covered over.
+fn vnf_halfspace(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let Some(plane) = a.nums("plane").filter(|p| p.len() == 4) else {
+    return a.err("plane must be [a, b, c, d]");
+  };
+  let vnf = read_vnf(a, "vnf")?;
+  let closed = a.bool_or("closed", true);
+  let normal = [plane[0], plane[1], plane[2]];
+  let len = v_norm(normal);
+  if len < EPS {
+    return a.err("the plane's normal must not be zero");
+  }
+  let side = |p: [f64; 3]| (v_dot(normal, p) - plane[3]) / len;
+
+  let mut points: Vec<[f64; 3]> = Vec::new();
+  let mut faces: Vec<Vec<usize>> = Vec::new();
+  let index_of = |points: &mut Vec<[f64; 3]>, p: [f64; 3]| -> usize {
+    match points.iter().position(|q| v_norm(v_sub(*q, p)) < 1e-7) {
+      Some(i) => i,
+      None => {
+        points.push(p);
+        points.len() - 1
+      }
+    }
+  };
+
+  for face in &vnf.faces {
+    // Walk the face, keeping what is inside and cutting where it crosses.
+    let m = face.len();
+    let mut kept: Vec<[f64; 3]> = Vec::new();
+    for i in 0..m {
+      let p = vnf.points[face[i]];
+      let q = vnf.points[face[(i + 1) % m]];
+      let (sp, sq) = (side(p), side(q));
+      if sp >= -EPS {
+        kept.push(p);
+      }
+      if (sp > EPS && sq < -EPS) || (sp < -EPS && sq > EPS) {
+        let t = sp / (sp - sq);
+        kept.push([
+          p[0] + (q[0] - p[0]) * t,
+          p[1] + (q[1] - p[1]) * t,
+          p[2] + (q[2] - p[2]) * t,
+        ]);
+      }
+    }
+    if kept.len() >= 3 {
+      let idx: Vec<usize> =
+        kept.iter().map(|p| index_of(&mut points, *p)).collect();
+      faces.push(idx);
+    }
+  }
+
+  let mut result = Vnf { points, faces };
+  if closed {
+    // Whatever rim the cut left is a hole in the plane; covering it makes
+    // the result a solid again. The rim runs the way the cut faces do, so
+    // the cover is wound against it.
+    for path in boundary_loops(&result) {
+      if path.len() >= 3 {
+        result.faces.push(path.iter().rev().copied().collect());
+      }
+    }
+  }
+  write_vnf(lua, &result)
+}
+
+/// Merge faces that lie in the same plane and share an edge.
+fn vnf_unify_faces(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let normal_of = |face: &[usize]| -> Option<[f64; 3]> {
+    let poly: Vec<[f64; 3]> = face.iter().map(|i| vnf.points[*i]).collect();
+    let n = face_area_vector(&poly);
+    let len = v_norm(n);
+    (len > EPS).then(|| [n[0] / len, n[1] / len, n[2] / len])
+  };
+
+  let mut faces: Vec<Vec<usize>> = vnf.faces.clone();
+  let mut merged = true;
+  while merged {
+    merged = false;
+    'outer: for i in 0..faces.len() {
+      for j in (i + 1)..faces.len() {
+        let (Some(ni), Some(nj)) = (normal_of(&faces[i]), normal_of(&faces[j]))
+        else {
+          continue;
+        };
+        if v_dot(ni, nj) < 1.0 - 1e-9 {
+          continue;
+        }
+        if let Some(joined) = join_on_shared_edge(&faces[i], &faces[j]) {
+          faces[i] = joined;
+          faces.remove(j);
+          merged = true;
+          break 'outer;
+        }
+      }
+    }
+  }
+  write_vnf(
+    lua,
+    &Vnf {
+      points: vnf.points.clone(),
+      faces,
+    },
+  )
+}
+
+/// Splice two faces together along the edge they share, if they share one.
+fn join_on_shared_edge(f1: &[usize], f2: &[usize]) -> Option<Vec<usize>> {
+  let n1 = f1.len();
+  let n2 = f2.len();
+  for i in 0..n1 {
+    let (a1, b1) = (f1[i], f1[(i + 1) % n1]);
+    for j in 0..n2 {
+      let (a2, b2) = (f2[j], f2[(j + 1) % n2]);
+      // The shared edge runs the other way round in the second face, which
+      // is what makes the two windings agree once spliced.
+      if a1 == b2 && b1 == a2 {
+        let mut out: Vec<usize> = Vec::with_capacity(n1 + n2 - 2);
+        for k in 1..n1 {
+          out.push(f1[(i + k) % n1]);
+        }
+        for k in 1..n2 {
+          out.push(f2[(j + k) % n2]);
+        }
+        out.dedup();
+        if out.len() > 2 && out.first() == out.last() {
+          out.pop();
+        }
+        return (out.len() >= 3).then_some(out);
+      }
+    }
+  }
+  None
+}
+
+/// Everything wrong with a mesh, as a list of `[name, level, colour,
+/// message, where]`.
+///
+/// BOSL2's version is a module that draws the problems in place. LuaCAD has
+/// no `echo` to report them through, so the findings come back as data and
+/// the caller decides what to do with them.
+fn vnf_validate(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  use std::collections::HashMap;
+  let vnf = read_vnf(a, "vnf")?;
+  let show_warns = a.bool_or("show_warns", true);
+  let mut issues: Vec<(&str, &str, &str, &str, Val)> = Vec::new();
+
+  for (fi, face) in vnf.faces.iter().enumerate() {
+    let where_ = Val::Num(fi as f64);
+    if face.iter().any(|i| *i >= vnf.points.len()) {
+      issues.push((
+        "BAD_INDEX",
+        "ERROR",
+        "cyan",
+        "Invalid face vertex index.",
+        where_,
+      ));
+      continue;
+    }
+    let poly: Vec<[f64; 3]> = face.iter().map(|i| vnf.points[*i]).collect();
+    if v_norm(face_area_vector(&poly)) < EPS {
+      issues.push((
+        "NULL_FACE",
+        "WARNING",
+        "blue",
+        "Face has zero area.",
+        where_.clone(),
+      ));
+    } else if !is_planar(&poly) {
+      issues.push((
+        "NONPLANAR",
+        "ERROR",
+        "yellow",
+        "Face vertices are not coplanar",
+        where_.clone(),
+      ));
+    }
+    if show_warns && face.len() > 3 {
+      issues.push((
+        "BIG_FACE",
+        "WARNING",
+        "cyan",
+        "Face has more than 3 vertices, and may confuse CGAL",
+        where_,
+      ));
+    }
+  }
+
+  // Every edge of a closed, consistently wound mesh is used once each way.
+  let mut edges: HashMap<(usize, usize), (i32, i32)> = HashMap::new();
+  for face in &vnf.faces {
+    for i in 0..face.len() {
+      let (u, v) = (face[i], face[(i + 1) % face.len()]);
+      let key = (u.min(v), u.max(v));
+      let slot = edges.entry(key).or_insert((0, 0));
+      if u < v { slot.0 += 1 } else { slot.1 += 1 }
+    }
+  }
+  for ((u, v), (fwd, rev)) in &edges {
+    let at = Val::vec([*u as f64, *v as f64]);
+    match fwd + rev {
+      1 => issues.push(("HOLE_EDGE", "ERROR", "red", "Edge bounds Hole", at)),
+      2 if *fwd != 1 || *rev != 1 => issues.push((
+        "REVERSAL",
+        "ERROR",
+        "violet",
+        "Faces Reverse Across Edge",
+        at,
+      )),
+      n if n > 2 => issues.push((
+        "MULTCONN",
+        "ERROR",
+        "orange",
+        "Multiply Connected Geometry. Too many faces attached at Edge",
+        at,
+      )),
+      _ => {}
+    }
+  }
+
+  // The same face listed twice, however it is rotated.
+  let mut seen: Vec<Vec<usize>> = Vec::new();
+  for face in &vnf.faces {
+    let mut key = face.clone();
+    key.sort_unstable();
+    if seen.contains(&key) {
+      issues.push((
+        "DUP_FACE",
+        "ERROR",
+        "brown",
+        "Multiple instances of the same face.",
+        Val::vec(face.iter().map(|i| *i as f64)),
+      ));
+    } else {
+      seen.push(key);
+    }
+  }
+
+  let out = lua.create_table()?;
+  for (i, (name, level, colour, msg, at)) in issues.into_iter().enumerate() {
+    let entry = lua.create_table()?;
+    entry.set(1, name)?;
+    entry.set(2, level)?;
+    entry.set(3, colour)?;
+    entry.set(4, msg)?;
+    entry.set(5, at.to_lua(lua)?)?;
+    // Named as well as numbered, because reading `issue.msg` beats
+    // remembering that the message is the fourth element.
+    entry.set("name", name)?;
+    entry.set("level", level)?;
+    entry.set("color", colour)?;
+    entry.set("msg", msg)?;
+    out.set(i + 1, entry)?;
+  }
+  Ok(LuaValue::Table(out))
+}
+
+fn is_planar(poly: &[[f64; 3]]) -> bool {
+  if poly.len() <= 3 {
+    return true;
+  }
+  let n = face_area_vector(poly);
+  let len = v_norm(n);
+  if len < EPS {
+    return true;
+  }
+  let unit = [n[0] / len, n[1] / len, n[2] / len];
+  let d = v_dot(unit, poly[0]);
+  poly
+    .iter()
+    .all(|p| (v_dot(unit, *p) - d).abs() < 1e-6 * len.sqrt().max(1.0))
+}
+
+/// The outline a mesh casts on the XY plane.
+///
+/// `cut` takes the cross-section at z = 0 instead of the shadow of the whole
+/// solid.
+fn projection(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let vnf = read_vnf(a, "vnf")?;
+  let cut = a.bool_or("cut", false);
+  let outlines: Vec<Vec<[f64; 2]>> = if cut {
+    // The rim left by keeping everything below z = 0.
+    let kept = halfspace_below(&vnf);
+    boundary_loops(&kept)
+      .iter()
+      .map(|path| {
+        path
+          .iter()
+          .map(|i| [kept.points[*i][0], kept.points[*i][1]])
+          .collect()
+      })
+      .collect()
+  } else {
+    vnf
+      .faces
+      .iter()
+      .map(|f| {
+        f.iter()
+          .map(|i| [vnf.points[*i][0], vnf.points[*i][1]])
+          .collect::<Vec<[f64; 2]>>()
+      })
+      .filter(|p: &Vec<[f64; 2]>| {
+        crate::bosl::regions::signed_area(p).abs() > EPS
+      })
+      .collect()
+  };
+  // Every face's shadow overlaps its neighbours', so they are unioned into
+  // one outline rather than left as a pile.
+  let merged = outlines.iter().fold(Vec::new(), |acc, p| {
+    crate::export::combine_outlines(
+      &acc,
+      std::slice::from_ref(p),
+      crate::export::AreaOp::Union,
+    )
+  });
+  Val::list(
+    merged
+      .iter()
+      .map(|path| Val::list(path.iter().map(|p| Val::vec(*p)))),
+  )
+  .to_lua(lua)
+}
+
+/// Everything of a mesh at or below z = 0, cut where it crosses.
+fn halfspace_below(vnf: &Vnf) -> Vnf {
+  let mut points: Vec<[f64; 3]> = Vec::new();
+  let mut faces: Vec<Vec<usize>> = Vec::new();
+  let index_of = |points: &mut Vec<[f64; 3]>, p: [f64; 3]| -> usize {
+    match points.iter().position(|q| v_norm(v_sub(*q, p)) < 1e-7) {
+      Some(i) => i,
+      None => {
+        points.push(p);
+        points.len() - 1
+      }
+    }
+  };
+  for face in &vnf.faces {
+    let m = face.len();
+    let mut kept: Vec<[f64; 3]> = Vec::new();
+    for i in 0..m {
+      let p = vnf.points[face[i]];
+      let q = vnf.points[face[(i + 1) % m]];
+      if p[2] <= EPS {
+        kept.push(p);
+      }
+      if (p[2] > EPS && q[2] < -EPS) || (p[2] < -EPS && q[2] > EPS) {
+        let t = p[2] / (p[2] - q[2]);
+        kept.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, 0.0]);
+      }
+    }
+    if kept.len() >= 3 {
+      let idx: Vec<usize> =
+        kept.iter().map(|p| index_of(&mut points, *p)).collect();
+      faces.push(idx);
+    }
+  }
+  Vnf { points, faces }
+}
+
 pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  register_all(
+    lua,
+    bosl,
+    &[
+      ("is_vnf", &["x"], is_vnf as PureFn),
+      ("is_vnf_list", &["x"], is_vnf_list),
+      ("vnf_vertices", &["vnf"], vnf_vertices),
+      ("vnf_faces", &["vnf"], vnf_faces),
+      ("vnf_volume", &["vnf"], vnf_volume),
+      ("vnf_area", &["vnf"], vnf_area),
+      ("vnf_bounds", &["vnf", "fast"], vnf_bounds),
+      ("vnf_boundary", &["vnf", "merge", "idx"], vnf_boundary),
+      ("vnf_hull", &["vnf", "fast"], vnf_hull),
+      (
+        "vnf_small_offset",
+        &["vnf", "delta", "merge"],
+        vnf_small_offset,
+      ),
+      (
+        "vnf_sheet",
+        &["vnf", "thickness", "style", "merge"],
+        vnf_sheet,
+      ),
+      (
+        "vnf_halfspace",
+        &["plane", "vnf", "closed", "boundary"],
+        vnf_halfspace,
+      ),
+      ("vnf_unify_faces", &["vnf"], vnf_unify_faces),
+      (
+        "vnf_validate",
+        &[
+          "vnf",
+          "size",
+          "show_warns",
+          "check_isects",
+          "opacity",
+          "adjacent",
+          "label_verts",
+          "label_faces",
+          "wireframe",
+        ],
+        vnf_validate,
+      ),
+      ("projection", &["vnf", "cut", "eps"], projection),
+    ],
+  )?;
   register_all(
     lua,
     bosl,

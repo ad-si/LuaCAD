@@ -350,6 +350,75 @@ fn axis_scale(
   }
 }
 
+/// Scale by a per-axis factor, or by one factor on every axis.
+fn build_scale(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let s = match a.val("v") {
+    Some(Val::Num(k)) => [k, k, k],
+    Some(other) => match other.as_vec() {
+      // A short vector leaves the axes it does not mention alone, so
+      // scaling a 2D outline does not flatten it.
+      Some(p) => {
+        let mut out = [1.0; 3];
+        for (i, k) in p.iter().take(3).enumerate() {
+          out[i] = *k;
+        }
+        out
+      }
+      None => return a.err("v must be a number or a vector"),
+    },
+    None => return a.err("v is required"),
+  };
+  if s.contains(&0.0) {
+    return a.err("a scale factor of zero would flatten the shape away");
+  }
+  let base = Mat4::scale(s);
+  let m = match a.val("cp").and_then(|v| v.as_vec()) {
+    Some(c) => {
+      let c = crate::bosl::value::v3(&c);
+      Mat4::translate(c)
+        .mul(&base)
+        .mul(&Mat4::translate([-c[0], -c[1], -c[2]]))
+    }
+    None => base,
+  };
+  apply_to(lua, a, m, fmt_vec(s))
+}
+
+/// Mirror through the plane whose normal is `v`, passing through the origin.
+fn build_mirror(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let Some(v) = a.val("v").and_then(|v| v.as_vec()) else {
+    return a.err("v is required: the normal of the plane to mirror through");
+  };
+  let n = crate::bosl::value::v3(&v);
+  let len2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+  if len2 < 1e-18 {
+    return a.err("v must not be zero");
+  }
+  // Householder: every point loses twice its component along the normal.
+  let mut m = Mat4::identity();
+  for r in 0..3 {
+    for c in 0..3 {
+      m.0[r * 4 + c] = f64::from(r == c) - 2.0 * n[r] * n[c] / len2;
+    }
+  }
+  apply_to(lua, a, m, fmt_vec(n))
+}
+
+/// Apply an arbitrary 4×4 matrix.
+fn build_multmatrix(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
+  let Some(rows) = a.val("m").and_then(|v| v.as_matrix()) else {
+    return a.err("m must be a 4x4 matrix");
+  };
+  if rows.len() < 3 || rows.iter().any(|r| r.len() < 4) {
+    return a.err("m must be a 4x4 matrix");
+  }
+  let mut out = Mat4::identity();
+  for (r, row) in rows.iter().take(4).enumerate() {
+    out.0[r * 4..r * 4 + 4].copy_from_slice(&row[..4]);
+  }
+  apply_to(lua, a, out, String::new())
+}
+
 fn axis_flip(
   axis: usize,
   param: &'static str,
@@ -481,6 +550,20 @@ fn add(
 }
 
 pub fn register(lua: &Lua, bosl: &mlua::Table) -> LuaResult<()> {
+  // BOSL2 also ships the OpenSCAD-spelled transforms, which differ from the
+  // built-ins by taking `p` — so they transform a point list as readily as a
+  // shape — and by centring on `cp` where that makes sense.
+  add(
+    lua,
+    bosl,
+    "rotate",
+    &["a", "v", "cp", "reverse", "p"],
+    build_rot,
+  )?;
+  add(lua, bosl, "scale", &["v", "cp", "p"], build_scale)?;
+  add(lua, bosl, "mirror", &["v", "p"], build_mirror)?;
+  add(lua, bosl, "multmatrix", &["m", "p"], build_multmatrix)?;
+
   add(lua, bosl, "move", &["v", "p"], build_move)?;
   add(lua, bosl, "translate", &["v", "p"], build_move)?;
   // Each axis move names its parameter after the axis it acts on.
