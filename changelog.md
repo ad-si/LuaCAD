@@ -21,6 +21,10 @@ any release.
 - Building on Fedora and other distributions whose CMake installs into `lib64`
   no longer fails to link with "could not find native static library
   `manifoldc`". Manifold's libraries are now always installed into `lib`.
+- When bindgen cannot parse the Manifold headers because libclang does not
+  find the compiler-provided ones such as `stddef.h`, the build script now
+  retries with the resource directory reported by `clang`, instead of leaving
+  it to `BINDGEN_EXTRA_CLANG_ARGS`.
 
 
 ## 2026-08-14 - 1.0.0

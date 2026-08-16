@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
   // bindgen's CargoCallbacks emits rerun-if-changed for the parsed headers,
@@ -123,21 +124,79 @@ fn generate_bindings(out_dir: &Path, target_os: &str) {
       .blocklist_type("max_align_t");
   }
 
-  let bindings = builder.generate().expect("Unable to generate bindings");
+  let bindings = match try_generate(builder.clone()) {
+    Ok(bindings) => bindings,
+    Err(first_error) => {
+      // libclang looks for `stddef.h` and the other compiler-provided headers
+      // in a resource directory next to itself. When the two come from
+      // different packages — as on Fedora, where clang keeps them under a
+      // versioned `/usr/lib/clang/<version>/include` — it finds none of them
+      // and every header that includes one fails to parse. Ask the clang
+      // binary where the directory actually is and try again.
+      let include = clang_resource_include().unwrap_or_else(|| {
+        panic!("{first_error}");
+      });
+
+      println!(
+        "cargo:warning=bindgen could not parse the Manifold headers; \
+         retrying with the clang resource directory at {}",
+        include.display()
+      );
+
+      try_generate(builder.clang_arg(format!("-isystem{}", include.display())))
+        .unwrap_or_else(|second_error| {
+          panic!(
+            "{second_error}\n\nthe first attempt, without the clang resource \
+             directory, failed with:\n{first_error}"
+          )
+        })
+    }
+  };
+
+  bindings
+    .write_to_file(out_dir.join("bindings.rs"))
+    .expect("Couldn't write bindings!");
+}
+
+fn try_generate(
+  builder: bindgen::Builder,
+) -> Result<bindgen::Bindings, String> {
+  let bindings = builder
+    .generate()
+    .map_err(|err| format!("unable to generate bindings: {err}"))?;
 
   // bindgen drops declarations it cannot make sense of and still reports
   // success, which surfaces a hundred "cannot find function in this scope"
   // errors in the crates downstream instead of pointing at the real cause —
   // usually clang args that do not suit the target. Catch it here.
-  assert!(
-    bindings.to_string().contains("fn manifold_cube"),
-    "bindgen produced no Manifold functions; check the clang arguments for \
-     this target"
-  );
+  if !bindings.to_string().contains("fn manifold_cube") {
+    return Err(
+      "bindgen produced no Manifold functions; check the clang arguments for \
+       this target"
+        .into(),
+    );
+  }
 
-  bindings
-    .write_to_file(out_dir.join("bindings.rs"))
-    .expect("Couldn't write bindings!");
+  Ok(bindings)
+}
+
+/// The include directory of the resource directory of the `clang` binary,
+/// which holds the compiler-provided headers such as `stddef.h`.
+fn clang_resource_include() -> Option<PathBuf> {
+  println!("cargo:rerun-if-env-changed=CLANG_PATH");
+
+  let clang = env::var("CLANG_PATH").unwrap_or_else(|_| "clang".into());
+  let output = Command::new(clang)
+    .arg("-print-resource-dir")
+    .output()
+    .ok()?;
+  if !output.status.success() {
+    return None;
+  }
+
+  let dir = String::from_utf8(output.stdout).ok()?;
+  let include = PathBuf::from(dir.trim()).join("include");
+  include.is_dir().then_some(include)
 }
 
 /// Locate the sysroot of the active Emscripten toolchain.
