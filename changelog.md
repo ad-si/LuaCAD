@@ -16,6 +16,12 @@ any release.
   a `.png` output — whether by extension or `--format png` — instead of
   reporting it as an unknown format. Images stay the renderer's job.
 
+### Fixed
+
+- Building on Fedora and other distributions whose CMake installs into `lib64`
+  no longer fails to link with "could not find native static library
+  `manifoldc`". Manifold's libraries are now always installed into `lib`.
+
 
 ## 2026-08-14 - 1.0.0
 

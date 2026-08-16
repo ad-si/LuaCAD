@@ -32,6 +32,10 @@ fn main() {
     .define("MANIFOLD_PAR", "OFF")
     .define("MANIFOLD_EXPORT", "OFF")
     .define("MANIFOLD_USE_BUILTIN_CLIPPER2", "ON")
+    // GNUInstallDirs picks a distribution-specific library directory —
+    // `lib64` on Fedora and its relatives — and the static archives would
+    // then land somewhere this script does not look. Pin it.
+    .define("CMAKE_INSTALL_LIBDIR", "lib")
     // Manifold turns its Emscripten JS bindings on by default when it detects
     // an Emscripten toolchain. They live in `bindings/wasm`, which this crate
     // does not vendor, and they are useless here anyway — the wasm build
