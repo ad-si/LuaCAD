@@ -22,8 +22,9 @@ const SSAA: u32 = 2;
 const CAMERA_AZIMUTH: f32 = -30.0;
 const CAMERA_ELEVATION: f32 = 30.0;
 
-/// Background color (light gray, matching light theme).
-const BG_COLOR: [u8; 3] = [242, 242, 242];
+/// Background color, matching the studio's light theme
+/// (`ThemeColors::light().bg` = 0.85, 0.85, 0.88).
+const BG_COLOR: [u8; 3] = [217, 217, 224];
 
 /// Default object color matching the studio (#3177be).
 const DEFAULT_COLOR: [f32; 3] = [0.192, 0.467, 0.745];
@@ -40,6 +41,11 @@ struct Light {
 }
 
 /// Studio lighting: key, fill, bottom.
+///
+/// These directions are in *eye* space: `scene.rs` uploads the light positions
+/// with an identity modelview, so GL stores them in eye coordinates and they
+/// stay fixed relative to the camera as it orbits. `lights_to_world` rotates
+/// them into world space so they can be dotted with world-space normals.
 fn studio_lights() -> [Light; 3] {
   [
     Light {
@@ -58,6 +64,27 @@ fn studio_lights() -> [Light; 3] {
       specular: 0.0,
     },
   ]
+}
+
+/// Rotate eye-space light directions into world space, given the camera's
+/// eye basis (`right`, `up`, and `view_dir` = the eye's +Z axis).
+fn lights_to_world(
+  lights: [Light; 3],
+  right: [f32; 3],
+  up: [f32; 3],
+  view_dir: [f32; 3],
+) -> [Light; 3] {
+  lights.map(|light| {
+    let e = light.direction;
+    Light {
+      direction: normalize([
+        right[0] * e[0] + up[0] * e[1] + view_dir[0] * e[2],
+        right[1] * e[0] + up[1] * e[1] + view_dir[1] * e[2],
+        right[2] * e[0] + up[2] * e[1] + view_dir[2] * e[2],
+      ]),
+      ..light
+    }
+  })
 }
 
 /// A triangle with per-vertex normals for smooth shading.
@@ -199,9 +226,14 @@ pub fn render_to_png(
   let mvp = mat4_mul(&proj, &view);
 
   // View direction for specular (camera looks towards -Z in view space,
-  // but we need it in world space: normalize(cam_pos - gl_center))
+  // but we need it in world space: normalize(cam_pos - gl_center)).
+  // GL's default non-local viewer uses this same vector for the half-vector.
   let view_dir = normalize(sub(cam_pos, gl_center));
-  let lights = studio_lights();
+  // Eye basis in world space, matching `look_at` above.
+  let forward = normalize(sub(gl_center, cam_pos));
+  let right = normalize(cross(forward, [0.0, 1.0, 0.0]));
+  let up = cross(right, forward);
+  let lights = lights_to_world(studio_lights(), right, up, view_dir);
 
   // Render at supersampled resolution for anti-aliased edges
   let ss_w = DEFAULT_WIDTH * SSAA;
@@ -214,11 +246,23 @@ pub fn render_to_png(
       cad_to_gl(tri.verts[1]),
       cad_to_gl(tri.verts[2]),
     ];
-    let gl_normals = [
+    let mut gl_normals = [
       cad_to_gl(tri.normals[0]),
       cad_to_gl(tri.normals[1]),
       cad_to_gl(tri.normals[2]),
     ];
+
+    // GL_LIGHT_MODEL_TWO_SIDE flips the normal of back-facing *polygons*
+    // (decided by their window-space winding) and then still clamps every
+    // light to max(0, N·L). Under an orthographic camera that winding test is
+    // the sign of the geometric normal against the view direction.
+    let geom_normal =
+      cross(sub(gl_verts[1], gl_verts[0]), sub(gl_verts[2], gl_verts[0]));
+    if dot(geom_normal, view_dir) < 0.0 {
+      for n in &mut gl_normals {
+        *n = [-n[0], -n[1], -n[2]];
+      }
+    }
 
     let projected: [[f32; 4]; 3] = [
       transform_point(&mvp, gl_verts[0]),
@@ -261,22 +305,18 @@ fn shade_pixel(
   let mut diffuse_total = AMBIENT;
   let mut specular_total = 0.0_f32;
 
+  // The normal already faces the viewer (flipped per polygon by the caller),
+  // so each light is clamped exactly like the fixed-function pipeline: a
+  // surface turned away from a light receives nothing from it.
   for light in lights {
-    let ndotl = dot(n, light.direction);
-    // Two-sided lighting
-    let ndotl_abs = ndotl.abs();
-    diffuse_total += light.diffuse * ndotl_abs;
+    let ndotl = dot(n, light.direction).max(0.0);
+    diffuse_total += light.diffuse * ndotl;
 
-    if light.specular > 0.0 {
+    // GL gates the specular term on N·L > 0 as well.
+    if light.specular > 0.0 && ndotl > 0.0 {
       // Blinn-Phong: half-vector between light and view
-      // Use the normal direction that faces the light for two-sided
-      let oriented_n = if ndotl >= 0.0 {
-        n
-      } else {
-        [-n[0], -n[1], -n[2]]
-      };
       let h = normalize(add(light.direction, *view_dir));
-      let ndoth = dot(oriented_n, h).max(0.0);
+      let ndoth = dot(n, h).max(0.0);
       specular_total += light.specular * ndoth.powf(SHININESS);
     }
   }
