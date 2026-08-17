@@ -10,6 +10,23 @@ any release.
 
 ## Unreleased
 
+
+## 2026-08-17 - 1.1.0
+
+### Added
+
+- A playground at <https://luacad.ad-si.com/playground>, which builds and
+  views a script in the browser. LuaCAD is compiled to WebAssembly, so
+  nothing is installed and nothing leaves the page.
+- A 2D shape is an output in its own right. `render(circle{r=10})` writes a
+  PNG of the flat area, `info` measures it, Studio and the playground preview
+  it, and returning it as a script's last value does the same. An export to
+  `.scad` writes the 2D calls it is made of. The mesh formats still refuse
+  one, since an outline has no volume to print.
+- The 2D shapes double as outlines, so `join_prism()`, `offset_sweep()`,
+  `offset()` and the region functions take `bosl.circle{r=15}` wherever they
+  took a list of points.
+
 ### Changed
 
 - `luacad convert` and `luacad watch` point at `luacad render` when asked for
@@ -18,6 +35,12 @@ any release.
 
 ### Fixed
 
+- `bosl.deriv2()` and `bosl.deriv3()` were a whole order less accurate at the
+  first and last entries of an open list, which `path_curvature()` and
+  `path_torsion()` inherited. All six cases now agree with BOSL2 exactly.
+- Reading the outline out of a 2D shape dropped every transform on the way,
+  so offsets, rotations and translations were silently ignored and the
+  untransformed points came back.
 - Building on Fedora and other distributions whose CMake installs into `lib64`
   no longer fails to link with "could not find native static library
   `manifoldc`". Manifold's libraries are now always installed into `lib`.

@@ -15,4 +15,4 @@ name = "luacad-wasm"
 path = "src/main.rs"
 
 [dependencies]
-luacad = { version = "1.0.0", path = "../luacad" }
+luacad = { version = "1.1.0", path = "../luacad" }
