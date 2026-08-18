@@ -33,12 +33,92 @@ fn char_class(c: char) -> CharClass {
   }
 }
 
-/// Byte offset of the `char_idx`-th character.
-fn byte_index_of(text: &str, char_idx: usize) -> usize {
+/// Byte offset of the `char_idx`-th character, clamped to the end of `text`.
+///
+/// Caret positions handed out by egui count characters, so they have to go
+/// through here before the text is sliced — a byte offset taken from a
+/// character index would cut multi-byte characters like `ß` or an emoji in
+/// half and panic.
+pub fn byte_index_of(text: &str, char_idx: usize) -> usize {
   text
     .char_indices()
     .nth(char_idx)
     .map_or(text.len(), |(byte_idx, _)| byte_idx)
+}
+
+/// Number of characters before the byte offset `byte_idx`, clamped to `text`.
+/// The inverse of [`byte_index_of`], for turning byte ranges (search matches,
+/// lint diagnostics) back into the character positions egui works in.
+pub fn char_index_of(text: &str, byte_idx: usize) -> usize {
+  let mut idx = byte_idx.min(text.len());
+  while idx > 0 && !text.is_char_boundary(idx) {
+    idx -= 1;
+  }
+  text[..idx].chars().count()
+}
+
+/// Byte length of the case-insensitive match of `query_lower` at the start of
+/// `hay`, or `None` when `hay` does not start with it. Lowercasing is done per
+/// character on both sides, so a character that lowercases to several
+/// characters still lines up with the text it came from.
+fn case_insensitive_match_len(hay: &str, query_lower: &str) -> Option<usize> {
+  let mut expected = query_lower.chars().peekable();
+  let mut consumed = 0;
+  for ch in hay.chars() {
+    if expected.peek().is_none() {
+      break;
+    }
+    for lowered in ch.to_lowercase() {
+      if expected.next() != Some(lowered) {
+        return None;
+      }
+    }
+    consumed += ch.len_utf8();
+  }
+  expected.next().is_none().then_some(consumed)
+}
+
+/// All matches of `query` in `text`, as byte ranges into `text`.
+///
+/// The ranges always fall on character boundaries: a case-insensitive search
+/// compares character by character instead of searching a lowercased copy of
+/// the text, whose byte offsets would not line up with the original whenever
+/// lowercasing changes a character's length (`İ`, `ẞ`, …).
+pub fn find_matches(
+  text: &str,
+  query: &str,
+  case_sensitive: bool,
+) -> Vec<std::ops::Range<usize>> {
+  let mut matches = Vec::new();
+  if query.is_empty() {
+    return matches;
+  }
+
+  if case_sensitive {
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(query) {
+      let abs = start + pos;
+      matches.push(abs..abs + query.len());
+      start = abs + query.len();
+    }
+    return matches;
+  }
+
+  let query_lower = query.to_lowercase();
+  let mut start = 0;
+  while start < text.len() {
+    match case_insensitive_match_len(&text[start..], &query_lower) {
+      Some(len) if len > 0 => {
+        matches.push(start..start + len);
+        start += len;
+      }
+      _ => {
+        // Advance a whole character, so the next slice stays on a boundary
+        start += text[start..].chars().next().map_or(1, |c| c.len_utf8());
+      }
+    }
+  }
+  matches
 }
 
 /// The character range a double click selects around `caret`: the run of
@@ -528,6 +608,84 @@ pub fn apply_editor_action(
       let new_len = new_text.chars().count();
       *text = new_text;
       (new_start.min(new_len), new_end.min(new_len))
+    }
+  }
+}
+
+#[cfg(test)]
+mod text_index_tests {
+  use super::{byte_index_of, char_index_of, find_matches};
+
+  #[test]
+  fn byte_and_char_indices_round_trip_over_multi_byte_text() {
+    let text = "größe = 🙂 -- ß";
+    for (byte_idx, _) in text.char_indices() {
+      let char_idx = char_index_of(text, byte_idx);
+      assert_eq!(byte_index_of(text, char_idx), byte_idx);
+    }
+    // Both ends clamp instead of running past the text
+    assert_eq!(byte_index_of(text, text.chars().count()), text.len());
+    assert_eq!(byte_index_of(text, 999), text.len());
+    assert_eq!(char_index_of(text, 999), text.chars().count());
+  }
+
+  #[test]
+  fn char_index_of_snaps_to_the_enclosing_character() {
+    let text = "ß";
+    assert_eq!(char_index_of(text, 1), 0);
+  }
+
+  #[test]
+  fn finds_every_occurrence() {
+    assert_eq!(find_matches("a b a", "a", true), vec![0..1, 4..5]);
+    assert_eq!(find_matches("aaaa", "aa", true), vec![0..2, 2..4]);
+    assert!(find_matches("abc", "", true).is_empty());
+    assert!(find_matches("abc", "x", false).is_empty());
+  }
+
+  #[test]
+  fn case_insensitive_search_ignores_case() {
+    assert_eq!(
+      find_matches("Width width", "WIDTH", false),
+      vec![0..5, 6..11]
+    );
+    assert!(find_matches("Width width", "WIDTH", true).is_empty());
+  }
+
+  /// Searching a lowercased copy of the text used to hand back byte offsets
+  /// that did not line up with the original, which sliced the text inside a
+  /// character as soon as lowercasing changed a character's length.
+  #[test]
+  fn matches_land_on_character_boundaries_in_multi_byte_text() {
+    let text = "Maß · İstanbul · GRÖSSE · straße";
+    for query in ["ß", "STRAßE", "i̇stanbul", "grösse", "·"] {
+      for m in find_matches(text, query, false) {
+        assert!(
+          text.is_char_boundary(m.start) && text.is_char_boundary(m.end),
+          "{query:?} produced {m:?}, which cuts a character in half"
+        );
+        // The slice has to be usable — this is what the highlighter does
+        let _ = &text[m.clone()];
+      }
+    }
+  }
+
+  #[test]
+  fn case_insensitive_match_covers_the_original_characters() {
+    // `İ` lowercases to two characters, so a match on it spans just that one
+    let text = "İstanbul";
+    let matches = find_matches(text, "İST", false);
+    assert_eq!(matches.len(), 1);
+    assert_eq!(&text[matches[0].clone()], "İst");
+  }
+
+  #[test]
+  fn emoji_do_not_produce_partial_matches() {
+    let text = "🙂 smile 🙂";
+    let matches = find_matches(text, "🙂", false);
+    assert_eq!(matches.len(), 2);
+    for m in matches {
+      assert_eq!(&text[m], "🙂");
     }
   }
 }

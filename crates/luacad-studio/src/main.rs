@@ -13,6 +13,7 @@ use app::{AppState, FileAction, file_mtime};
 use camera::{Camera, Viewport, degrees, vec3};
 use cgmath::InnerSpace;
 use editor::EditorAction;
+use editor::byte_index_of;
 use editor::whole_line_at;
 use egui_integration::EguiIntegration;
 use input::{Event, FrameInputGenerator, Key, MouseButton, PhysicalPoint};
@@ -346,17 +347,12 @@ impl Studio {
                   app.search.focus_search_field = true;
                   // Pre-fill query from selection
                   if app.editor_selection_len > 0 {
-                    let chars: Vec<char> = app.text_content.chars().collect();
-                    let end = app.editor_cursor_pos.min(chars.len());
+                    let end = app.editor_cursor_pos;
                     let start = end.saturating_sub(app.editor_selection_len);
-                    let byte_start: usize =
-                      chars[..start].iter().collect::<String>().len();
-                    let byte_end: usize =
-                      chars[..end].iter().collect::<String>().len();
-                    if byte_end <= app.text_content.len() {
-                      app.search.query =
-                        app.text_content[byte_start..byte_end].to_string();
-                    }
+                    let byte_start = byte_index_of(&app.text_content, start);
+                    let byte_end = byte_index_of(&app.text_content, end);
+                    app.search.query =
+                      app.text_content[byte_start..byte_end].to_string();
                   }
                 }
                 consume_cmd_keys.push(Key::F);
