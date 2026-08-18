@@ -22,7 +22,7 @@ use luacad::export::ExportFormat;
 use luacad::scad_export;
 use scene::{
   SSAA_FACTOR, SceneFbo, build_camera, camera_projection_matrix,
-  camera_view_matrix, compute_camera_vectors, compute_fit_distance,
+  camera_view_matrix, compute_camera_vectors, fit_distance_for_extent,
   gl_clear_screen, gl_set_viewport, render_axes, render_opencsg_scene,
 };
 use theme::ThemeMode;
@@ -179,7 +179,7 @@ impl winit::application::ApplicationHandler for StudioApp {
     // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
     let gl = gl_context::GlWindowContext::new(&winit_window, 8);
     let gui = EguiIntegration::new(gl.gl.clone());
-    let mut app = AppState::new(self.initial_file.take());
+    let app = AppState::new(self.initial_file.take());
 
     // Persist the initial file if it was loaded successfully
     if let Some(ref path) = app.current_file {
@@ -189,14 +189,8 @@ impl winit::application::ApplicationHandler for StudioApp {
     // Initialize OpenCSG's GLAD loader
     opencsg_sys::init_gl();
 
-    // Auto-zoom to fit initial geometry
-    if let Some(dist) =
-      compute_fit_distance(&app.geometries, app.orthogonal_view)
-    {
-      app.camera_distance = dist;
-    }
-    app.needs_fit_to_view = false;
-    app.scene_dirty = false;
+    // The initial Lua execution runs on a background thread; the redraw loop
+    // auto-zooms to fit as soon as its geometry arrives (needs_fit_to_view).
 
     let initial_viewport = {
       let (w, h): (u32, u32) = winit_window.inner_size().into();
@@ -971,15 +965,18 @@ impl Studio {
         }
       }
 
+      // Pick up the result of a background Lua execution, if one finished
+      app.poll_lua_job();
+
       // Handle scene rebuild on Lua re-execution
       if app.scene_dirty {
         if app.needs_fit_to_view
-          && let Some(dist) =
-            compute_fit_distance(&app.geometries, app.orthogonal_view)
+          && let Some(extent) = app.scene_fit_extent
         {
           // Keep the request pending while the scene is empty, so the fit
           // happens as soon as the document produces geometry
-          app.camera_distance = dist;
+          app.camera_distance =
+            fit_distance_for_extent(extent, app.orthogonal_view);
           app.camera_target = [0.0; 3];
           app.needs_fit_to_view = false;
         }

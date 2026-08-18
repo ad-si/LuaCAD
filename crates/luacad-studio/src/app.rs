@@ -1,8 +1,9 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::SystemTime;
 
-use crate::csg_tree::{CsgGroup, OverlayMesh, flatten_geometries};
+use crate::csg_tree::{CsgGroup, CsgScene, OverlayMesh, flatten_geometries};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 
@@ -91,6 +92,17 @@ pub fn file_mtime(path: &Path) -> Option<SystemTime> {
   std::fs::metadata(path).ok()?.modified().ok()
 }
 
+/// What a background Lua execution produces: the geometries, the error to
+/// display (if any), and the scene already flattened for OpenCSG.
+struct LuaJobResult {
+  geometries: Vec<CsgGeometry>,
+  lua_error: Option<String>,
+  scene: CsgScene,
+  /// Scene bounding radius for fit-to-view, precomputed here because it
+  /// requires materializing the meshes — too slow for the render loop
+  fit_extent: Option<f32>,
+}
+
 /// Camera pose the viewport starts with and returns to on document change.
 pub const DEFAULT_CAMERA_AZIMUTH: f32 = -30.0;
 pub const DEFAULT_CAMERA_ELEVATION: f32 = 30.0;
@@ -161,6 +173,13 @@ pub struct AppState {
   /// Bumped whenever `csg_groups` or `overlay_meshes` change, so the renderer
   /// can tell a cached 3D image from a stale one
   pub scene_revision: u64,
+  /// Receiver for the Lua execution currently running on a background thread.
+  /// Starting a new execution replaces the receiver, so a superseded run's
+  /// result can never arrive — its send just fails.
+  lua_job: Option<mpsc::Receiver<LuaJobResult>>,
+  /// Bounding radius of the current scene (precomputed off-thread), consumed
+  /// by fit-to-view. `None` while the scene is empty.
+  pub scene_fit_extent: Option<f32>,
   /// Lint diagnostics for the current editor content
   pub lint_diagnostics: Vec<LintDiagnostic>,
   /// Snapshot of text_content used to detect changes for re-linting
@@ -225,6 +244,8 @@ impl AppState {
       csg_groups: vec![],
       overlay_meshes: vec![],
       scene_revision: 0,
+      lua_job: None,
+      scene_fit_extent: None,
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
       search: SearchState::default(),
@@ -260,6 +281,7 @@ impl AppState {
     self.geometries.clear();
     self.csg_groups.clear();
     self.overlay_meshes.clear();
+    self.scene_fit_extent = None;
     self.scene_revision += 1;
     self.reset_camera();
     self.scene_dirty = true;
@@ -291,10 +313,10 @@ impl AppState {
     }
   }
 
+  /// Start executing the editor content on a background thread, so the UI
+  /// stays responsive while a complex model builds. The previous scene keeps
+  /// showing until [`Self::poll_lua_job`] picks up the result.
   pub fn execute_lua_code(&mut self) {
-    self.lua_error = None;
-    self.geometries.clear();
-
     // Resolve relative paths (e.g. import("tracings/outline.svg"))
     // against the opened file's directory, like OpenSCAD does
     if let Some(dir) = self.current_file.as_ref().and_then(|f| f.parent()) {
@@ -305,29 +327,64 @@ impl AppState {
       }
     }
 
-    match luacad::lua_engine::execute_lua_with_path(
-      &self.text_content,
-      self.current_file.as_deref(),
-    ) {
-      Ok(geometries) => {
-        if geometries.is_empty() {
-          self.lua_error = Some(
-            "No geometry to render. Use render(obj) or return a geometry object."
-              .to_string(),
-          );
-        }
-        self.geometries = geometries;
+    let code = self.text_content.clone();
+    let path = self.current_file.clone();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let (geometries, lua_error) =
+        match luacad::lua_engine::execute_lua_with_path(&code, path.as_deref())
+        {
+          Ok(geometries) => {
+            let error = geometries.is_empty().then(|| {
+              "No geometry to render. Use render(obj) or return a geometry object."
+                .to_string()
+            });
+            (geometries, error)
+          }
+          Err(e) => (vec![], Some(e)),
+        };
+      let scene = flatten_geometries(&geometries);
+      let fit_extent = crate::scene::compute_scene_extent(&geometries);
+      let _ = tx.send(LuaJobResult {
+        geometries,
+        lua_error,
+        scene,
+        fit_extent,
+      });
+    });
+    self.lua_job = Some(rx);
+  }
+
+  /// Whether a Lua execution is currently running in the background.
+  pub fn is_lua_executing(&self) -> bool {
+    self.lua_job.is_some()
+  }
+
+  /// Apply the result of a finished background Lua execution, if one arrived.
+  /// Called once per frame from the render loop.
+  pub fn poll_lua_job(&mut self) {
+    let Some(rx) = &self.lua_job else {
+      return;
+    };
+    match rx.try_recv() {
+      Ok(result) => {
+        self.lua_job = None;
+        self.geometries = result.geometries;
+        self.lua_error = result.lua_error;
+        self.csg_groups = result.scene.groups;
+        self.overlay_meshes = result.scene.overlays;
+        self.scene_fit_extent = result.fit_extent;
+        self.scene_revision += 1;
+        self.scene_dirty = true;
       }
-      Err(e) => {
-        self.lua_error = Some(e);
+      Err(mpsc::TryRecvError::Empty) => {}
+      Err(mpsc::TryRecvError::Disconnected) => {
+        // The worker thread panicked before sending its result
+        self.lua_job = None;
+        self.lua_error =
+          Some("Internal error: model evaluation crashed".to_string());
       }
     }
-
-    let scene = flatten_geometries(&self.geometries);
-    self.csg_groups = scene.groups;
-    self.overlay_meshes = scene.overlays;
-    self.scene_revision += 1;
-    self.scene_dirty = true;
   }
 
   /// Re-run the linter if the editor text has changed since last check.

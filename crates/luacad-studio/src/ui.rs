@@ -1342,6 +1342,23 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
   // to mark mouse events in this area as handled, preventing 3D interaction.
   let scene_rect = root_ui.available_rect_before_wrap();
 
+  // Loading indicator over the render view while the model builds in the
+  // background. The previous scene (or the empty startup view) stays visible
+  // underneath, and the editor remains fully interactive.
+  if app.is_lua_executing() {
+    egui::Area::new(egui::Id::new("scene_loading"))
+      .order(egui::Order::Foreground)
+      .pivot(egui::Align2::CENTER_CENTER)
+      .fixed_pos(scene_rect.center())
+      .show(gui_context, |ui| {
+        ui.vertical_centered(|ui| {
+          ui.add(egui::Spinner::new().size(40.0));
+          ui.add_space(8.0);
+          ui.label(egui::RichText::new("Rendering model…").size(14.0));
+        });
+      });
+  }
+
   PanelLayout { scene_rect }
 }
 

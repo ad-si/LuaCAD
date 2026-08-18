@@ -495,15 +495,11 @@ fn cad_to_gl_transform(m: &[f32; 16]) -> [f32; 16] {
   out
 }
 
-/// Compute the camera distance needed to fit all geometries in view.
-pub fn compute_fit_distance(
-  geometries: &[CsgGeometry],
-  orthogonal: bool,
-) -> Option<f32> {
-  if geometries.is_empty() {
-    return None;
-  }
-
+/// Radius of the smallest origin-centered sphere containing all geometries,
+/// in GL coordinates. Materializes every geometry's mesh, which for complex
+/// CSG trees is expensive — run this on the background execution thread, not
+/// in the render loop.
+pub fn compute_scene_extent(geometries: &[CsgGeometry]) -> Option<f32> {
   let mut max_extent: f32 = 0.0;
   for geom in geometries {
     let scad = match geom.scad.as_ref() {
@@ -526,15 +522,16 @@ pub fn compute_fit_distance(
     }
   }
 
-  if max_extent < 1e-6 {
-    return None;
-  }
+  (max_extent >= 1e-6).then_some(max_extent)
+}
 
+/// Camera distance needed to fit a scene of the given extent in view.
+pub fn fit_distance_for_extent(extent: f32, orthogonal: bool) -> f32 {
   let padding = 1.3;
   if orthogonal {
-    Some(max_extent * padding)
+    extent * padding
   } else {
-    Some(max_extent * padding / 22.5_f32.to_radians().tan())
+    extent * padding / 22.5_f32.to_radians().tan()
   }
 }
 
