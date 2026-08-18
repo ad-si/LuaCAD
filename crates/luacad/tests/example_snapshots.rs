@@ -8,7 +8,9 @@ use luacad::scad_export::generate_scad;
 fn load_example(name: &str) -> String {
   let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
   let workspace_root = manifest.parent().unwrap().parent().unwrap();
-  let path = workspace_root.join("examples").join(name);
+  // Each example lives in its own directory: examples/<stem>/<stem>.lua.
+  let stem = name.trim_end_matches(".lua");
+  let path = workspace_root.join("examples").join(stem).join(name);
   std::fs::read_to_string(&path)
     .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()))
 }

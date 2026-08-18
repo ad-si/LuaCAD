@@ -4089,7 +4089,7 @@ mod cross_section_tests {
 
   #[test]
   fn hull_of_circles_extrudes_to_rounded_box() {
-    // The examples/rounded_rectangle.lua shape: four corner circles,
+    // The examples/rounded_rectangle shape: four corner circles,
     // hulled into a stadium outline, then extruded.
     let (w, h, r) = (20.0f32, 10.0f32, 2.0f32);
     let corner = |x: f32, y: f32| ScadNode::Translate {

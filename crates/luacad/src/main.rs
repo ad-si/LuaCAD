@@ -319,19 +319,29 @@ fn cmd_info(args: &[String]) -> ExitCode {
 fn collect_lua_files(
   paths: &[String],
 ) -> Result<Vec<std::path::PathBuf>, String> {
+  fn walk(
+    dir: &Path,
+    files: &mut Vec<std::path::PathBuf>,
+  ) -> Result<(), String> {
+    for entry in std::fs::read_dir(dir)
+      .map_err(|e| format!("Error reading directory {}: {e}", dir.display()))?
+    {
+      let entry = entry.map_err(|e| format!("Error reading entry: {e}"))?;
+      let p = entry.path();
+      if p.is_dir() {
+        walk(&p, files)?;
+      } else if p.extension().is_some_and(|ext| ext == "lua") {
+        files.push(p);
+      }
+    }
+    Ok(())
+  }
+
   let mut files = Vec::new();
   for path_str in paths {
     let path = Path::new(path_str);
     if path.is_dir() {
-      for entry in std::fs::read_dir(path)
-        .map_err(|e| format!("Error reading directory {path_str}: {e}"))?
-      {
-        let entry = entry.map_err(|e| format!("Error reading entry: {e}"))?;
-        let p = entry.path();
-        if p.extension().is_some_and(|ext| ext == "lua") {
-          files.push(p);
-        }
-      }
+      walk(path, &mut files)?;
     } else {
       files.push(path.to_path_buf());
     }
