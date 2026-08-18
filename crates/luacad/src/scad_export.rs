@@ -108,6 +108,13 @@ pub enum ScadNode {
     a: f32,
     child: Box<ScadNode>,
   },
+  /// Surface material wrapper. Has no OpenSCAD equivalent, so `.scad`
+  /// serialization emits only the child; renderers and exports that
+  /// understand materials read the spec.
+  Material {
+    spec: crate::material::MaterialSpec,
+    child: Box<ScadNode>,
+  },
   Offset {
     delta: Option<f32>,
     r: Option<f32>,
@@ -306,6 +313,7 @@ impl ScadNode {
       | ScadNode::Multmatrix { child, .. }
       | ScadNode::Resize { child, .. }
       | ScadNode::Color { child, .. }
+      | ScadNode::Material { child, .. }
       | ScadNode::Render { child, .. } => child.is_csg_dropped(),
       _ => false,
     }
@@ -623,6 +631,11 @@ impl ScadNode {
         out.push_str("}\n");
       }
 
+      // OpenSCAD has no material concept — emit only the child.
+      ScadNode::Material { child, .. } => {
+        child.write_to(out, depth);
+      }
+
       ScadNode::Offset {
         delta,
         r,
@@ -818,6 +831,7 @@ fn collect_bosl_modules(
     | ScadNode::Multmatrix { child, .. }
     | ScadNode::Resize { child, .. }
     | ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
     | ScadNode::Offset { child, .. }
     | ScadNode::Projection { child, .. }
     | ScadNode::Render { child, .. }

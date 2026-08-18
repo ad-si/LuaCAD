@@ -9,6 +9,7 @@ use luacad::export::{
   materialize_scad_manifold, node_dimension,
 };
 use luacad::geometry::CsgGeometry;
+use luacad::material::MaterialSpec;
 use luacad::scad_export::{BoslPreviewParams, CylAxis, ModifierKind, ScadNode};
 use opencsg_sys::{INTERSECTION, SUBTRACTION};
 use std::f32::consts::PI;
@@ -26,6 +27,8 @@ pub struct CsgLeaf {
   pub convexity: u32,
   /// Per-primitive color (RGB, 0..1).
   pub color: [f32; 3],
+  /// Per-primitive surface material (approximated by fixed-function GL).
+  pub material: MaterialSpec,
 }
 
 /// A group of primitives that form a single OpenCSG render call.
@@ -77,9 +80,11 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
   let mut sink = ModifierSink::default();
   let mut groups = Vec::new();
   for geom in geometries {
-    let color = geom.color.unwrap_or(DEFAULT_COLOR);
+    let material = geom.material.unwrap_or_default();
     if let Some(ref scad) = geom.scad {
-      groups.extend(flatten_node(scad, &IDENTITY, color, &mut sink));
+      groups.extend(flatten_node(
+        scad, &IDENTITY, geom.color, material, &mut sink,
+      ));
     } else {
       #[cfg(feature = "csgrs")]
       if let Some(ref mesh) = geom.mesh {
@@ -93,7 +98,11 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
                 transform: IDENTITY,
                 operation: INTERSECTION,
                 convexity: 1,
-                color,
+                color: geom
+                  .color
+                  .or(material.default_color)
+                  .unwrap_or(DEFAULT_COLOR),
+                material,
               }],
             });
           }
@@ -216,20 +225,42 @@ fn mat4_mirror(nx: f32, ny: f32, nz: f32) -> [f32; 16] {
 // --- Tree flattening ---
 
 /// Context passed down while recursing through the ScadNode tree.
+#[derive(Clone, Copy)]
 struct Ctx {
   transform: [f32; 16],
-  color: [f32; 3],
+  /// Color set by an explicit `Color` node during the walk.
+  color: Option<[f32; 3]>,
+  /// The geometry's struct-level color: the base a boolean result inherits
+  /// from its left operand. Weaker than a material's default color, so
+  /// presets like "gold" keep their look inside an uncolored union.
+  base_color: Option<[f32; 3]>,
+  material: MaterialSpec,
+}
+
+impl Ctx {
+  /// The color a leaf under this context draws with:
+  /// explicit color > material default color > inherited base > default blue.
+  fn resolved_color(&self) -> [f32; 3] {
+    self
+      .color
+      .or(self.material.default_color)
+      .or(self.base_color)
+      .unwrap_or(DEFAULT_COLOR)
+  }
 }
 
 fn flatten_node(
   node: &ScadNode,
   parent_xform: &[f32; 16],
-  color: [f32; 3],
+  base_color: Option<[f32; 3]>,
+  material: MaterialSpec,
   sink: &mut ModifierSink,
 ) -> Vec<CsgGroup> {
   let ctx = Ctx {
     transform: *parent_xform,
-    color,
+    color: None,
+    base_color,
+    material,
   };
   flatten_inner(node, &ctx, INTERSECTION, sink)
 }
@@ -258,7 +289,7 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     | ScadNode::LinearExtrude { .. }
     | ScadNode::RotateExtrude { .. } => false,
 
-    // Transforms and colors are folded into the leaves they wrap.
+    // Transforms, colors, and materials are folded into the leaves they wrap.
     ScadNode::Translate { child, .. }
     | ScadNode::Rotate { child, .. }
     | ScadNode::Scale { child, .. }
@@ -266,6 +297,7 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     | ScadNode::Multmatrix { child, .. }
     | ScadNode::Resize { child, .. }
     | ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
     | ScadNode::Render { child, .. } => fits_in_product(child, op),
 
     ScadNode::Modifier { kind, child } => match kind {
@@ -396,7 +428,7 @@ fn flatten_inner(
       let m = mat4_mul(&ctx.transform, &mat4_translate(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -407,7 +439,7 @@ fn flatten_inner(
       let m = mat4_mul(&m, &mat4_rotate_x(*x));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -415,7 +447,7 @@ fn flatten_inner(
       let m = mat4_mul(&ctx.transform, &mat4_scale(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -423,7 +455,7 @@ fn flatten_inner(
       let m = mat4_mul(&ctx.transform, &mat4_mirror(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -433,7 +465,7 @@ fn flatten_inner(
       let m = mat4_mul(&ctx.transform, &col_major);
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -443,8 +475,15 @@ fn flatten_inner(
     }
     ScadNode::Color { r, g, b, child, .. } => {
       let child_ctx = Ctx {
-        transform: ctx.transform,
-        color: [*r, *g, *b],
+        color: Some([*r, *g, *b]),
+        ..*ctx
+      };
+      flatten_inner(child, &child_ctx, op, sink)
+    }
+    ScadNode::Material { spec, child } => {
+      let child_ctx = Ctx {
+        material: *spec,
+        ..*ctx
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
@@ -571,7 +610,7 @@ fn flatten_inner(
             let m = mat4_mul(&ctx.transform, &mat4_rotate_y(90.0));
             let child_ctx = Ctx {
               transform: m,
-              color: ctx.color,
+              ..*ctx
             };
             make_leaf_group(verts, &child_ctx, op, 1)
           }
@@ -579,7 +618,7 @@ fn flatten_inner(
             let m = mat4_mul(&ctx.transform, &mat4_rotate_x(-90.0));
             let child_ctx = Ctx {
               transform: m,
-              color: ctx.color,
+              ..*ctx
             };
             make_leaf_group(verts, &child_ctx, op, 1)
           }
@@ -716,7 +755,8 @@ fn make_leaf_group(
       transform: ctx.transform,
       operation: op,
       convexity,
-      color: ctx.color,
+      color: ctx.resolved_color(),
+      material: ctx.material,
     }],
   }]
 }
@@ -978,7 +1018,7 @@ fn collect_modifier_effects(
       let m = mat4_mul(&ctx.transform, &mat4_translate(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       collect_modifier_effects(child, &child_ctx, sink);
     }
@@ -988,7 +1028,7 @@ fn collect_modifier_effects(
       let m = mat4_mul(&m, &mat4_rotate_x(*x));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       collect_modifier_effects(child, &child_ctx, sink);
     }
@@ -996,7 +1036,7 @@ fn collect_modifier_effects(
       let m = mat4_mul(&ctx.transform, &mat4_scale(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       collect_modifier_effects(child, &child_ctx, sink);
     }
@@ -1004,7 +1044,7 @@ fn collect_modifier_effects(
       let m = mat4_mul(&ctx.transform, &mat4_mirror(*x, *y, *z));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       collect_modifier_effects(child, &child_ctx, sink);
     }
@@ -1012,12 +1052,13 @@ fn collect_modifier_effects(
       let m = mat4_mul(&ctx.transform, &row_to_col_major(matrix));
       let child_ctx = Ctx {
         transform: m,
-        color: ctx.color,
+        ..*ctx
       };
       collect_modifier_effects(child, &child_ctx, sink);
     }
     ScadNode::Resize { child, .. }
     | ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
     | ScadNode::Render { child, .. } => {
       collect_modifier_effects(child, ctx, sink);
     }
@@ -1553,6 +1594,7 @@ mod tests {
     CsgGeometry {
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
       name: None,
     }

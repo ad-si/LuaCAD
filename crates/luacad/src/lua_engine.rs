@@ -396,6 +396,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -426,6 +427,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -460,6 +462,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -592,6 +595,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -652,6 +656,7 @@ pub fn execute_lua_with_path(
             }
           },
           color: None,
+          material: None,
           scad,
         })
       },
@@ -717,6 +722,7 @@ pub fn execute_lua_with_path(
             }
           },
           color: None,
+          material: None,
           scad,
         })
       } else if args.len() >= 2 {
@@ -754,6 +760,7 @@ pub fn execute_lua_with_path(
             }
           },
           color: None,
+          material: None,
           scad,
         })
       } else {
@@ -808,6 +815,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -878,6 +886,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -922,6 +931,7 @@ pub fn execute_lua_with_path(
             }
           },
           color: None,
+          material: None,
           scad,
         })
       } else if args.len() >= 3 {
@@ -957,6 +967,7 @@ pub fn execute_lua_with_path(
             }
           },
           color: None,
+          material: None,
           scad,
         })
       } else {
@@ -1003,6 +1014,7 @@ pub fn execute_lua_with_path(
             {}
           },
           color: None,
+          material: None,
           scad,
         })
       } else {
@@ -1021,6 +1033,7 @@ pub fn execute_lua_with_path(
             {}
           },
           color: None,
+          material: None,
           scad,
         })
       }
@@ -1065,6 +1078,7 @@ pub fn execute_lua_with_path(
             {}
           },
           color: None,
+          material: None,
           scad,
         })
       } else {
@@ -1085,6 +1099,7 @@ pub fn execute_lua_with_path(
             {}
           },
           color: None,
+          material: None,
           scad,
         })
       }
@@ -1133,6 +1148,7 @@ pub fn execute_lua_with_path(
           {}
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -1157,6 +1173,7 @@ pub fn execute_lua_with_path(
           CsgGeometry {
             mesh: None,
             color: sketch.color,
+            material: sketch.material,
             scad: sketch.scad.clone(),
             name: None,
           }
@@ -1197,6 +1214,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad: Some(ScadNode::Literal { code }),
       })
     })?;
@@ -1227,6 +1245,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad: None,
       })
     })?;
@@ -1386,6 +1405,7 @@ pub fn execute_lua_with_path(
           {}
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -1461,6 +1481,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -1509,6 +1530,7 @@ pub fn execute_lua_with_path(
             {}
           },
           color: None,
+          material: None,
           scad,
         };
         return Ok(LuaValue::UserData(lua.create_userdata(sketch)?));
@@ -1527,6 +1549,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       };
       Ok(LuaValue::UserData(lua.create_userdata(geometry)?))
@@ -1575,6 +1598,7 @@ pub fn execute_lua_with_path(
           }
         },
         color: None,
+        material: None,
         scad,
       })
     })?;
@@ -1743,6 +1767,7 @@ pub fn execute_lua_with_path(
           collector.borrow_mut().push(CsgGeometry {
             mesh: None,
             color: sketch.color,
+            material: sketch.material,
             scad: sketch.scad.clone(),
             name: None,
           });
@@ -2849,6 +2874,72 @@ mod tests {
     let nodes = run_lua_scad("return cube(5, 5, 5):color(1, 0, 0, 0.5)");
     let scad = generate_scad(&nodes);
     assert!(scad.contains("color([1, 0, 0, 0.5])"));
+  }
+
+  // =========================================================================
+  // Material tests
+  // =========================================================================
+
+  #[test]
+  fn material_sets_kind_and_parameters() {
+    use crate::material::MaterialKind;
+    let geometries =
+      execute_lua("render(sphere(5):material(\"glass\", { ior = 1.4 }))")
+        .expect("Lua execution failed");
+    let material = geometries[0].material.expect("material not set");
+    assert_eq!(material.kind, MaterialKind::Glass);
+    assert_eq!(material.ior, 1.4);
+  }
+
+  #[test]
+  fn material_survives_transforms_and_color() {
+    use crate::material::MaterialKind;
+    let geometries = execute_lua(
+      "render(cube(5, 5, 5):material(\"metal\"):translate(1, 2, 3):color(\"red\"))",
+    )
+    .expect("Lua execution failed");
+    let material = geometries[0].material.expect("material not set");
+    assert_eq!(material.kind, MaterialKind::Metal);
+    assert_eq!(geometries[0].color, Some([1.0, 0.0, 0.0]));
+  }
+
+  #[test]
+  fn material_on_a_2d_shape_survives_extrusion() {
+    use crate::material::MaterialKind;
+    let geometries =
+      execute_lua("render(circle(5):material(\"matte\"):linear_extrude(10))")
+        .expect("Lua execution failed");
+    assert_eq!(
+      geometries[0].material.map(|m| m.kind),
+      Some(MaterialKind::Matte)
+    );
+  }
+
+  #[test]
+  fn material_preset_carries_a_default_color() {
+    let geometries = execute_lua("render(sphere(5):material(\"gold\"))")
+      .expect("Lua execution failed");
+    let material = geometries[0].material.expect("material not set");
+    assert!(material.default_color.is_some());
+    // The explicit color stays unset; renderers fall back to the preset's.
+    assert_eq!(geometries[0].color, None);
+  }
+
+  #[test]
+  fn material_with_unknown_name_errors() {
+    let err = execute_lua("render(cube(1, 1, 1):material(\"adamantium\"))")
+      .expect_err("should not have run");
+    assert!(err.contains("unknown material"), "{err}");
+  }
+
+  #[test]
+  fn material_is_omitted_from_scad_output() {
+    let nodes =
+      run_lua_scad("return cube(5, 5, 5):material(\"metal\"):color(\"red\")");
+    let scad = generate_scad(&nodes);
+    assert!(!scad.contains("material"));
+    assert!(scad.contains("color([1, 0, 0])"));
+    assert!(scad.contains("cube([5, 5, 5]);"));
   }
 
   // =========================================================================

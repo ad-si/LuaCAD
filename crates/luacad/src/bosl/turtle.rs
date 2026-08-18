@@ -456,6 +456,7 @@ fn debug_polygon(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
       name: None,
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
     },
   )?))

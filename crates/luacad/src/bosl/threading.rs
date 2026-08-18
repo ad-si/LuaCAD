@@ -30,6 +30,7 @@ fn as_geometry(
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }
@@ -53,6 +54,7 @@ fn as_sketch(
     #[cfg(not(feature = "csgrs"))]
     sketch: (),
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }

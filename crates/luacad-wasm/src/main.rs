@@ -211,7 +211,10 @@ fn encode_mesh(out: &mut Vec<u8>, mesh: &ManifoldMesh, geom: &CsgGeometry) {
   out.extend_from_slice(name.as_bytes());
   out.resize(out.len().next_multiple_of(4), 0);
 
-  match geom.color {
+  // The material itself isn't transmitted yet; its default color keeps
+  // presets like "gold" recognizable in the playground viewer.
+  let color = geom.color.or(geom.material.and_then(|m| m.default_color));
+  match color {
     Some(rgb) => {
       push_u32(out, 1);
       for channel in rgb {

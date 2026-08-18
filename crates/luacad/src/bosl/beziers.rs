@@ -1128,6 +1128,7 @@ fn as_debug_geometry(
       name: None,
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
     },
   )?))

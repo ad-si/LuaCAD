@@ -6,6 +6,7 @@
 
 use crate::export::materialize_scad_display_mesh;
 use crate::geometry::CsgGeometry;
+use crate::material::{MaterialKind, MaterialSpec};
 use crate::scad_export::ScadNode;
 use std::collections::HashMap;
 use std::io::BufWriter;
@@ -29,10 +30,10 @@ pub(crate) const BG_COLOR: [u8; 3] = [217, 217, 224];
 /// Default object color matching the studio (#3177be).
 const DEFAULT_COLOR: [f32; 3] = [0.192, 0.467, 0.745];
 
-/// Lighting parameters matching the studio's scene.rs setup.
+/// Ambient term matching the studio's scene.rs setup. Specular strength and
+/// shininess are per-material now (see [`MaterialSpec::blinn_phong`]); the
+/// defaults reproduce the legacy 0.4 / 25 look.
 const AMBIENT: f32 = 0.35;
-const SPECULAR_STRENGTH: f32 = 0.4;
-const SHININESS: f32 = 25.0;
 
 struct Light {
   direction: [f32; 3], // normalized, towards the light
@@ -93,8 +94,10 @@ pub(crate) struct SmoothTriangle {
   pub(crate) verts: [[f32; 3]; 3],
   /// Per-vertex normals (averaged from adjacent faces).
   pub(crate) normals: [[f32; 3]; 3],
-  /// Object color.
+  /// Object color (already resolved against the material's default color).
   pub(crate) color: [f32; 3],
+  /// Object material (the implicit default when none was set).
+  pub(crate) material: MaterialSpec,
 }
 
 struct Framebuffer {
@@ -283,6 +286,7 @@ pub fn render_to_png(
       &screen,
       &gl_normals,
       tri.color,
+      &tri.material,
       &view_dir,
       &lights,
     );
@@ -297,9 +301,21 @@ pub fn render_to_png(
 fn shade_pixel(
   normal: [f32; 3],
   color: [f32; 3],
+  material: &MaterialSpec,
   view_dir: &[f32; 3],
   lights: &[Light; 3],
 ) -> [u8; 3] {
+  // Emissive surfaces are unlit: they show their own radiance. Overbright
+  // values are normalized by the largest channel rather than clamped per
+  // channel, which would wash saturated colors out to white.
+  if material.kind == MaterialKind::Emissive {
+    let scaled = color.map(|c| c * material.strength);
+    let max = scaled[0].max(scaled[1]).max(scaled[2]);
+    let norm = if max > 1.0 { 1.0 / max } else { 1.0 };
+    return scaled.map(|c| (c * norm * 255.0) as u8);
+  }
+
+  let params = material.blinn_phong();
   let n = normalize(normal);
 
   let mut diffuse_total = AMBIENT;
@@ -317,16 +333,21 @@ fn shade_pixel(
       // Blinn-Phong: half-vector between light and view
       let h = normalize(add(light.direction, *view_dir));
       let ndoth = dot(n, h).max(0.0);
-      specular_total += light.specular * ndoth.powf(SHININESS);
+      specular_total += light.specular * ndoth.powf(params.shininess);
     }
   }
 
-  let spec = specular_total * SPECULAR_STRENGTH;
-  [
-    ((color[0] * diffuse_total + spec).min(1.0) * 255.0) as u8,
-    ((color[1] * diffuse_total + spec).min(1.0) * 255.0) as u8,
-    ((color[2] * diffuse_total + spec).min(1.0) * 255.0) as u8,
-  ]
+  let diffuse = diffuse_total * params.diffuse_scale;
+  let spec = specular_total * params.specular_strength;
+  let channel = |c: f32| {
+    let highlight = if params.tinted_specular {
+      spec * c
+    } else {
+      spec
+    };
+    ((c * diffuse + highlight).min(1.0) * 255.0) as u8
+  };
+  [channel(color[0]), channel(color[1]), channel(color[2])]
 }
 
 /// Angle threshold for smooth normal averaging.
@@ -348,50 +369,90 @@ pub(crate) fn collect_smooth_triangles(
   let mut all_triangles = Vec::new();
 
   for geom in geometries {
-    let base_color = geom.color.unwrap_or(DEFAULT_COLOR);
+    let shade = ShadeCtx {
+      color: None,
+      base_color: geom.color,
+      material: geom.material.unwrap_or_default(),
+    };
     let scad = match geom.scad.as_ref() {
       Some(s) => s,
       None => continue,
     };
 
-    let mut leaves: Vec<([f32; 3], ScadNode)> = Vec::new();
-    collect_colored_leaves(scad, base_color, &[], &mut leaves);
+    let mut leaves: Vec<([f32; 3], MaterialSpec, ScadNode)> = Vec::new();
+    collect_colored_leaves(scad, shade, &[], &mut leaves);
 
-    for (color, leaf) in &leaves {
+    for (color, material, leaf) in &leaves {
       // Dimension-aware: an outline tessellates flat rather than not at all.
       let mesh = materialize_scad_display_mesh(leaf);
       if mesh.triangles.is_empty() {
         continue;
       }
-      materialize_mesh(&mut all_triangles, &mesh, *color, smooth);
+      materialize_mesh(&mut all_triangles, &mesh, *color, *material, smooth);
     }
   }
 
   all_triangles
 }
 
-/// Recursively walk a ScadNode tree, splitting at Union and Color boundaries,
-/// collecting `(color, leaf_node)` pairs where each leaf is a non-splittable
-/// subtree wrapped in any ancestor transforms.
+/// Shading state inherited down the tree during leaf collection.
+#[derive(Clone, Copy)]
+struct ShadeCtx {
+  /// Color set by an explicit `Color` node during the walk.
+  color: Option<[f32; 3]>,
+  /// The geometry's struct-level color: the base a boolean result inherits
+  /// from its left operand. Weaker than a material's default color, so
+  /// presets like "gold" keep their look inside an uncolored union.
+  base_color: Option<[f32; 3]>,
+  material: MaterialSpec,
+}
+
+impl ShadeCtx {
+  /// Explicit color > material default color > inherited base > default blue.
+  fn resolved_color(&self) -> [f32; 3] {
+    self
+      .color
+      .or(self.material.default_color)
+      .or(self.base_color)
+      .unwrap_or(DEFAULT_COLOR)
+  }
+}
+
+/// Recursively walk a ScadNode tree, splitting at Union, Color, and Material
+/// boundaries, collecting `(color, material, leaf_node)` tuples where each
+/// leaf is a non-splittable subtree wrapped in any ancestor transforms.
 ///
 /// Unions are split: each child is visited independently.
-/// Colors update the inherited color.
+/// Colors and materials update the inherited shading state (see [`ShadeCtx`]
+/// for the color precedence).
 /// Transforms accumulate: leaf nodes are wrapped in all ancestor transforms.
 /// Everything else (Difference, Intersection, primitives) is a leaf.
 fn collect_colored_leaves(
   node: &ScadNode,
-  color: [f32; 3],
+  shade: ShadeCtx,
   wrappers: &[WrapFn],
-  out: &mut Vec<([f32; 3], ScadNode)>,
+  out: &mut Vec<([f32; 3], MaterialSpec, ScadNode)>,
 ) {
   match node {
     ScadNode::Color { r, g, b, child, .. } => {
-      collect_colored_leaves(child, [*r, *g, *b], wrappers, out);
+      let shade = ShadeCtx {
+        color: Some([*r, *g, *b]),
+        ..shade
+      };
+      collect_colored_leaves(child, shade, wrappers, out);
+    }
+
+    ScadNode::Material { spec, child } => {
+      let shade = ShadeCtx {
+        material: *spec,
+        ..shade
+      };
+      collect_colored_leaves(child, shade, wrappers, out);
     }
 
     ScadNode::Union(children) => {
       for child in children {
-        collect_colored_leaves(child, color, wrappers, out);
+        collect_colored_leaves(child, shade, wrappers, out);
       }
     }
 
@@ -399,43 +460,43 @@ fn collect_colored_leaves(
     ScadNode::Translate { x, y, z, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Translate(*x, *y, *z));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Rotate { x, y, z, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Rotate(*x, *y, *z));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Scale { x, y, z, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Scale(*x, *y, *z));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Mirror { x, y, z, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Mirror(*x, *y, *z));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Multmatrix { matrix, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Multmatrix(*matrix));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Render { convexity, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Render(*convexity));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
     ScadNode::Modifier { kind, child } => {
       let mut w = wrappers.to_vec();
       w.push(WrapFn::Modifier(kind.clone()));
-      collect_colored_leaves(child, color, &w, out);
+      collect_colored_leaves(child, shade, &w, out);
     }
 
     // Leaf: wrap in accumulated transforms and emit
     _ => {
       let wrapped = apply_wrappers(node.clone(), wrappers);
-      out.push((color, wrapped));
+      out.push((shade.resolved_color(), shade.material, wrapped));
     }
   }
 }
@@ -505,6 +566,7 @@ fn materialize_mesh(
   out: &mut Vec<SmoothTriangle>,
   mesh: &crate::export::ManifoldMesh,
   color: [f32; 3],
+  material: MaterialSpec,
   smooth: bool,
 ) {
   // Precompute face normals (normalized)
@@ -567,6 +629,7 @@ fn materialize_mesh(
       verts,
       normals,
       color,
+      material,
     });
   }
 }
@@ -729,11 +792,13 @@ fn ortho(
 
 // --- Rasterization with per-pixel Phong shading ---
 
+#[allow(clippy::too_many_arguments)]
 fn rasterize_smooth_triangle(
   fb: &mut Framebuffer,
   screen: &[[f32; 3]; 3],
   normals: &[[f32; 3]; 3],
   color: [f32; 3],
+  material: &MaterialSpec,
   view_dir: &[f32; 3],
   lights: &[Light; 3],
 ) {
@@ -777,7 +842,8 @@ fn rasterize_smooth_triangle(
         // Interpolate normal across triangle
         let pixel_normal =
           lerp3(normals[0], normals[1], normals[2], w0, w1, w2);
-        let pixel_color = shade_pixel(pixel_normal, color, view_dir, lights);
+        let pixel_color =
+          shade_pixel(pixel_normal, color, material, view_dir, lights);
         fb.set_pixel(x, y, depth, pixel_color);
       }
     }

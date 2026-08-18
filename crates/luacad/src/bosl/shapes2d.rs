@@ -1399,6 +1399,7 @@ fn sketch_value(
     #[cfg(not(feature = "csgrs"))]
     sketch: (),
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }

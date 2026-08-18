@@ -8,6 +8,7 @@
 //! shadows, ambient occlusion, and indirect bounce light.
 
 use crate::geometry::CsgGeometry;
+use crate::material::MaterialSpec;
 use crate::render::{
   self, BG_COLOR, CAMERA_AZIMUTH, CAMERA_ELEVATION, SmoothTriangle,
 };
@@ -43,12 +44,9 @@ const KEY_SIZE_FACTOR: f32 = 0.15;
 /// ambient, where the studio's ambient is 0.35.
 const KEY_STRENGTH: f32 = 0.6;
 
-/// Specular coat of the object material, approximating the studio's
-/// Blinn-Phong highlight: shininess 25 ≈ GGX roughness √(2/(25+2)) ≈ 0.27.
-const COAT_ROUGHNESS: f32 = 0.27;
-/// Normal-incidence reflectance of the coat (0.04 = typical plastic; a bit
-/// higher to match the studio's fairly strong highlight).
-const COAT_SPECULAR: f32 = 0.06;
+// The implicit object material (a plastic coat approximating the studio's
+// Blinn-Phong highlight) lives in `crate::material`: shininess 25 ≈ GGX
+// roughness √(2/(25+2)) ≈ 0.27, F0 0.06.
 
 /// Render geometries to a PNG file using path tracing.
 ///
@@ -141,25 +139,57 @@ fn build_camera(center: Vec3, max_extent: f32) -> CameraConfig {
   }
 }
 
+/// Absorption density of tinted glass, per world unit: chosen so the tint
+/// saturates over roughly a 10-unit-thick part.
+const GLASS_ABSORPTION: f32 = 0.1;
+
+/// Map a LuaCAD material + resolved color onto a prime-core BSDF.
+fn to_prime_material(spec: &MaterialSpec, color: [f32; 3]) -> Material {
+  use crate::material::MaterialKind;
+  let albedo = srgb_to_linear(color);
+  match spec.kind {
+    MaterialKind::Matte => Material::Lambertian {
+      albedo: albedo.into(),
+      normal: None,
+    },
+    MaterialKind::Plastic => Material::Plastic {
+      albedo: albedo.into(),
+      roughness: spec.roughness,
+      specular: spec.specular,
+      normal: None,
+    },
+    MaterialKind::Metal => Material::Metal {
+      albedo: albedo.into(),
+      roughness: spec.roughness,
+      normal: None,
+    },
+    // The color tints the interior: Beer-Lambert absorbs the complement.
+    MaterialKind::Glass => Material::Dielectric {
+      ior: spec.ior,
+      absorption: (Color::splat(1.0) - albedo) * GLASS_ABSORPTION,
+      roughness: spec.roughness,
+      dispersion: 0.0,
+    },
+    MaterialKind::Emissive => Material::Emissive {
+      emit: albedo * spec.strength,
+    },
+  }
+}
+
 /// Convert the collected triangles into prime-core primitives, deduplicating
-/// one Lambertian material per distinct color.
+/// one BSDF per distinct (color, material) pair.
 fn build_primitives(
   triangles: &[SmoothTriangle],
   smooth: bool,
 ) -> (Vec<Material>, Vec<Primitive>) {
   let mut materials: Vec<Material> = Vec::new();
-  let mut by_color: HashMap<[u32; 3], MaterialId> = HashMap::new();
+  let mut by_key: HashMap<([u32; 3], [u32; 5]), MaterialId> = HashMap::new();
   let mut primitives = Vec::with_capacity(triangles.len());
 
   for tri in triangles {
-    let key = tri.color.map(f32::to_bits);
-    let material = *by_color.entry(key).or_insert_with(|| {
-      materials.push(Material::Plastic {
-        albedo: srgb_to_linear(tri.color).into(),
-        roughness: COAT_ROUGHNESS,
-        specular: COAT_SPECULAR,
-        normal: None,
-      });
+    let key = (tri.color.map(f32::to_bits), tri.material.key());
+    let material = *by_key.entry(key).or_insert_with(|| {
+      materials.push(to_prime_material(&tri.material, tri.color));
       materials.len() - 1
     });
 

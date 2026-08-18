@@ -1591,10 +1591,10 @@ pub fn materialize_scad_manifold(
       })
     }
 
-    // --- Color / render: pass through ---
-    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
-      materialize_scad_manifold(child)
-    }
+    // --- Color / material / render: pass through ---
+    ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
+    | ScadNode::Render { child, .. } => materialize_scad_manifold(child),
 
     // --- Modifiers ---
     // `*` (disable) and `%` (background) are excluded from the CSG result;
@@ -1861,10 +1861,10 @@ pub fn materialize_scad_cross_section(
       CrossSection::from_polygons(&polygons)
     }
 
-    // --- Color / render: pass through ---
-    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
-      materialize_scad_cross_section(child)
-    }
+    // --- Color / material / render: pass through ---
+    ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
+    | ScadNode::Render { child, .. } => materialize_scad_cross_section(child),
 
     // --- Modifiers: `*`/`%` are excluded, `#`/`!` pass through ---
     ScadNode::Modifier { kind, child } => match kind {
@@ -1970,6 +1970,7 @@ pub fn node_dimension(node: &crate::scad_export::ScadNode) -> Dimension {
     | ScadNode::Scale { child, .. }
     | ScadNode::Mirror { child, .. }
     | ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
     | ScadNode::Render { child, .. }
     | ScadNode::Modifier { child, .. }
     | ScadNode::Hull(child) => node_dimension(child),
@@ -2193,6 +2194,7 @@ fn collect_unsupported(
     | ScadNode::Scale { child, .. }
     | ScadNode::Mirror { child, .. }
     | ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
     | ScadNode::Render { child, .. }
     | ScadNode::Hull(child) => collect_unsupported(child, dim, found),
 
@@ -3147,6 +3149,7 @@ mod tests {
       name: None,
       mesh: Some(cube),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3171,6 +3174,7 @@ mod tests {
       name: None,
       mesh: Some(result),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3200,6 +3204,7 @@ mod tests {
       name: None,
       mesh: Some(result),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3221,6 +3226,7 @@ mod tests {
       name: None,
       mesh: Some(result),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3241,6 +3247,7 @@ mod tests {
       name: None,
       mesh: Some(cube),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3259,6 +3266,7 @@ mod tests {
       name: None,
       mesh: Some(cube),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3289,6 +3297,7 @@ mod tests {
       name: None,
       mesh: Some(result),
       color: None,
+      material: None,
       scad: None,
     };
 
@@ -3325,6 +3334,7 @@ mod tests {
           .translate(offset, 0.0, 0.0),
       ),
       color: None,
+      material: None,
       scad: None,
     }
   }
@@ -3370,6 +3380,7 @@ mod tests {
       name: None,
       mesh: Some(CsgMesh::<()>::new()),
       color: None,
+      material: None,
       scad: None,
     };
     let xml = model_xml(&[empty, named_cube(5.0, 0.0, Some("solid"))]);
@@ -3385,6 +3396,7 @@ mod tests {
       name: None,
       mesh: Some(CsgMesh::<()>::new()),
       color: None,
+      material: None,
       scad: None,
     };
     assert!(export_3mf_bytes(&[]).is_err());
@@ -3412,6 +3424,7 @@ mod tests {
       name: None,
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
     }
   }
@@ -3706,6 +3719,7 @@ mod tests {
       name: None,
       mesh: Some(cube),
       color: None,
+      material: None,
       scad: None,
     };
     assert_manifold_3mf_ok(&[geom], "manifold_fallback_mesh");

@@ -3,6 +3,7 @@ pub mod export;
 pub mod geometry;
 pub mod linter;
 pub mod lua_engine;
+pub mod material;
 pub mod mesh_import;
 #[cfg(feature = "raytrace")]
 pub mod raytrace;

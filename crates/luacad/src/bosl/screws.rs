@@ -34,6 +34,7 @@ fn as_geometry(
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }

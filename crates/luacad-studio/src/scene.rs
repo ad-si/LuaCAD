@@ -2,8 +2,9 @@ use crate::camera::*;
 use cgmath::InnerSpace;
 
 use crate::app::AppState;
-use crate::csg_tree::{CsgGroup, OverlayMesh};
+use crate::csg_tree::{CsgGroup, CsgLeaf, OverlayMesh};
 use luacad::geometry::CsgGeometry;
+use luacad::material::MaterialKind;
 use opencsg_sys::OcsgPrimitive;
 use std::ffi::c_void;
 
@@ -350,7 +351,7 @@ fn render_csg_group(
     gl_ShadeModel(GL_SMOOTH);
 
     for (i, leaf) in active_leaves.iter().enumerate() {
-      gl_Color3f(leaf.color[0], leaf.color[1], leaf.color[2]);
+      apply_leaf_material(leaf);
 
       let data = &render_datas[i];
 
@@ -377,6 +378,9 @@ fn render_csg_group(
       gl_PopMatrix();
     }
 
+    // Restore the default material state so the last leaf's specular/
+    // emission doesn't leak into overlay or later passes.
+    reset_leaf_material();
     gl_DepthFunc(GL_LEQUAL);
     gl_Disable(GL_LIGHTING);
   }
@@ -394,6 +398,58 @@ fn render_csg_group(
       let vbos = [data.vbo_vertices, data.vbo_normals];
       gl_DeleteBuffers(2, vbos.as_ptr());
     }
+  }
+}
+
+/// Set the fixed-function color/specular/shininess/emission for one leaf from
+/// its material's Blinn-Phong approximation (the same mapping the software
+/// rasterizer uses, so the preview matches `luacad render`).
+unsafe fn apply_leaf_material(leaf: &CsgLeaf) {
+  let [r, g, b] = leaf.color;
+
+  if leaf.material.kind == MaterialKind::Emissive {
+    // Unlit: all radiance comes from the emission term. Overbright values
+    // are normalized by the largest channel rather than clamped per channel,
+    // which would wash saturated colors out to white.
+    let s = leaf.material.strength;
+    let max = (r.max(g).max(b) * s).max(1.0);
+    let n = s / max;
+    let emission = [r * n, g * n, b * n, 1.0];
+    let no_spec: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+    unsafe {
+      gl_Color3f(0.0, 0.0, 0.0);
+      gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, emission.as_ptr());
+      gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, no_spec.as_ptr());
+    }
+    return;
+  }
+
+  let params = leaf.material.blinn_phong();
+  let d = params.diffuse_scale;
+  let s = params.specular_strength;
+  let spec: [f32; 4] = if params.tinted_specular {
+    [s * r, s * g, s * b, 1.0]
+  } else {
+    [s, s, s, 1.0]
+  };
+  let no_emission: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+  unsafe {
+    gl_Color3f(r * d, g * d, b * d);
+    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, spec.as_ptr());
+    // Fixed-function GL clamps shininess to 128.
+    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, params.shininess.min(128.0));
+    gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, no_emission.as_ptr());
+  }
+}
+
+/// Restore the global material defaults set up in `render_scene`.
+unsafe fn reset_leaf_material() {
+  let mat_spec: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
+  let no_emission: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+  unsafe {
+    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec.as_ptr());
+    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, 25.0);
+    gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, no_emission.as_ptr());
   }
 }
 
@@ -1190,6 +1246,7 @@ const GL_DIFFUSE: u32 = 0x1201;
 const GL_AMBIENT: u32 = 0x1200;
 const GL_SPECULAR: u32 = 0x1202;
 const GL_SHININESS: u32 = 0x1601;
+const GL_EMISSION: u32 = 0x1600;
 const GL_AMBIENT_AND_DIFFUSE: u32 = 0x1602;
 const GL_FRONT_AND_BACK: u32 = 0x0408;
 const GL_LIGHT_MODEL_AMBIENT: u32 = 0x0B53;

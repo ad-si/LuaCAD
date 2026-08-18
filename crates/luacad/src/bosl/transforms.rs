@@ -72,6 +72,7 @@ fn apply_to(
         name: g.name.clone(),
         mesh: None,
         color: g.color,
+        material: g.material,
         scad: Some(node),
       })?))
     }
@@ -85,6 +86,7 @@ fn apply_to(
         #[cfg(not(feature = "csgrs"))]
         sketch: (),
         color: s.color,
+        material: s.material,
         scad: Some(node),
       })?))
     }

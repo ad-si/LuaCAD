@@ -10,6 +10,7 @@ use nalgebra::{Matrix4, Vector3};
 #[cfg(feature = "csgrs")]
 use std::sync::OnceLock;
 
+use crate::material::{MaterialSpec, parse_material_args};
 use crate::scad_export::ScadNode;
 
 /// Create an empty csgrs mesh with no polygons.
@@ -237,6 +238,8 @@ pub struct CsgGeometry {
   #[cfg(not(feature = "csgrs"))]
   pub mesh: Option<()>,
   pub color: Option<[f32; 3]>,
+  /// Surface material. `None` renders with the implicit default (plastic).
+  pub material: Option<MaterialSpec>,
   pub scad: Option<ScadNode>,
   /// Optional object name. Written to export formats that can carry one (3MF),
   /// where it shows up as the object label in slicers such as BambuStudio.
@@ -399,10 +402,10 @@ pub fn materialize_scad(node: &ScadNode) -> CsgMesh<()> {
       mesh.scale(sx, sy, sz)
     }
 
-    // --- Color / render: pass through ---
-    ScadNode::Color { child, .. } | ScadNode::Render { child, .. } => {
-      materialize_scad(child)
-    }
+    // --- Color / material / render: pass through ---
+    ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
+    | ScadNode::Render { child, .. } => materialize_scad(child),
 
     // --- Modifiers: `*`/`%` are excluded, `#`/`!` pass through ---
     ScadNode::Modifier { kind, child } => match kind {
@@ -457,6 +460,7 @@ impl UserData for CsgGeometry {
             }
           },
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -505,6 +509,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -534,6 +539,7 @@ impl UserData for CsgGeometry {
             }
           },
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -576,6 +582,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -601,6 +608,7 @@ impl UserData for CsgGeometry {
           }
         },
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -643,6 +651,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh,
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -672,6 +681,7 @@ impl UserData for CsgGeometry {
           }
         },
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -714,6 +724,7 @@ impl UserData for CsgGeometry {
           }
         },
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -732,6 +743,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad: this.scad.clone(),
         name: Some(name),
       })
@@ -771,6 +783,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: Some(color),
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -811,6 +824,27 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: Some(color),
+        material: this.material,
+        scad,
+        name: this.name.clone(),
+      })
+    });
+
+    // --- Material ---
+
+    // `geom:material("metal")`, `geom:material("glass", {ior = 1.5})`, or
+    // `geom:material({kind = "metal", roughness = 0.4})`. Orthogonal to
+    // `color()`: the color picks the albedo, the material the scattering.
+    methods.add_method("material", |_, this, args: mlua::MultiValue| {
+      let spec = parse_material_args(&args)?;
+      let scad = this.scad.as_ref().map(|s| ScadNode::Material {
+        spec,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgGeometry {
+        mesh: this.mesh_clone(),
+        color: this.color,
+        material: Some(spec),
         scad,
         name: this.name.clone(),
       })
@@ -828,6 +862,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -844,6 +879,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -859,6 +895,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -872,6 +909,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -885,6 +923,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -898,6 +937,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: this.mesh_clone(),
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -926,6 +966,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -953,6 +994,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -980,6 +1022,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -996,6 +1039,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: None,
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -1018,6 +1062,7 @@ impl UserData for CsgGeometry {
       Ok(CsgGeometry {
         mesh: None,
         color: this.color,
+        material: this.material,
         scad,
         name: this.name.clone(),
       })
@@ -1039,6 +1084,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -1059,6 +1105,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -1079,6 +1126,7 @@ impl UserData for CsgGeometry {
         Ok(CsgGeometry {
           mesh: None,
           color: this.color,
+          material: this.material,
           scad,
           name: this.name.clone(),
         })
@@ -1090,15 +1138,20 @@ impl UserData for CsgGeometry {
         .color
         .map(|c| format!(", color: [{:.2},{:.2},{:.2}]", c[0], c[1], c[2]))
         .unwrap_or_default();
+      let material_str = this
+        .material
+        .map(|m| format!(", material: {}", m.kind_name()))
+        .unwrap_or_default();
       #[cfg(feature = "csgrs")]
       let poly_count =
         this.mesh.as_ref().map(|m| m.polygons.len()).unwrap_or(0);
       #[cfg(not(feature = "csgrs"))]
       let poly_count = 0usize;
       Ok(format!(
-        "CsgGeometry(polygons: {}{}, lazy: {})",
+        "CsgGeometry(polygons: {}{}{}, lazy: {})",
         poly_count,
         color_str,
+        material_str,
         this.mesh.is_none()
       ))
     });
@@ -1119,6 +1172,8 @@ pub struct CsgSketch {
   #[cfg(not(feature = "csgrs"))]
   pub sketch: (),
   pub color: Option<[f32; 3]>,
+  /// Surface material. `None` renders with the implicit default (plastic).
+  pub material: Option<MaterialSpec>,
   pub scad: Option<ScadNode>,
 }
 
@@ -1143,6 +1198,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1164,6 +1220,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1185,6 +1242,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1211,6 +1269,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1235,6 +1294,7 @@ impl UserData for CsgSketch {
             {}
           },
           color: this.color,
+          material: this.material,
           scad,
         })
       },
@@ -1260,6 +1320,7 @@ impl UserData for CsgSketch {
             {}
           },
           color: this.color,
+          material: this.material,
           scad,
         })
       },
@@ -1283,6 +1344,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1312,6 +1374,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1365,6 +1428,7 @@ impl UserData for CsgSketch {
       Ok(CsgGeometry {
         mesh,
         color: this.color,
+        material: this.material,
         scad,
         name: None,
       })
@@ -1394,6 +1458,7 @@ impl UserData for CsgSketch {
       Ok(CsgGeometry {
         mesh,
         color: this.color,
+        material: this.material,
         scad,
         name: None,
       })
@@ -1424,6 +1489,7 @@ impl UserData for CsgSketch {
       Ok(CsgGeometry {
         mesh,
         color: this.color,
+        material: this.material,
         scad,
         name: None,
       })
@@ -1460,6 +1526,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: Some(color),
+        material: this.material,
         scad: this.scad.clone(),
       })
     });
@@ -1500,6 +1567,31 @@ impl UserData for CsgSketch {
           {}
         },
         color: Some(color),
+        material: this.material,
+        scad,
+      })
+    });
+
+    // --- Material ---
+
+    // Same forms as on 3D geometry; the material survives extrusion to 3D.
+    methods.add_method("material", |_, this, args: mlua::MultiValue| {
+      let spec = parse_material_args(&args)?;
+      let scad = this.scad.as_ref().map(|s| ScadNode::Material {
+        spec,
+        child: Box::new(s.clone()),
+      });
+      Ok(CsgSketch {
+        sketch: {
+          #[cfg(feature = "csgrs")]
+          {
+            this.sketch.clone()
+          }
+          #[cfg(not(feature = "csgrs"))]
+          {}
+        },
+        color: this.color,
+        material: Some(spec),
         scad,
       })
     });
@@ -1521,6 +1613,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1540,6 +1633,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1559,6 +1653,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1578,6 +1673,7 @@ impl UserData for CsgSketch {
           {}
         },
         color: this.color,
+        material: this.material,
         scad,
       })
     });
@@ -1604,6 +1700,7 @@ impl UserData for CsgSketch {
             {}
           },
           color: this.color,
+          material: this.material,
           scad,
         })
       },
@@ -1629,6 +1726,7 @@ impl UserData for CsgSketch {
             {}
           },
           color: this.color,
+          material: this.material,
           scad,
         })
       },
@@ -1654,6 +1752,7 @@ impl UserData for CsgSketch {
             {}
           },
           color: this.color,
+          material: this.material,
           scad,
         })
       },

@@ -43,6 +43,7 @@ fn place(
           name: g.name.clone(),
           mesh: None,
           color: g.color,
+          material: g.material,
           scad: Some(node),
         })?));
       }
@@ -55,6 +56,7 @@ fn place(
           #[cfg(not(feature = "csgrs"))]
           sketch: (),
           color: s.color,
+          material: s.material,
           scad: Some(node),
         })?));
       }
@@ -846,6 +848,7 @@ fn distribute_along(
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(node),
   })?))
 }

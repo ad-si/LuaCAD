@@ -166,6 +166,20 @@ obj:setcolor(...)</code></pre>
     </section>
 
     <section>
+      <h2>Material</h2>
+      <pre><code class="language-lua">-- Kinds: matte, plastic, metal, glass, emissive
+obj:material("metal")
+
+-- With parameter overrides
+obj:material("glass", { ior = 1.5, roughness = 0.1 })
+obj:material({ kind = "emissive", strength = 4 })
+
+-- Presets with a built-in color:
+-- steel, chrome, gold, copper, brass, rubber
+obj:material("gold")</code></pre>
+    </section>
+
+    <section>
       <h2>Modifier Characters</h2>
       <pre><code class="language-lua">obj:skip()         -- * disable (hide in preview)
 obj:only()         -- ! show only

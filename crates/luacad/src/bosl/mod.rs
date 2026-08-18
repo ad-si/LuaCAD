@@ -660,6 +660,7 @@ fn bosl_geometry_native(
     // demand, rather than starting out as an empty one that never fills.
     mesh: None,
     color: None,
+    material: None,
     scad: Some(bosl_node(module, function, args, preview, native)),
   }
 }
@@ -682,6 +683,7 @@ fn bosl_sketch_native(
     #[cfg(not(feature = "csgrs"))]
     sketch: (),
     color: None,
+    material: None,
     scad: Some(bosl_node(module, function, args, preview, native)),
   }
 }

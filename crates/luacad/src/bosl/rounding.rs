@@ -1355,6 +1355,7 @@ fn join_prism(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
       name: None,
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
     },
   )?))
@@ -1474,6 +1475,7 @@ fn bent_cutout_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
       name: None,
       mesh: None,
       color: None,
+      material: None,
       scad: Some(scad),
     },
   )?))

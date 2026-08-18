@@ -500,6 +500,7 @@ fn vnf_polyhedron(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }
@@ -535,6 +536,7 @@ fn vnf_wireframe(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }

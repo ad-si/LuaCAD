@@ -32,6 +32,7 @@ fn as_geometry(
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }
@@ -58,6 +59,7 @@ fn flip_z(lua: &Lua, value: LuaValue) -> LuaResult<LuaValue> {
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(flipped),
   })?))
 }
@@ -81,6 +83,7 @@ fn as_sketch(
     #[cfg(not(feature = "csgrs"))]
     sketch: (),
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }

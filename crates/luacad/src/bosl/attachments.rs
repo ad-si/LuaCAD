@@ -267,6 +267,7 @@ fn wrap(lua: &Lua, shape: &Shape, node: ScadNode) -> LuaResult<LuaValue> {
       #[cfg(not(feature = "csgrs"))]
       sketch: (),
       color: None,
+      material: None,
       scad: Some(node),
     })?));
   }
@@ -274,6 +275,7 @@ fn wrap(lua: &Lua, shape: &Shape, node: ScadNode) -> LuaResult<LuaValue> {
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(node),
   })?))
 }
@@ -604,6 +606,7 @@ fn solid(lua: &Lua, node: ScadNode) -> LuaResult<LuaValue> {
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(node),
   })?))
 }
@@ -798,6 +801,7 @@ fn as_geometry(
     name: None,
     mesh: None,
     color: None,
+    material: None,
     scad: Some(scad),
   })?))
 }
