@@ -70,8 +70,18 @@ impl Aabb {
 
     /// Slab test. Returns true if the ray intersects the box within
     /// `[t_min, t_max]`. Robust to axis-aligned rays via infinite slopes.
+    ///
+    /// The far intersection of each slab is padded by a few ulps (PBRT's
+    /// conservative variant): each computed `t` carries a rounding error
+    /// proportional to its magnitude, so without the padding a flat box —
+    /// a leaf holding an axis-aligned face — a few thousand units from the
+    /// ray origin is spuriously rejected, and whole bundles of rays miss
+    /// the geometry inside it.
     #[inline]
     pub fn hit(&self, ray: &Ray, mut t_min: Float, mut t_max: Float) -> bool {
+        // 1 + 2·γ₃ with γ₃ = 3ε/(1−3ε): the error bound for the
+        // subtract-and-multiply each slab `t` goes through.
+        const PAD: Float = 1.0 + 6.0 * Float::EPSILON;
         for a in 0..3 {
             let inv_d = 1.0 / ray.dir.axis(a);
             let mut t0 = (self.min.axis(a) - ray.origin.axis(a)) * inv_d;
@@ -79,9 +89,10 @@ impl Aabb {
             if inv_d < 0.0 {
                 std::mem::swap(&mut t0, &mut t1);
             }
+            t1 *= PAD;
             t_min = if t0 > t_min { t0 } else { t_min };
             t_max = if t1 < t_max { t1 } else { t_max };
-            if t_max <= t_min {
+            if t_max < t_min {
                 return false;
             }
         }
@@ -112,6 +123,24 @@ mod tests {
         let b = Aabb::new(Vec3::new(-1.0, -1.0, -1.0), Vec3::new(1.0, 1.0, 1.0));
         let r = Ray::new(Vec3::new(0.0, 0.0, 5.0), Vec3::new(0.0, 0.0, 1.0));
         assert!(!b.hit(&r, 0.001, Float::INFINITY));
+    }
+
+    #[test]
+    fn flat_box_far_from_the_origin_is_still_hit() {
+        // A near-flat box (a leaf holding an axis-aligned face, padded 1e-4)
+        // a few thousand units from the ray origin: the slab `t` values carry
+        // rounding errors larger than the box's paper-thin `t` interval, so
+        // without the conservative padding this box was spuriously rejected.
+        // Coordinates taken from a real miss (a piano key top at ~3600 units).
+        let b = Aabb::new(
+            Vec3::new(357.0, 87.9999, 1190.0),
+            Vec3::new(381.0, 88.0001, 1213.0),
+        );
+        let r = Ray::new(
+            Vec3::new(-1474.1152, 2176.7593, 3472.247),
+            Vec3::new(0.51292807, -0.5811257, -0.63182104),
+        );
+        assert!(b.hit(&r, 0.001, Float::INFINITY));
     }
 
     #[test]
