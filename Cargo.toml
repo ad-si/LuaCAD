@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/luacad", "crates/luacad-studio", "crates/luacad-wasm", "crates/opencsg-sys", "crates/luacad-manifold-sys"]
+members = [
+  "crates/luacad",
+  "crates/luacad-studio",
+  "crates/luacad-wasm",
+  "crates/opencsg-sys",
+  "crates/luacad-manifold-sys",
+  "crates/luacad-prime-core",
+]
 resolver = "3"
 
 [workspace.package]
@@ -7,4 +14,10 @@ version = "1.1.0"
 repository = "https://github.com/ad-si/LuaCAD"
 # Edition 2024 needs 1.85; the dependency tree pushes it to 1.89.
 # `luacad-studio` overrides this — the egui stack needs 1.95.
+# `luacad-prime-core` (and with it `luacad`) overrides it to 1.96.
 rust-version = "1.89"
+
+# An unoptimized path tracer makes `luacad render --raytrace` painfully slow
+# in dev builds; upstream Prime sets opt-level 2 for its whole workspace.
+[profile.dev.package.luacad-prime-core]
+opt-level = 2

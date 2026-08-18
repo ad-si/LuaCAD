@@ -1,0 +1,29 @@
+[package]
+# Vendored copy of `prime-core` from https://github.com/lizhaoliu/Prime
+# (commit e1f33b24ed594d6a663f64f1063369d674313ad3). Upstream is not published
+# on crates.io — the `prime-core` name there belongs to an unrelated crate —
+# so it is republished under this name, mirroring `luacad-manifold-sys`.
+# See README.md for provenance and licensing details.
+name = "luacad-prime-core"
+version.workspace = true
+repository.workspace = true
+edition = "2021"
+# Inherited from upstream; overrides the workspace's 1.89.
+rust-version = "1.96"
+license = "MIT"
+description = "Vendored prime-core path tracer powering LuaCAD's ray-traced rendering"
+
+[dependencies]
+rayon = "1"
+rand = { version = "0.8", features = ["small_rng"] }
+thiserror = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+# LuaCAD does not use the RON scene-description layer, so serde is off by
+# default (upstream enables it).
+default = []
+serde = ["dep:serde"]
+
+[dev-dependencies]
+ron = "0.8"

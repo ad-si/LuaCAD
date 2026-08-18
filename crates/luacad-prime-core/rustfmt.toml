@@ -1,0 +1,4 @@
+# Upstream Prime's formatting (rustfmt defaults), so the vendored sources
+# stay byte-identical to upstream and re-vendoring is a plain copy.
+max_width = 100
+tab_spaces = 4
