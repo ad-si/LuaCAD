@@ -20,8 +20,23 @@ fn table_get_f32(t: &mlua::Table, key: &str) -> Option<f32> {
     .and_then(|v| lua_val_to_f32(&v))
 }
 
-fn table_get_bool(t: &mlua::Table, key: &str) -> bool {
-  t.get::<bool>(key).unwrap_or(false)
+/// Get an optional boolean parameter, defaulting to `false` when absent.
+///
+/// A wrong-typed value (e.g. `center = {0, 0}`) must not silently read as
+/// `false` — that quietly produces the wrong shape.
+fn table_get_bool(
+  t: &mlua::Table,
+  func: &str,
+  key: &str,
+) -> mlua::Result<bool> {
+  match t.get::<mlua::Value>(key)? {
+    LuaValue::Nil => Ok(false),
+    LuaValue::Boolean(b) => Ok(b),
+    v => Err(mlua::Error::RuntimeError(format!(
+      "{func}() parameter '{key}' must be a boolean, got {}",
+      v.type_name()
+    ))),
+  }
 }
 
 fn table_get_u32(t: &mlua::Table, key: &str) -> Option<u32> {
@@ -134,7 +149,7 @@ fn parse_cube_args(
       let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
       let d: f32 = size_t.get::<f32>(2).unwrap_or(1.0);
       let h: f32 = size_t.get::<f32>(3).unwrap_or(1.0);
-      let center = table_get_bool(t, "center");
+      let center = table_get_bool(t, "cube", "center")?;
       return Ok((w, d, h, center));
     }
 
@@ -143,7 +158,7 @@ fn parse_cube_args(
       let w: f32 = inner.get::<f32>(1).unwrap_or(1.0);
       let d: f32 = inner.get::<f32>(2).unwrap_or(1.0);
       let h: f32 = inner.get::<f32>(3).unwrap_or(1.0);
-      let center = table_get_bool(t, "center");
+      let center = table_get_bool(t, "cube", "center")?;
       return Ok((w, d, h, center));
     }
 
@@ -151,7 +166,7 @@ fn parse_cube_args(
     let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
     let d: f32 = t.get::<f32>(2).unwrap_or(1.0);
     let h: f32 = t.get::<f32>(3).unwrap_or(1.0);
-    let center = table_get_bool(t, "center");
+    let center = table_get_bool(t, "cube", "center")?;
     return Ok((w, d, h, center));
   }
 
@@ -259,23 +274,45 @@ fn parse_cylinder_args(
     };
 
     let segments = table_segments(t, DEFAULT_SEGMENTS);
-    let center = table_get_bool(t, "center");
+    let center = table_get_bool(t, "cylinder", "center")?;
     return Ok((r1, r2, h, segments, center));
   }
 
-  // Positional: cylinder(radius, height [, segments])
-  let r = lua_val_to_f32(first).ok_or_else(|| {
-    mlua::Error::RuntimeError(
-      "cylinder() argument must be a number or {h=.., r=..} table".to_string(),
-    )
+  // Positional: cylinder(h [, r [, center]]) — OpenSCAD argument order.
+  let h = lua_val_to_f32(first).ok_or_else(|| {
+    mlua::Error::RuntimeError(format!(
+      "cylinder() first argument (height) must be a number or a \
+       {{h=.., r=..}} table, got {}",
+      first.type_name()
+    ))
   })?;
-  let h = args.get(1).and_then(lua_val_to_f32).unwrap_or(1.0);
-  let segments = args
-    .get(2)
-    .and_then(lua_val_to_f32)
-    .map(|v| v as u32)
-    .unwrap_or(DEFAULT_SEGMENTS);
-  Ok((r, r, h, segments, false))
+  let r = match args.get(1) {
+    None | Some(LuaValue::Nil) => 0.5,
+    Some(v) => lua_val_to_f32(v).ok_or_else(|| {
+      mlua::Error::RuntimeError(format!(
+        "cylinder() second argument (radius) must be a number, got {}",
+        v.type_name()
+      ))
+    })?,
+  };
+  let center = match args.get(2) {
+    None | Some(LuaValue::Nil) => false,
+    Some(LuaValue::Boolean(b)) => *b,
+    Some(v) => {
+      return Err(mlua::Error::RuntimeError(format!(
+        "cylinder() third argument (center) must be a boolean, got {}",
+        v.type_name()
+      )));
+    }
+  };
+  if args.len() > 3 {
+    return Err(mlua::Error::RuntimeError(format!(
+      "cylinder() takes at most 3 positional arguments (h, r, center), \
+       got {}; use cylinder {{ h=.., r=.., segments=.. }} for more",
+      args.len()
+    )));
+  }
+  Ok((r, r, h, DEFAULT_SEGMENTS, center))
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,7 +1047,7 @@ pub fn execute_lua_with_path(
             let h: f32 = t.get::<f32>(2).unwrap_or(w);
             (w, h)
           };
-        let center = table_get_bool(t, "center");
+        let center = table_get_bool(t, "rect", "center")?;
         let scad = Some(ScadNode::Square { w, h, center });
         Ok(CsgSketch {
           sketch: {
@@ -2250,6 +2287,57 @@ mod tests {
   fn cylinder_requires_argument() {
     let result = execute_lua("return cylinder()");
     assert!(result.is_err(), "cylinder() with no args should error");
+  }
+
+  #[test]
+  fn cylinder_positional_openscad_order() {
+    let nodes = run_lua_scad("return cylinder(10, 5)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("h = 10"));
+    assert!(scad.contains("r1 = 5"));
+  }
+
+  #[test]
+  fn cylinder_positional_center() {
+    let nodes = run_lua_scad("return cylinder(10, 5, true)");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn cylinder_positional_matches_table_form() {
+    let positional = generate_scad(&run_lua_scad("return cylinder(10, 5)"));
+    let named =
+      generate_scad(&run_lua_scad("return cylinder { h = 10, d = 10 }"));
+    assert_eq!(positional, named);
+  }
+
+  #[test]
+  fn cylinder_positional_radius_type_error() {
+    let result = execute_lua("return cylinder(10, '5')");
+    assert!(result.is_err(), "non-number radius should error");
+    assert!(result.unwrap_err().contains("radius"));
+  }
+
+  #[test]
+  fn cylinder_positional_center_type_error() {
+    let result = execute_lua("return cylinder(10, 5, {0, 0})");
+    assert!(result.is_err(), "non-boolean center should error");
+    assert!(result.unwrap_err().contains("boolean"));
+  }
+
+  #[test]
+  fn cylinder_positional_too_many_args() {
+    let result = execute_lua("return cylinder(10, 5, true, 64)");
+    assert!(result.is_err(), "more than 3 positional args should error");
+  }
+
+  #[test]
+  fn cylinder_table_center_type_error() {
+    let result =
+      execute_lua("return cylinder { h = 10, r = 5, center = {0, 0} }");
+    assert!(result.is_err(), "non-boolean center should error");
+    assert!(result.unwrap_err().contains("boolean"));
   }
 
   // =========================================================================
