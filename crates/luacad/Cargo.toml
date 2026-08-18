@@ -19,6 +19,7 @@ csgrs = ["dep:csgrs"]
 raytrace = ["dep:prime-core"]
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"], optional = true }
 # Held at 0.33 to match csgrs — a newer nalgebra puts two incompatible copies

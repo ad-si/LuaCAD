@@ -1,6 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::SystemTime;
+
+use clap::{ArgAction, Args, Parser, Subcommand};
 
 const FORMATS: &[&str] = &["stl", "obj", "ply", "off", "amf", "3mf", "scad"];
 
@@ -8,6 +10,24 @@ const FORMATS: &[&str] = &["stl", "obj", "ply", "off", "amf", "3mf", "scad"];
 /// files, so asking them for one of these is a mistake worth naming instead
 /// of reporting as an unknown format.
 const RENDER_FORMATS: &[&str] = &["png"];
+
+// Without the `csgrs` feature Manifold already is the default backend, so
+// the flag only changes anything in a build that has csgrs compiled in.
+#[cfg(feature = "csgrs")]
+const VIA_MANIFOLD_HELP: &str =
+  "Use Manifold instead of csgrs (3mf, stl, obj, ply, off, amf)";
+#[cfg(not(feature = "csgrs"))]
+const VIA_MANIFOLD_HELP: &str =
+  "No-op; Manifold is already the default backend";
+
+fn after_help_text() -> String {
+  format!(
+    "Supported formats: {}\n\
+     Images ({}) are written by `luacad render`, not by convert / watch.",
+    FORMATS.join(", "),
+    RENDER_FORMATS.join(", ")
+  )
+}
 
 /// Point a `convert`/`watch` invocation at `luacad render`.
 fn render_format_error(fmt: &str) -> String {
@@ -18,69 +38,76 @@ fn render_format_error(fmt: &str) -> String {
   )
 }
 
-fn print_help() {
-  let version = env!("CARGO_PKG_VERSION");
-  println!("luacad {version} — Execute LuaCAD code from the command line");
-  println!();
-  println!("Usage:");
-  println!("  luacad run <file.lua>                     Run a LuaCAD file");
-  println!(
-    "  luacad info <file.lua>                    Print geometry metadata"
-  );
-  println!(
-    "  luacad lint <file.lua|dir>...             Lint Lua files with selene"
-  );
-  println!(
-    "  luacad convert <input.lua> <output.stl>   Convert to a mesh or SCAD format"
-  );
-  println!("  luacad render <input.lua> [output.png]    Render to a PNG image");
-  println!(
-    "                [--smooth] [--raytrace]      (--raytrace: path-traced)"
-  );
-  println!(
-    "  luacad watch <input.lua> <output.stl>     Rebuild on file changes"
-  );
-  println!();
-  println!("Options:");
-  println!("  --help, -h       Show this help message");
-  println!("  --version, -v    Show version");
-  println!();
-  println!("Convert / watch options:");
-  println!(
-    "  --format <fmt>   Override output format (default: infer from extension)"
-  );
-  println!(
-    "  --via-openscad   Delegate the export to an installed OpenSCAD binary"
-  );
-  // Without the `csgrs` feature Manifold already is the default backend, so
-  // the flag only changes anything in a build that has csgrs compiled in.
-  if cfg!(feature = "csgrs") {
-    println!(
-      "  --via-manifold   Use Manifold instead of csgrs (3mf, stl, obj, ply, off, amf)"
-    );
-  } else {
-    println!(
-      "  --via-manifold   No-op; Manifold is already the default backend"
-    );
-  }
-  println!();
-  println!("Render options:");
-  println!(
-    "  --smooth         Smooth shading (default: flat, showing tessellation)"
-  );
-  println!(
-    "  --raytrace       Path-traced rendering (soft shadows, ambient occlusion)"
-  );
-  println!();
-  println!("Supported formats: {}", FORMATS.join(", "));
-  println!(
-    "Images ({}) are written by `luacad render`, not by convert / watch.",
-    RENDER_FORMATS.join(", ")
-  );
+#[derive(Parser)]
+#[command(
+  name = "luacad",
+  version,
+  about = "Execute LuaCAD code from the command line",
+  after_help = after_help_text(),
+  disable_version_flag = true,
+  arg_required_else_help = true
+)]
+struct Cli {
+  /// Show version
+  #[arg(short = 'v', long = "version", action = ArgAction::Version)]
+  version: Option<bool>,
+
+  #[command(subcommand)]
+  command: Command,
 }
 
-fn print_version() {
-  println!("luacad {}", env!("CARGO_PKG_VERSION"));
+#[derive(Subcommand)]
+enum Command {
+  /// Run a LuaCAD file
+  Run {
+    #[arg(value_name = "file.lua")]
+    file: PathBuf,
+  },
+  /// Print geometry metadata
+  Info {
+    #[arg(value_name = "file.lua")]
+    file: PathBuf,
+  },
+  /// Lint Lua files with selene
+  Lint {
+    #[arg(value_name = "file.lua|dir", required = true)]
+    paths: Vec<PathBuf>,
+  },
+  /// Convert to a mesh or SCAD format
+  Convert(ConvertArgs),
+  /// Render to a PNG image
+  Render {
+    #[arg(value_name = "input.lua")]
+    input: PathBuf,
+    /// Output image (default: input with a .png extension)
+    #[arg(value_name = "output.png")]
+    output: Option<PathBuf>,
+    /// Smooth shading (default: flat, showing tessellation)
+    #[arg(long)]
+    smooth: bool,
+    /// Path-traced rendering (soft shadows, ambient occlusion)
+    #[arg(long)]
+    raytrace: bool,
+  },
+  /// Rebuild on file changes
+  Watch(ConvertArgs),
+}
+
+/// Shared arguments for the convert and watch subcommands.
+#[derive(Args)]
+struct ConvertArgs {
+  #[arg(value_name = "input.lua")]
+  input: PathBuf,
+  #[arg(value_name = "output.stl")]
+  output: PathBuf,
+  /// Override output format (default: infer from extension)
+  #[arg(long, value_name = "fmt")]
+  format: Option<String>,
+  /// Delegate the export to an installed OpenSCAD binary
+  #[arg(long)]
+  via_openscad: bool,
+  #[arg(long, help = VIA_MANIFOLD_HELP, conflicts_with = "via_openscad")]
+  via_manifold: bool,
 }
 
 fn infer_format(path: &Path) -> Option<&'static str> {
@@ -177,66 +204,47 @@ fn export_via_openscad(
   }
 }
 
-/// Shared options for convert and watch subcommands.
-struct ConvertOpts<'a> {
-  input: &'a str,
-  output: &'a Path,
-  format: &'a str,
-  via_openscad: bool,
-  via_manifold: bool,
-}
-
 /// Run a single convert cycle: execute Lua, then export.
 /// Returns Ok(object_count) on success, Err(message) on failure.
-fn do_convert(opts: &ConvertOpts) -> Result<usize, String> {
-  let code = std::fs::read_to_string(opts.input)
-    .map_err(|e| format!("Error reading {}: {e}", opts.input))?;
+fn do_convert(args: &ConvertArgs, format: &str) -> Result<usize, String> {
+  let code = std::fs::read_to_string(&args.input)
+    .map_err(|e| format!("Error reading {}: {e}", args.input.display()))?;
 
-  let geometries = luacad::lua_engine::execute_lua_with_path(
-    &code,
-    Some(Path::new(opts.input)),
-  )?;
+  let geometries =
+    luacad::lua_engine::execute_lua_with_path(&code, Some(&args.input))?;
   let count = geometries.len();
 
-  if opts.via_manifold {
-    luacad::export::export_manifold(&geometries, opts.format, opts.output)?;
-  } else if opts.via_openscad {
-    export_via_openscad(&geometries, opts.output)?;
+  if args.via_manifold {
+    luacad::export::export_manifold(&geometries, format, &args.output)?;
+  } else if args.via_openscad {
+    export_via_openscad(&geometries, &args.output)?;
   } else {
-    export(&geometries, opts.format, opts.output)?;
+    export(&geometries, format, &args.output)?;
   }
 
   Ok(count)
 }
 
-fn cmd_info(args: &[String]) -> ExitCode {
-  if args.is_empty() {
-    eprintln!("Missing input file. Usage: luacad info <file.lua>");
-    return ExitCode::FAILURE;
-  }
-
-  let input = &args[0];
+fn cmd_info(input: &Path) -> ExitCode {
   let code = match std::fs::read_to_string(input) {
     Ok(c) => c,
     Err(e) => {
-      eprintln!("Error reading {input}: {e}");
+      eprintln!("Error reading {}: {e}", input.display());
       return ExitCode::FAILURE;
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua_with_path(
-    &code,
-    Some(Path::new(input)),
-  ) {
-    Ok(g) => g,
-    Err(e) => {
-      eprintln!("{e}");
-      return ExitCode::FAILURE;
-    }
-  };
+  let geometries =
+    match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
+      Ok(g) => g,
+      Err(e) => {
+        eprintln!("{e}");
+        return ExitCode::FAILURE;
+      }
+    };
 
   if geometries.is_empty() {
-    println!("File:       {input}");
+    println!("File:       {}", input.display());
     println!("Objects:    0");
     return ExitCode::SUCCESS;
   }
@@ -269,7 +277,7 @@ fn cmd_info(args: &[String]) -> ExitCode {
     }
   }
 
-  println!("File:       {input}");
+  println!("File:       {}", input.display());
   println!("Objects:    {}", geometries.len());
   println!("Triangles:  {total_triangles}");
 
@@ -316,13 +324,8 @@ fn cmd_info(args: &[String]) -> ExitCode {
   ExitCode::SUCCESS
 }
 
-fn collect_lua_files(
-  paths: &[String],
-) -> Result<Vec<std::path::PathBuf>, String> {
-  fn walk(
-    dir: &Path,
-    files: &mut Vec<std::path::PathBuf>,
-  ) -> Result<(), String> {
+fn collect_lua_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+  fn walk(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     for entry in std::fs::read_dir(dir)
       .map_err(|e| format!("Error reading directory {}: {e}", dir.display()))?
     {
@@ -338,27 +341,19 @@ fn collect_lua_files(
   }
 
   let mut files = Vec::new();
-  for path_str in paths {
-    let path = Path::new(path_str);
+  for path in paths {
     if path.is_dir() {
       walk(path, &mut files)?;
     } else {
-      files.push(path.to_path_buf());
+      files.push(path.clone());
     }
   }
   files.sort();
   Ok(files)
 }
 
-fn cmd_lint(args: &[String]) -> ExitCode {
-  if args.is_empty() {
-    eprintln!(
-      "Missing file or directory. Usage: luacad lint <file.lua|dir>..."
-    );
-    return ExitCode::FAILURE;
-  }
-
-  let files = match collect_lua_files(args) {
+fn cmd_lint(paths: &[PathBuf]) -> ExitCode {
+  let files = match collect_lua_files(paths) {
     Ok(f) => f,
     Err(e) => {
       eprintln!("{e}");
@@ -435,24 +430,16 @@ fn cmd_lint(args: &[String]) -> ExitCode {
   }
 }
 
-fn cmd_run(args: &[String]) -> ExitCode {
-  if args.is_empty() {
-    eprintln!("Missing input file. Usage: luacad run <file.lua>");
-    return ExitCode::FAILURE;
-  }
-
-  let code = match std::fs::read_to_string(&args[0]) {
+fn cmd_run(input: &Path) -> ExitCode {
+  let code = match std::fs::read_to_string(input) {
     Ok(c) => c,
     Err(e) => {
-      eprintln!("Error reading {}: {e}", args[0]);
+      eprintln!("Error reading {}: {e}", input.display());
       return ExitCode::FAILURE;
     }
   };
 
-  match luacad::lua_engine::execute_lua_with_path(
-    &code,
-    Some(Path::new(&args[0])),
-  ) {
+  match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
     Ok(geometries) => {
       if geometries.is_empty() {
         println!("OK");
@@ -471,67 +458,6 @@ fn cmd_run(args: &[String]) -> ExitCode {
       ExitCode::FAILURE
     }
   }
-}
-
-/// Parse convert/watch args into (input, output_str, format_override, via_openscad, via_manifold).
-fn parse_convert_args(
-  args: &[String],
-) -> Result<(&str, &str, Option<&str>, bool, bool), ExitCode> {
-  let mut input: Option<&str> = None;
-  let mut output: Option<&str> = None;
-  let mut format_override: Option<&str> = None;
-  let mut via_openscad = false;
-  let mut via_manifold = false;
-  let mut i = 0;
-
-  while i < args.len() {
-    match args[i].as_str() {
-      "--format" => {
-        i += 1;
-        if i >= args.len() {
-          eprintln!("--format requires a value");
-          return Err(ExitCode::FAILURE);
-        }
-        format_override = Some(&args[i]);
-      }
-      "--via-openscad" => {
-        via_openscad = true;
-      }
-      "--via-manifold" => {
-        via_manifold = true;
-      }
-      arg if arg.starts_with('-') => {
-        eprintln!("Unknown option: {arg}");
-        return Err(ExitCode::FAILURE);
-      }
-      arg => {
-        if input.is_none() {
-          input = Some(arg);
-        } else if output.is_none() {
-          output = Some(arg);
-        } else {
-          eprintln!("Unexpected argument: {arg}");
-          return Err(ExitCode::FAILURE);
-        }
-      }
-    }
-    i += 1;
-  }
-
-  let Some(input) = input else {
-    eprintln!("Missing input file");
-    return Err(ExitCode::FAILURE);
-  };
-  let Some(output) = output else {
-    eprintln!("Missing output file");
-    return Err(ExitCode::FAILURE);
-  };
-  if via_openscad && via_manifold {
-    eprintln!("--via-openscad and --via-manifold are mutually exclusive");
-    return Err(ExitCode::FAILURE);
-  }
-
-  Ok((input, output, format_override, via_openscad, via_manifold))
 }
 
 /// Resolve the output format from override or file extension.
@@ -571,65 +497,37 @@ where
   }
 }
 
-fn cmd_render(args: &[String]) -> ExitCode {
-  let mut smooth = false;
-  let mut raytrace = false;
-  let mut positional = Vec::new();
-
-  for arg in args {
-    match arg.as_str() {
-      "--smooth" => smooth = true,
-      "--raytrace" => raytrace = true,
-      _ if arg.starts_with('-') => {
-        eprintln!("Unknown option: {arg}");
-        return ExitCode::FAILURE;
-      }
-      _ => positional.push(arg.clone()),
-    }
-  }
-
-  if positional.is_empty() {
-    eprintln!(
-      "Missing input file. \
-       Usage: luacad render <file.lua> [output.png] [--smooth] [--raytrace]"
-    );
-    return ExitCode::FAILURE;
-  }
-
-  let input = &positional[0];
-  let output = if positional.len() > 1 {
-    positional[1].clone()
-  } else {
-    Path::new(input)
-      .with_extension("png")
-      .to_string_lossy()
-      .to_string()
-  };
+fn cmd_render(
+  input: &Path,
+  output: Option<&Path>,
+  smooth: bool,
+  raytrace: bool,
+) -> ExitCode {
+  let output = output
+    .map(Path::to_path_buf)
+    .unwrap_or_else(|| input.with_extension("png"));
 
   let code = match std::fs::read_to_string(input) {
     Ok(c) => c,
     Err(e) => {
-      eprintln!("Error reading {input}: {e}");
+      eprintln!("Error reading {}: {e}", input.display());
       return ExitCode::FAILURE;
     }
   };
 
-  let geometries = match luacad::lua_engine::execute_lua_with_path(
-    &code,
-    Some(Path::new(input)),
-  ) {
-    Ok(g) => g,
-    Err(e) => {
-      eprintln!("{e}");
-      return ExitCode::FAILURE;
-    }
-  };
+  let geometries =
+    match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
+      Ok(g) => g,
+      Err(e) => {
+        eprintln!("{e}");
+        return ExitCode::FAILURE;
+      }
+    };
 
-  let output_path = Path::new(&output);
   let result = if raytrace {
     #[cfg(feature = "raytrace")]
     {
-      luacad::raytrace::render_to_png(&geometries, output_path, smooth)
+      luacad::raytrace::render_to_png(&geometries, &output, smooth)
     }
     #[cfg(not(feature = "raytrace"))]
     {
@@ -638,7 +536,7 @@ fn cmd_render(args: &[String]) -> ExitCode {
       )
     }
   } else {
-    luacad::render::render_to_png(&geometries, output_path, smooth)
+    luacad::render::render_to_png(&geometries, &output, smooth)
   };
   match result {
     Ok(()) => {
@@ -648,7 +546,7 @@ fn cmd_render(args: &[String]) -> ExitCode {
         "objects"
       };
       println!("OK: {} {label}", geometries.len());
-      println!("Rendered to {}", output_path.display());
+      println!("Rendered to {}", output.display());
       ExitCode::SUCCESS
     }
     Err(e) => {
@@ -658,32 +556,21 @@ fn cmd_render(args: &[String]) -> ExitCode {
   }
 }
 
-fn cmd_convert(args: &[String]) -> ExitCode {
-  let (input, output_str, format_override, via_openscad, via_manifold) =
-    match parse_convert_args(args) {
-      Ok(v) => v,
-      Err(code) => return code,
-    };
-
-  let output_path = Path::new(output_str);
-  let format = match resolve_format(format_override, output_path, output_str) {
+fn cmd_convert(args: &ConvertArgs) -> ExitCode {
+  let format = match resolve_format(
+    args.format.as_deref(),
+    &args.output,
+    &args.output.to_string_lossy(),
+  ) {
     Ok(f) => f,
     Err(code) => return code,
   };
 
-  let opts = ConvertOpts {
-    input,
-    output: output_path,
-    format,
-    via_openscad,
-    via_manifold,
-  };
-
-  match do_convert(&opts) {
+  match do_convert(args, format) {
     Ok(count) => {
       let label = if count == 1 { "object" } else { "objects" };
       println!("OK: {count} {label}");
-      println!("Exported to {}", output_path.display());
+      println!("Exported to {}", args.output.display());
       ExitCode::SUCCESS
     }
     Err(e) => {
@@ -693,41 +580,32 @@ fn cmd_convert(args: &[String]) -> ExitCode {
   }
 }
 
-fn cmd_watch(args: &[String]) -> ExitCode {
-  let (input, output_str, format_override, via_openscad, via_manifold) =
-    match parse_convert_args(args) {
-      Ok(v) => v,
-      Err(code) => return code,
-    };
-
-  let output_path = Path::new(output_str);
-  let format = match resolve_format(format_override, output_path, output_str) {
+fn cmd_watch(args: &ConvertArgs) -> ExitCode {
+  let format = match resolve_format(
+    args.format.as_deref(),
+    &args.output,
+    &args.output.to_string_lossy(),
+  ) {
     Ok(f) => f,
     Err(code) => return code,
   };
 
-  let input_path = Path::new(input);
-  if !input_path.exists() {
-    eprintln!("Input file not found: {input}");
+  if !args.input.exists() {
+    eprintln!("Input file not found: {}", args.input.display());
     return ExitCode::FAILURE;
   }
 
-  let opts = ConvertOpts {
-    input,
-    output: output_path,
-    format,
-    via_openscad,
-    via_manifold,
-  };
-
-  println!("Watching {input} for changes (Ctrl+C to stop)");
+  println!(
+    "Watching {} for changes (Ctrl+C to stop)",
+    args.input.display()
+  );
 
   // Initial build
   let mut last_modified = SystemTime::UNIX_EPOCH;
   let mut build_count: u64 = 0;
 
   loop {
-    let modified = std::fs::metadata(input_path)
+    let modified = std::fs::metadata(&args.input)
       .and_then(|m| m.modified())
       .unwrap_or(SystemTime::UNIX_EPOCH);
 
@@ -741,13 +619,13 @@ fn cmd_watch(args: &[String]) -> ExitCode {
       }
 
       let start = std::time::Instant::now();
-      match do_convert(&opts) {
+      match do_convert(args, format) {
         Ok(count) => {
           let elapsed = start.elapsed();
           let label = if count == 1 { "object" } else { "objects" };
           println!(
             "OK: {count} {label}, exported to {} ({:.1}s)",
-            output_path.display(),
+            args.output.display(),
             elapsed.as_secs_f64()
           );
         }
@@ -774,41 +652,35 @@ fn main() -> ExitCode {
 }
 
 fn main_impl() -> ExitCode {
-  let args: Vec<String> = std::env::args().skip(1).collect();
+  let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
 
-  if args.is_empty() {
-    print_help();
-    return ExitCode::FAILURE;
+  // `luacad model.lua` is shorthand for `luacad run model.lua`, but only
+  // when it really names a script — otherwise clap reports it as an unknown
+  // subcommand, which beats "No such file or directory".
+  const COMMANDS: &[&str] =
+    &["run", "info", "lint", "convert", "render", "watch", "help"];
+  if let Some(first) = argv.get(1).and_then(|a| a.to_str())
+    && !first.starts_with('-')
+    && !COMMANDS.contains(&first)
+    && Path::new(first).exists()
+  {
+    argv.insert(1, "run".into());
   }
 
-  match args[0].as_str() {
-    "--help" | "-h" | "help" => {
-      print_help();
-      ExitCode::SUCCESS
-    }
-    "--version" | "-v" => {
-      print_version();
-      ExitCode::SUCCESS
-    }
-    "run" => cmd_run(&args[1..]),
-    "info" => cmd_info(&args[1..]),
-    "lint" => cmd_lint(&args[1..]),
-    "convert" => cmd_convert(&args[1..]),
-    "render" => cmd_render(&args[1..]),
-    "watch" => cmd_watch(&args[1..]),
-    // `luacad model.lua` is shorthand for `luacad run model.lua`, but only
-    // when it really names a script — otherwise it is a mistyped command and
-    // saying so beats "No such file or directory".
-    other if Path::new(other).exists() => cmd_run(&args),
-    other => {
-      eprintln!("Unknown command: {other}");
-      eprintln!();
-      eprintln!(
-        "Commands: run, info, lint, convert, render, watch, help, version"
-      );
-      eprintln!("Run `luacad --help` for usage.");
-      ExitCode::FAILURE
-    }
+  let cli = Cli::parse_from(argv);
+
+  match &cli.command {
+    Command::Run { file } => cmd_run(file),
+    Command::Info { file } => cmd_info(file),
+    Command::Lint { paths } => cmd_lint(paths),
+    Command::Convert(args) => cmd_convert(args),
+    Command::Render {
+      input,
+      output,
+      smooth,
+      raytrace,
+    } => cmd_render(input, output.as_deref(), *smooth, *raytrace),
+    Command::Watch(args) => cmd_watch(args),
   }
 }
 
@@ -839,5 +711,11 @@ mod tests {
     let out = Path::new("model.stl");
     assert_eq!(resolve_format(None, out, "model.stl"), Ok("stl"));
     assert_eq!(resolve_format(Some("3mf"), out, "model.stl"), Ok("3mf"));
+  }
+
+  #[test]
+  fn cli_definition_is_consistent() {
+    use clap::CommandFactory;
+    Cli::command().debug_assert();
   }
 }
