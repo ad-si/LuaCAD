@@ -83,6 +83,8 @@ luacad run model.lua                  # Execute (side-effects only)
 building the mesh with Manifold.
 `render` shades flat by default, so the tessellation stays visible;
 `--smooth` turns that off.
+`--raytrace` renders with a path tracer instead of the rasterizer:
+soft shadows and ambient occlusion, at a few seconds per image.
 
 
 ### Studio

@@ -15,4 +15,6 @@ name = "luacad-wasm"
 path = "src/main.rs"
 
 [dependencies]
-luacad = { version = "1.1.0", path = "../luacad" }
+# default-features = false drops `raytrace`: the path tracer's rand/getrandom
+# dependency does not build on wasm32-unknown-unknown.
+luacad = { version = "1.1.0", path = "../luacad", default-features = false }

@@ -2,7 +2,8 @@
 name = "luacad"
 version.workspace = true
 repository.workspace = true
-rust-version.workspace = true
+# The vendored path tracer (luacad-prime-core) requires 1.96.
+rust-version = "1.96"
 edition = "2024"
 description = "A Lua-based CAD scripting engine built on CSG operations"
 license = "AGPL-3.0-or-later"
@@ -11,8 +12,11 @@ keywords = ["cad", "lua", "csg", "3d", "openscad"]
 categories = ["graphics", "command-line-utilities"]
 
 [features]
-default = []
+# `raytrace` is on by default for the CLI; `luacad-wasm` opts out because
+# prime-core's rand/getrandom dependency does not build on wasm32.
+default = ["raytrace"]
 csgrs = ["dep:csgrs"]
+raytrace = ["dep:prime-core"]
 
 [dependencies]
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
@@ -29,6 +33,9 @@ serde_yaml = "0.9"
 # crates.io belongs to an unrelated crate. Renamed back here so the FFI paths
 # read as `manifold_sys::` throughout.
 manifold-sys = { package = "luacad-manifold-sys", version = "1.1.0", path = "../luacad-manifold-sys" }
+# Vendored path tracer for `luacad render --raytrace`; renamed for the same
+# reason as manifold-sys (upstream's name is taken on crates.io).
+prime-core = { package = "luacad-prime-core", version = "1.1.0", path = "../luacad-prime-core", optional = true }
 png = "0.18"
 usvg = { version = "0.48", default-features = false }
 kurbo = "0.13"

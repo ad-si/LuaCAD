@@ -19,12 +19,12 @@ const DEFAULT_HEIGHT: u32 = 1024;
 const SSAA: u32 = 2;
 
 /// Default camera angles matching the studio's initial view.
-const CAMERA_AZIMUTH: f32 = -30.0;
-const CAMERA_ELEVATION: f32 = 30.0;
+pub(crate) const CAMERA_AZIMUTH: f32 = -30.0;
+pub(crate) const CAMERA_ELEVATION: f32 = 30.0;
 
 /// Background color, matching the studio's light theme
 /// (`ThemeColors::light().bg` = 0.85, 0.85, 0.88).
-const BG_COLOR: [u8; 3] = [217, 217, 224];
+pub(crate) const BG_COLOR: [u8; 3] = [217, 217, 224];
 
 /// Default object color matching the studio (#3177be).
 const DEFAULT_COLOR: [f32; 3] = [0.192, 0.467, 0.745];
@@ -88,13 +88,13 @@ fn lights_to_world(
 }
 
 /// A triangle with per-vertex normals for smooth shading.
-struct SmoothTriangle {
+pub(crate) struct SmoothTriangle {
   /// Vertex positions in CAD space.
-  verts: [[f32; 3]; 3],
+  pub(crate) verts: [[f32; 3]; 3],
   /// Per-vertex normals (averaged from adjacent faces).
-  normals: [[f32; 3]; 3],
+  pub(crate) normals: [[f32; 3]; 3],
   /// Object color.
-  color: [f32; 3],
+  pub(crate) color: [f32; 3],
 }
 
 struct Framebuffer {
@@ -341,7 +341,7 @@ const SMOOTH_ANGLE_COS: f32 = 0.707; // cos(45°)
 /// When `smooth` is true, normals are averaged between adjacent faces whose
 /// angle difference is below the smooth threshold (preserving hard creases).
 /// When `smooth` is false, each vertex gets its face normal (flat shading).
-fn collect_smooth_triangles(
+pub(crate) fn collect_smooth_triangles(
   geometries: &[CsgGeometry],
   smooth: bool,
 ) -> Vec<SmoothTriangle> {
@@ -580,7 +580,9 @@ fn quantize(pos: [f32; 3]) -> [i32; 3] {
   ]
 }
 
-fn bounding_box(triangles: &[SmoothTriangle]) -> ([f32; 3], [f32; 3]) {
+pub(crate) fn bounding_box(
+  triangles: &[SmoothTriangle],
+) -> ([f32; 3], [f32; 3]) {
   let mut min = [f32::MAX; 3];
   let mut max = [f32::MIN; 3];
   for tri in triangles {
@@ -596,7 +598,7 @@ fn bounding_box(triangles: &[SmoothTriangle]) -> ([f32; 3], [f32; 3]) {
 
 // --- Vector math ---
 
-fn cad_to_gl(v: [f32; 3]) -> [f32; 3] {
+pub(crate) fn cad_to_gl(v: [f32; 3]) -> [f32; 3] {
   [v[1], v[2], v[0]]
 }
 

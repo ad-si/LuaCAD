@@ -4,6 +4,8 @@ pub mod geometry;
 pub mod linter;
 pub mod lua_engine;
 pub mod mesh_import;
+#[cfg(feature = "raytrace")]
+pub mod raytrace;
 pub mod render;
 pub mod scad_export;
 pub mod svg_import;

@@ -35,6 +35,9 @@ fn print_help() {
   );
   println!("  luacad render <input.lua> [output.png]    Render to a PNG image");
   println!(
+    "                [--smooth] [--raytrace]      (--raytrace: path-traced)"
+  );
+  println!(
     "  luacad watch <input.lua> <output.stl>     Rebuild on file changes"
   );
   println!();
@@ -64,6 +67,9 @@ fn print_help() {
   println!("Render options:");
   println!(
     "  --smooth         Smooth shading (default: flat, showing tessellation)"
+  );
+  println!(
+    "  --raytrace       Path-traced rendering (soft shadows, ambient occlusion)"
   );
   println!();
   println!("Supported formats: {}", FORMATS.join(", "));
@@ -557,11 +563,13 @@ where
 
 fn cmd_render(args: &[String]) -> ExitCode {
   let mut smooth = false;
+  let mut raytrace = false;
   let mut positional = Vec::new();
 
   for arg in args {
     match arg.as_str() {
       "--smooth" => smooth = true,
+      "--raytrace" => raytrace = true,
       _ if arg.starts_with('-') => {
         eprintln!("Unknown option: {arg}");
         return ExitCode::FAILURE;
@@ -572,7 +580,8 @@ fn cmd_render(args: &[String]) -> ExitCode {
 
   if positional.is_empty() {
     eprintln!(
-      "Missing input file. Usage: luacad render <file.lua> [output.png] [--smooth]"
+      "Missing input file. \
+       Usage: luacad render <file.lua> [output.png] [--smooth] [--raytrace]"
     );
     return ExitCode::FAILURE;
   }
@@ -607,7 +616,21 @@ fn cmd_render(args: &[String]) -> ExitCode {
   };
 
   let output_path = Path::new(&output);
-  match luacad::render::render_to_png(&geometries, output_path, smooth) {
+  let result = if raytrace {
+    #[cfg(feature = "raytrace")]
+    {
+      luacad::raytrace::render_to_png(&geometries, output_path, smooth)
+    }
+    #[cfg(not(feature = "raytrace"))]
+    {
+      Err(
+        "This build of luacad has the `raytrace` feature disabled".to_string(),
+      )
+    }
+  } else {
+    luacad::render::render_to_png(&geometries, output_path, smooth)
+  };
+  match result {
     Ok(()) => {
       let label = if geometries.len() == 1 {
         "object"
