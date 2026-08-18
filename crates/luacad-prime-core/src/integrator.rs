@@ -22,6 +22,7 @@
 use crate::camera::{Camera, CameraConfig};
 use crate::color::{self, Tonemap};
 use crate::framebuffer::Framebuffer;
+use crate::hit::HitRecord;
 use crate::math::Vec3;
 use crate::ray::Ray;
 use crate::sampler::Sampler;
@@ -66,6 +67,32 @@ impl Default for RenderSettings {
 
 /// Shadow-ray/self-intersection epsilon (in world units).
 const T_MIN: Float = 1e-3;
+
+/// Nudge a secondary-ray origin off the surface it starts on, towards the
+/// side `dir` leaves through. `hit.p = origin + dir · t` carries a
+/// floating-point error that grows with the hit distance and the coordinate
+/// magnitudes, so for scenes more than a few hundred units across the point
+/// can land beneath the surface by more than the fixed `T_MIN` — shadow and
+/// bounce rays then re-hit the surface (or a coplanar face buried by a
+/// union) from inside, turning whole regions black. The push distance scales
+/// with those magnitudes instead.
+#[inline]
+fn offset_origin(hit: &HitRecord, dir: Vec3) -> Vec3 {
+    let scale = hit
+        .p
+        .x
+        .abs()
+        .max(hit.p.y.abs())
+        .max(hit.p.z.abs())
+        .max(hit.t);
+    let eps = (scale * 1e-5).max(1e-4);
+    let side = if dir.dot(hit.normal) >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    };
+    hit.p + hit.normal * (eps * side)
+}
 /// Bounce after which Russian roulette path termination kicks in.
 const RR_START_DEPTH: usize = 4;
 
@@ -346,7 +373,12 @@ fn radiance(
                     let f = material.eval(wo, ls.wi, &hit, lambda);
                     // Shadow ray, stopping just short of the light surface.
                     if f.max_component() > 0.0
-                        && !scene.occluded(hit.p, ls.wi, T_MIN, ls.dist * (1.0 - 1e-3))
+                        && !scene.occluded(
+                            offset_origin(&hit, ls.wi),
+                            ls.wi,
+                            T_MIN,
+                            ls.dist * (1.0 - 1e-3),
+                        )
                     {
                         let scattering_pdf = material.pdf(wo, ls.wi, &hit, lambda);
                         let w = power_heuristic(ls.pdf, scattering_pdf);
@@ -363,7 +395,12 @@ fn radiance(
                         let f = material.eval(wo, es.dir, &hit, lambda);
                         // The environment is at infinity: test occlusion all the way.
                         if f.max_component() > 0.0
-                            && !scene.occluded(hit.p, es.dir, T_MIN, Float::INFINITY)
+                            && !scene.occluded(
+                                offset_origin(&hit, es.dir),
+                                es.dir,
+                                T_MIN,
+                                Float::INFINITY,
+                            )
                         {
                             let scattering_pdf = material.pdf(wo, es.dir, &hit, lambda);
                             let w = power_heuristic(es.pdf, scattering_pdf);
@@ -392,7 +429,7 @@ fn radiance(
             specular_bounce = false;
             prev_bsdf_pdf = bs.pdf;
         }
-        ray = Ray::new(hit.p, bs.wi);
+        ray = Ray::new(offset_origin(&hit, bs.wi), bs.wi);
 
         // Russian roulette: unbiasedly terminate dim paths once they have had a
         // chance to gather light.
@@ -491,7 +528,7 @@ fn aov_once(scene: &Scene, mut ray: Ray, max_chain: usize, sampler: &mut Sampler
                 return (tint.min(Color::ONE), hit.normal);
             };
             tint = tint * bs.f;
-            ray = Ray::new(hit.p, bs.wi);
+            ray = Ray::new(offset_origin(&hit, bs.wi), bs.wi);
             continue;
         }
         let a = tint * material.albedo_hint(hit.u, hit.v);
