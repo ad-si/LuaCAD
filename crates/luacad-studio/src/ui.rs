@@ -8,7 +8,8 @@ use crate::app::{
   AppState, EditorClick, EditorPosition, FileAction, SearchState,
 };
 use crate::editor::{
-  apply_editor_action, double_click_range, triple_click_range,
+  apply_editor_action, byte_index_of, char_index_of, double_click_range,
+  find_matches, triple_click_range,
 };
 use crate::theme::ThemeMode;
 
@@ -491,28 +492,11 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           // are refreshed without touching their cursor.
           let query_changed = key.0 != app.search.last_computed.0
             || key.1 != app.search.last_computed.1;
-          app.search.matches.clear();
-          let query = &app.search.query;
-          let text = &app.text_content;
-
-          if app.search.case_sensitive {
-            let mut start = 0;
-            while let Some(pos) = text[start..].find(query.as_str()) {
-              let abs = start + pos;
-              app.search.matches.push(abs..abs + query.len());
-              start = abs + query.len().max(1);
-            }
-          } else {
-            let query_lower = query.to_lowercase();
-            let text_lower = text.to_lowercase();
-            let mut start = 0;
-            while let Some(pos) = text_lower[start..].find(query_lower.as_str())
-            {
-              let abs = start + pos;
-              app.search.matches.push(abs..abs + query_lower.len());
-              start = abs + query_lower.len().max(1);
-            }
-          }
+          app.search.matches = find_matches(
+            &app.text_content,
+            &app.search.query,
+            app.search.case_sensitive,
+          );
 
           // Set current_match to first match at or after cursor
           if app.search.matches.is_empty() {
@@ -520,12 +504,8 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           } else {
             // The current match follows the caret, so the counter and the
             // highlight stay meaningful while the user edits the text.
-            let cursor_byte: usize = app
-              .text_content
-              .chars()
-              .take(app.editor_cursor_pos)
-              .collect::<String>()
-              .len();
+            let cursor_byte =
+              byte_index_of(&app.text_content, app.editor_cursor_pos);
             app.search.current_match = Some(
               app
                 .search
@@ -936,9 +916,12 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           app.editor_cursor_pos = cursor_pos;
           app.editor_selection_len = selection_len;
 
-          // Calculate line and column from character offset
-          let text_before_cursor =
-            &app.text_content[..cursor_pos.min(app.text_content.len())];
+          // Calculate line and column from character offset. The caret
+          // counts characters, so it has to be turned into a byte offset
+          // before the text is sliced — slicing at the character index cuts
+          // multi-byte characters like `ß` in half and panics.
+          let cursor_byte = byte_index_of(&app.text_content, cursor_pos);
+          let text_before_cursor = &app.text_content[..cursor_byte];
           cursor_line = text_before_cursor.lines().count().max(1);
           // If cursor is right after a newline, it's on the next line
           if text_before_cursor.ends_with('\n') {
@@ -947,8 +930,8 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           } else {
             cursor_col = text_before_cursor
               .rsplit_once('\n')
-              .map(|(_, after)| after.len() + 1)
-              .unwrap_or(text_before_cursor.len() + 1);
+              .map(|(_, after)| after.chars().count() + 1)
+              .unwrap_or(cursor_pos + 1);
           }
         }
 
@@ -988,8 +971,8 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           {
             let match_range = &app.search.matches[idx];
             let char_start =
-              app.text_content[..match_range.start].chars().count();
-            let char_end = app.text_content[..match_range.end].chars().count();
+              char_index_of(&app.text_content, match_range.start);
+            let char_end = char_index_of(&app.text_content, match_range.end);
 
             let mut state = te_output.state.clone();
             use egui::text::CCursor;
@@ -1033,7 +1016,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
       ui.label(format!(
         "Lines: {}  Chars: {}",
         app.text_content.lines().count(),
-        app.text_content.len()
+        app.text_content.chars().count()
       ));
 
       let remaining = ui.available_width();
@@ -1659,6 +1642,44 @@ mod tests {
       "match at {needle_at} is not centered: {lines_above} lines above, \
        {lines_below} lines below (probes hit {top} and {bottom})"
     );
+  }
+
+  /// A caret behind a multi-byte character used to crash the studio: the
+  /// caret counts characters, and the status line sliced the text at that
+  /// offset, which cuts characters like `ß` or an emoji in half.
+  #[test]
+  fn multi_byte_characters_do_not_crash_the_status_line() {
+    let mut h = Harness::new("");
+    h.pass(0.016, vec![]);
+    // Focus the editor, then type text with multi-byte characters in it
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+    // Typed one character at a time, as the status line is recomputed after
+    // every keystroke — the crash needs a caret that falls inside a character
+    for ch in "straße 🙂 größe".chars() {
+      h.pass(0.016, vec![egui::Event::Text(ch.to_string())]);
+    }
+    h.pass(0.016, vec![]);
+    assert_eq!(h.app.text_content, "straße 🙂 größe");
+    assert_eq!(
+      h.app.editor_cursor_pos,
+      h.app.text_content.chars().count(),
+      "caret is not behind the typed text"
+    );
+  }
+
+  /// Searching used to scan a lowercased copy of the text, whose byte offsets
+  /// drift apart from the original as soon as lowercasing changes a
+  /// character's length — the highlighter then sliced the text mid-character.
+  #[test]
+  fn find_bar_matches_multi_byte_text_case_insensitively() {
+    let mut h = Harness::new("local Größe = 10\nlocal größe = 20\n");
+    h.app.search.open = true;
+    h.app.search.query = "GRÖßE".to_string();
+    h.pass(0.016, vec![]);
+    h.pass(0.016, vec![]);
+    assert_eq!(h.app.search.matches.len(), 2, "both casings have to match");
+    assert_eq!(h.selected_text(), "Größe");
   }
 
   #[test]

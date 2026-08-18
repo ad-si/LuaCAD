@@ -25,6 +25,18 @@ any release.
   equivalent, so a `.scad` export omits them. An unknown material name is an
   error rather than a silent fallback. See the new `examples/materials/`.
 
+### Fixed
+
+- Studio crashed on scripts containing multi-byte characters like `ß` or an
+  emoji: the status line turned the caret, which counts characters, into a
+  byte offset directly and sliced the text in the middle of a character. The
+  column it shows now counts characters too, as does the character count next
+  to it.
+- A case-insensitive find in Studio searched a lowercased copy of the text,
+  whose byte offsets drift away from the original wherever lowercasing
+  changes a character's length (`İ`, `ẞ`, …), so matches were highlighted at
+  the wrong place, or crashed the editor outright.
+
 
 ## 2026-08-17 - 1.1.0
 
