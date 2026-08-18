@@ -17,6 +17,11 @@ const MAX_LEAF_PRIMS: usize = 4;
 const N_BUCKETS: usize = 12;
 /// Relative cost of testing one primitive vs. traversing one interior node.
 const TRAVERSAL_COST: Float = 0.125;
+/// Relative `t` window within which two hits count as coplanar. Unioned solids
+/// of different materials often share exact planes (a part resting on another);
+/// inside this window the front-facing hit wins instead of arbitrary traversal
+/// order, so buried back-facing faces cannot bleed through.
+const TIE_EPS: Float = 1e-5;
 
 #[derive(Clone, Copy)]
 struct LinearNode {
@@ -210,16 +215,39 @@ impl Bvh {
 
         loop {
             let node = &self.nodes[node_idx];
-            if node.bbox.hit(ray, t_min, closest) {
+            // Prune with the same slack the tie-break uses, so a node holding
+            // a coplanar front-facing triangle is not skipped.
+            if node.bbox.hit(ray, t_min, closest * (1.0 + TIE_EPS)) {
                 if node.n_prims > 0 {
-                    // Leaf: test its primitives.
+                    // Leaf: test its primitives. The search window extends a
+                    // hair past the current best so exactly coplanar triangles
+                    // still reach the tie-break below.
                     let start = node.offset as usize;
                     let prims = &self.prims[start..start + node.n_prims as usize];
                     for (i, p) in prims.iter().enumerate() {
-                        if let Some(mut h) = p.hit(ray, t_min, closest) {
-                            h.prim = (start + i) as u32;
-                            closest = h.t;
-                            result = Some(h);
+                        // Only widen the window past a hit we already have;
+                        // the caller's `t_max` itself stays a hard limit.
+                        let window = if result.is_some() {
+                            closest * (1.0 + TIE_EPS)
+                        } else {
+                            closest
+                        };
+                        if let Some(mut h) = p.hit(ray, t_min, window) {
+                            let better = match &result {
+                                None => true,
+                                // Clearly closer wins; within the coplanar
+                                // window a front-facing hit beats a buried
+                                // back-facing one.
+                                Some(best) => {
+                                    h.t * (1.0 + TIE_EPS) < closest
+                                        || (h.front_face && !best.front_face)
+                                }
+                            };
+                            if better {
+                                h.prim = (start + i) as u32;
+                                closest = closest.min(h.t);
+                                result = Some(h);
+                            }
                         }
                     }
                     if sp == 0 {
@@ -549,6 +577,29 @@ mod tests {
                     "child index out of bounds"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn coplanar_tie_prefers_the_front_facing_triangle() {
+        // Two identical triangles in the z = 0 plane with opposite windings,
+        // as left behind by a union of two touching solids: material 0 faces
+        // the ray (front), material 1 faces away (the buried interior face).
+        // Whichever order they land in the BVH, the front face must win.
+        let a = Vec3::new(-1.0, -1.0, 0.0);
+        let b = Vec3::new(1.0, -1.0, 0.0);
+        let c = Vec3::new(0.0, 1.0, 0.0);
+        // (a, c, b) winds to a -z normal: towards the ray origin below.
+        let front = Primitive::Triangle(crate::geometry::Triangle::new(a, c, b, 0));
+        let back = Primitive::Triangle(crate::geometry::Triangle::new(a, b, c, 1));
+        let ray = Ray::new(Vec3::new(0.0, 0.0, -3.0), Vec3::new(0.0, 0.0, 1.0));
+
+        for prims in [vec![front, back], vec![back, front]] {
+            let h = Bvh::build(prims)
+                .hit(&ray, 0.001, Float::INFINITY)
+                .expect("should hit");
+            assert_eq!(h.material, 0, "the back-facing duplicate won the tie");
+            assert!(h.front_face);
         }
     }
 
