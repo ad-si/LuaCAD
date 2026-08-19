@@ -86,12 +86,15 @@ fn offset_origin(hit: &HitRecord, dir: Vec3) -> Vec3 {
         .max(hit.p.z.abs())
         .max(hit.t);
     let eps = (scale * 1e-5).max(1e-4);
-    let side = if dir.dot(hit.normal) >= 0.0 {
+    // Offset along the *geometric* normal: a smooth shading normal can lean
+    // away from the surface plane, and offsetting along it would leave the
+    // origin beneath the actual triangle.
+    let side = if dir.dot(hit.geo_normal) >= 0.0 {
         1.0
     } else {
         -1.0
     };
-    hit.p + hit.normal * (eps * side)
+    hit.p + hit.geo_normal * (eps * side)
 }
 /// Bounce after which Russian roulette path termination kicks in.
 const RR_START_DEPTH: usize = 4;

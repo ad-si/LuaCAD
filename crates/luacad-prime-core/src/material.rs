@@ -744,6 +744,7 @@ mod tests {
             t: 1.0,
             p: Vec3::ZERO,
             normal: Vec3::new(0.0, 1.0, 0.0),
+            geo_normal: Vec3::new(0.0, 1.0, 0.0),
             tangent: Vec3::new(1.0, 0.0, 0.0),
             front_face,
             u: 0.0,

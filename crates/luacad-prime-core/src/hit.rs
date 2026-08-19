@@ -10,8 +10,14 @@ pub struct HitRecord {
     pub t: Float,
     /// World-space hit position.
     pub p: Vec3,
-    /// Shading normal, always oriented against the incoming ray.
+    /// Shading normal (interpolated/normal-mapped), oriented to the same side
+    /// as `geo_normal`.
     pub normal: Vec3,
+    /// True geometric surface normal, always oriented against the incoming
+    /// ray. Use this for front-face classification and for offsetting
+    /// secondary-ray origins: the shading normal can disagree with the actual
+    /// surface plane, leaving offset points beneath it.
+    pub geo_normal: Vec3,
     /// Surface tangent (ideally aligned with the +U texture direction), used to
     /// build the frame for normal mapping. Defaults to an arbitrary tangent;
     /// primitives override it with a UV-aligned one when they can.
@@ -34,8 +40,10 @@ pub struct HitRecord {
 }
 
 impl HitRecord {
-    /// Orient `outward_normal` (which must be unit length) to face the ray and
-    /// record which side was hit.
+    /// Orient `outward_normal` (which must be unit length, and geometric) to
+    /// face the ray and record which side was hit. The shading normal starts
+    /// out equal to it; primitives with smooth normals override it via
+    /// [`HitRecord::set_shading_normal`].
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub fn with_face_normal(
@@ -58,6 +66,7 @@ impl HitRecord {
             t,
             p,
             normal,
+            geo_normal: normal,
             tangent: fallback_tangent(normal),
             front_face,
             u,
@@ -66,6 +75,28 @@ impl HitRecord {
             material,
             prim: u32::MAX,
         }
+    }
+
+    /// Install an interpolated shading normal, flipped if needed so it lies in
+    /// the same hemisphere as the (already ray-oriented) geometric normal.
+    ///
+    /// Near silhouettes an interpolated normal can tilt past 90° to the view
+    /// direction; BSDFs would evaluate to black there (dark slivers along
+    /// round edges). Bend it just back into the visible hemisphere instead.
+    #[inline]
+    pub fn set_shading_normal(&mut self, ray: &Ray, shading: Vec3) {
+        let mut n = if shading.dot(self.geo_normal) < 0.0 {
+            -shading
+        } else {
+            shading
+        };
+        const MIN_COS: Float = 1e-4;
+        let wo = (-ray.dir).normalize();
+        let cos = n.dot(wo);
+        if cos < MIN_COS {
+            n = (n + wo * (MIN_COS - cos)).normalize();
+        }
+        self.normal = n;
     }
 }
 

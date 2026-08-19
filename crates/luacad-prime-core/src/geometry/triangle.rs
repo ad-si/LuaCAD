@@ -114,10 +114,6 @@ impl Triangle {
         }
 
         let w = 1.0 - u - v;
-        let outward = match self.normals {
-            Some([n0, n1, n2]) => (n0 * w + n1 * u + n2 * v).normalize_or(self.geometric_normal()),
-            None => self.geometric_normal(),
-        };
 
         // Texture coordinates: interpolate per-vertex UVs if present, else fall
         // back to the barycentric coordinates.
@@ -130,8 +126,22 @@ impl Triangle {
         };
 
         let p = ray.at(t);
-        let mut hit =
-            HitRecord::with_face_normal(ray, t, p, outward, tu, tv, self.area, self.material);
+        // Facing is decided by the geometric normal; an interpolated smooth
+        // normal is shading-only (near silhouettes it can tilt past 90° to
+        // the ray, which must not flip the hit to a back face).
+        let mut hit = HitRecord::with_face_normal(
+            ray,
+            t,
+            p,
+            self.geometric_normal(),
+            tu,
+            tv,
+            self.area,
+            self.material,
+        );
+        if let Some([n0, n1, n2]) = self.normals {
+            hit.set_shading_normal(ray, (n0 * w + n1 * u + n2 * v).normalize_or(hit.geo_normal));
+        }
         if let Some(tangent) = self.tangent {
             hit.tangent = tangent;
         }
