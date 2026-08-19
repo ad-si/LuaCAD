@@ -17,8 +17,8 @@ any release.
   (the implicit default look), `metal`, `glass`, and `emissive`, with
   parameter overrides per kind: `material("glass", {ior = 1.5, roughness =
   0.1})`, `material({kind = "emissive", strength = 4})`. The presets `steel`,
-  `chrome`, `gold`, `copper`, `brass`, and `rubber` also carry a default
-  color, used only when no `color()` is set. `luacad render --raytrace` maps
+  `chrome`, `gold`, `copper`, `brass`, `rubber`, `wood`, and `ivory` also
+  carry a default color, used only when no `color()` is set. `luacad render --raytrace` maps
   each kind onto a real BSDF (metals reflect, glass refracts, emissive shapes
   light the scene); the rasterizer and the Studio preview approximate them
   with per-object highlight parameters. Materials have no OpenSCAD

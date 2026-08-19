@@ -69,8 +69,8 @@ impl MaterialSpec {
   ///
   /// The base kinds (`matte`, `plastic`, `metal`, `glass`, `emissive`) carry
   /// no color; the convenience presets (`steel`, `chrome`, `gold`, `copper`,
-  /// `brass`, `rubber`) also set a default color used when the object has no
-  /// explicit `color()`.
+  /// `brass`, `rubber`, `wood`, `ivory`) also set a default color used when
+  /// the object has no explicit `color()`.
   pub fn named(name: &str) -> Option<MaterialSpec> {
     let base = MaterialSpec::default();
     let kind = |kind| MaterialSpec { kind, ..base };
@@ -126,6 +126,20 @@ impl MaterialSpec {
         roughness: 0.7,
         specular: 0.03,
         default_color: c(38, 38, 38),
+        ..base
+      }),
+      "wood" => Some(MaterialSpec {
+        kind: MaterialKind::Plastic,
+        roughness: 0.5,
+        specular: 0.04,
+        default_color: c(166, 124, 82),
+        ..base
+      }),
+      "ivory" => Some(MaterialSpec {
+        kind: MaterialKind::Plastic,
+        roughness: 0.2,
+        specular: 0.08,
+        default_color: c(242, 236, 218),
         ..base
       }),
       _ => None,
@@ -260,7 +274,8 @@ pub fn parse_material_args(
     MaterialSpec::named(name).ok_or_else(|| {
       mlua::Error::RuntimeError(format!(
         "unknown material \"{name}\" (expected matte, plastic, metal, glass, \
-         emissive, steel, chrome, gold, copper, brass, or rubber)"
+         emissive, steel, chrome, gold, copper, brass, rubber, wood, or \
+         ivory)"
       ))
     })
   };
