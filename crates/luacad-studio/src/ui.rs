@@ -147,6 +147,17 @@ fn render_settings_general(ui: &mut egui::Ui, app: &mut AppState) {
       modifier_label()
     ));
   ui.add_space(8.0);
+  ui.label(egui::RichText::new("File").strong().size(14.0));
+  ui.add_space(4.0);
+  ui.checkbox(
+    &mut app.auto_reload,
+    "Reload the file when it changes on disk",
+  )
+  .on_hover_text(
+    "Watch the opened file and re-render automatically when another \
+     program saves it. Skipped while the editor has unsaved changes.",
+  );
+  ui.add_space(8.0);
   ui.label(egui::RichText::new("Editor Position").strong().size(14.0));
   ui.add_space(4.0);
   for &pos in EditorPosition::ALL {

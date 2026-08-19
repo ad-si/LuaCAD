@@ -158,6 +158,9 @@ pub struct AppState {
   pub editor_position: EditorPosition,
   /// Whether the code editor panel is shown at all
   pub editor_visible: bool,
+  /// Watch the opened file and reload it automatically when another program
+  /// changes it on disk (skipped while the editor has unsaved changes)
+  pub auto_reload: bool,
   /// Editor cursor character offset (updated each frame by UI)
   pub editor_cursor_pos: usize,
   /// Editor selection length in characters (updated each frame by UI)
@@ -239,6 +242,7 @@ impl AppState {
       settings_tab: 0,
       editor_position: EditorPosition::Right,
       editor_visible: true,
+      auto_reload: true,
       editor_cursor_pos: 0,
       editor_selection_len: 0,
       editor_focused: false,

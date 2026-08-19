@@ -92,6 +92,22 @@ fn load_hide_editor() -> bool {
     .unwrap_or(false)
 }
 
+/// Persist whether the opened file is watched and reloaded automatically
+/// when it changes on disk.
+fn save_auto_reload(enabled: bool) {
+  update_state(|state| {
+    state.insert("auto_reload".to_string(), serde_json::json!(enabled));
+  });
+}
+
+/// Whether auto-reload was enabled when the app last ran (default: on).
+fn load_auto_reload() -> bool {
+  load_state()
+    .get("auto_reload")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(true)
+}
+
 /// Normalize source code for saving: strip trailing whitespace from each
 /// line and end a non-empty file with exactly one newline (POSIX).
 fn normalize_source(text: &str) -> String {
@@ -123,6 +139,26 @@ fn save_to_path(app: &mut AppState, path: &Path) -> bool {
     Err(e) => {
       app.export_status = Some((format!("Failed to save: {e}"), true));
       false
+    }
+  }
+}
+
+/// Re-read the current file from disk into the editor and re-run it,
+/// discarding the editor content. No-op without a current file.
+fn reload_current_file(app: &mut AppState) {
+  let Some(path) = app.current_file.clone() else {
+    return;
+  };
+  match std::fs::read_to_string(&path) {
+    Ok(contents) => {
+      app.text_content = contents;
+      app.mark_saved();
+      app.disk_mtime = file_mtime(&path);
+      app.execute_lua_code();
+      app.export_status = Some((format!("Reloaded {}", path.display()), false));
+    }
+    Err(e) => {
+      app.export_status = Some((format!("Failed to reload: {e}"), true))
     }
   }
 }
@@ -207,6 +243,9 @@ struct Studio {
   frame_input_generator: FrameInputGenerator,
   clipboard: Option<arboard::Clipboard>,
   last_theme_check: f64,
+  /// When the opened file's mtime was last compared against `disk_mtime`
+  /// (auto-reload watch), in egui accumulated time (ms)
+  last_watch_check: f64,
   dragging_scene: bool,
   panning_scene: bool,
   window: winit::window::Window,
@@ -238,6 +277,7 @@ impl winit::application::ApplicationHandler for StudioApp {
     let gui = EguiIntegration::new(gl.gl.clone());
     let mut app = AppState::new(self.initial_file.take());
     app.editor_visible = !load_hide_editor();
+    app.auto_reload = load_auto_reload();
 
     // Persist the initial file if it was loaded successfully
     if let Some(ref path) = app.current_file {
@@ -272,6 +312,7 @@ impl winit::application::ApplicationHandler for StudioApp {
       frame_input_generator,
       clipboard: arboard::Clipboard::new().ok(),
       last_theme_check: 0.0,
+      last_watch_check: 0.0,
       dragging_scene: false,
       panning_scene: false,
       window: winit_window,
@@ -313,12 +354,14 @@ impl Studio {
       frame_input_generator,
       clipboard,
       last_theme_check,
+      last_watch_check,
       dragging_scene,
       panning_scene,
       window: winit_window,
     } = self;
     {
       let editor_was_visible = app.editor_visible;
+      let auto_reload_was_enabled = app.auto_reload;
 
       // Update window title to reflect the current file
       let window_title = match &app.current_file {
@@ -681,6 +724,34 @@ impl Studio {
         save_hide_editor(!app.editor_visible);
       }
 
+      // Persist the auto-reload setting when it was toggled this frame
+      if app.auto_reload != auto_reload_was_enabled {
+        save_auto_reload(app.auto_reload);
+      }
+
+      // Watch the opened file and pick up external changes (issue #14),
+      // polling the mtime like `luacad watch` does. 100 ms keeps the
+      // save-to-render delay below the point where it reads as lag, at a
+      // negligible 10 stat calls per second. Skipped while the editor
+      // has unsaved changes — those win, and the conflict surfaces through
+      // the existing "File Changed on Disk" dialog on the next save.
+      if app.auto_reload
+        && frame_input.accumulated_time - *last_watch_check > 100.0
+      {
+        *last_watch_check = frame_input.accumulated_time;
+        if let Some(path) = app.current_file.as_deref() {
+          let mtime = file_mtime(path);
+          // `None` usually means the file is mid-replace (editors save by
+          // rename); a later poll sees the new mtime.
+          if mtime.is_some()
+            && mtime != app.disk_mtime
+            && !app.has_unsaved_changes()
+          {
+            reload_current_file(app);
+          }
+        }
+      }
+
       // Handle csgrs export requests
       #[cfg(feature = "csgrs")]
       if let Some(fmt) = app.pending_export.take() {
@@ -866,24 +937,7 @@ impl Studio {
               save_last_file(Some(&path));
             }
           }
-          FileAction::Reload => {
-            if let Some(path) = app.current_file.clone() {
-              match std::fs::read_to_string(&path) {
-                Ok(contents) => {
-                  app.text_content = contents;
-                  app.mark_saved();
-                  app.disk_mtime = file_mtime(&path);
-                  app.execute_lua_code();
-                  app.export_status =
-                    Some((format!("Reloaded {}", path.display()), false));
-                }
-                Err(e) => {
-                  app.export_status =
-                    Some((format!("Failed to reload: {e}"), true))
-                }
-              }
-            }
-          }
+          FileAction::Reload => reload_current_file(app),
         }
       }
 

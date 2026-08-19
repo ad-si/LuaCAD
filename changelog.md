@@ -12,6 +12,14 @@ any release.
 
 ### Added
 
+- Studio: the opened file is watched and reloaded automatically when another
+  program changes it on disk
+  ([#14](https://github.com/ad-si/LuaCAD/issues/14)), matching `luacad watch`
+  and OpenSCAD's automatic reload. Auto-reload is skipped while the editor has
+  unsaved changes (the existing "File Changed on Disk" dialog resolves the
+  conflict on the next save). It can be turned off in Settings → General; the
+  choice is remembered across restarts (`auto_reload` in the state file).
+
 - Studio: the code editor panel can be hidden to use an external editor and
   keep the whole window for the model
   ([#12](https://github.com/ad-si/LuaCAD/issues/12)). Toggle it with the
