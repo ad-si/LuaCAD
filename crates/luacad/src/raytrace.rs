@@ -64,6 +64,42 @@ pub fn render_to_png(
   samples: Option<usize>,
   camera: Option<(f32, f32)>,
 ) -> Result<(), String> {
+  let bytes =
+    render_to_rgb8(geometries, WIDTH, HEIGHT, samples, camera, None, || {})?;
+  write_png(&bytes, WIDTH, HEIGHT, output)
+}
+
+/// Explicit viewport framing for [`render_to_rgb8`], replacing the default
+/// fit-to-extent framing so the render matches an interactive view's zoom
+/// and pan.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Framing {
+  /// Orbit target in CAD coordinates
+  pub target: [f32; 3],
+  /// Camera distance from the target, in world units
+  pub distance: f32,
+  /// Vertical field of view in degrees
+  pub vfov: f32,
+}
+
+/// Render geometries to interleaved RGB8 bytes using path tracing, at an
+/// arbitrary resolution. With `framing: None`, the camera distance fits the
+/// model extent on the given (azimuth, elevation) orbit; a [`Framing`]
+/// reproduces a specific zoom and pan instead. See [`render_to_png`] for
+/// the shared semantics of `samples` and `camera`.
+///
+/// `on_row_done` is invoked once per completed scanline (from worker
+/// threads), so a caller can report progress out of `height` rows; pass
+/// `|| {}` to ignore it.
+pub fn render_to_rgb8<F: Fn() + Sync + Send>(
+  geometries: &[CsgGeometry],
+  width: usize,
+  height: usize,
+  samples: Option<usize>,
+  camera: Option<(f32, f32)>,
+  framing: Option<Framing>,
+  on_row_done: F,
+) -> Result<Vec<u8>, String> {
   let blockers = crate::export::geometries_unsupported_for_display(geometries);
   if !blockers.is_empty() {
     return Err(crate::export::describe_unsupported(&blockers));
@@ -87,11 +123,14 @@ pub fn render_to_png(
   let (materials, mut primitives) = build_primitives(&triangles);
   let (azimuth, elevation) =
     camera.unwrap_or((CAMERA_AZIMUTH, CAMERA_ELEVATION));
-  let camera = build_camera(center, &triangles, azimuth, elevation);
+  let camera = match framing {
+    Some(f) => framed_camera(&f, azimuth, elevation),
+    None => build_camera(center, &triangles, azimuth, elevation, width, height),
+  };
 
   // Key light in the studio's key direction (eye space (1, 1, 0.5)): rotate
   // it into world space with the camera basis, mirroring `lights_to_world`.
-  let forward = (center - camera.look_from).normalize();
+  let forward = (camera.look_at - camera.look_from).normalize();
   let right = forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
   let up = right.cross(forward);
   let key_dir = (right * 1.0 + up * 1.0 - forward * 0.5).normalize();
@@ -103,8 +142,8 @@ pub fn render_to_png(
   let scene = Scene::new(materials, primitives, camera, background);
 
   let settings = RenderSettings {
-    width: WIDTH,
-    height: HEIGHT,
+    width,
+    height,
     samples_per_pixel: samples.unwrap_or(DEFAULT_SAMPLES_PER_PIXEL),
     max_depth: MAX_DEPTH,
     seed: 0,
@@ -118,8 +157,31 @@ pub fn render_to_png(
     gamma: GAMMA,
   };
 
-  let bytes = render_to_srgb(&scene, &settings, || {});
-  write_png(&bytes, output)
+  Ok(render_to_srgb(&scene, &settings, on_row_done))
+}
+
+/// Perspective camera on the given orbit angles (in degrees) at an explicit
+/// [`Framing`], reproducing an interactive viewport's zoom and pan.
+fn framed_camera(
+  framing: &Framing,
+  azimuth: f32,
+  elevation: f32,
+) -> CameraConfig {
+  let az = azimuth.to_radians();
+  let el = elevation.to_radians();
+
+  // Unit direction from the look-at target toward the camera
+  let dir = Vec3::new(el.cos() * az.sin(), el.sin(), el.cos() * az.cos());
+  let target = v3(render::cad_to_gl(framing.target));
+
+  CameraConfig {
+    look_from: target + dir * framing.distance,
+    look_at: target,
+    vup: Vec3::new(0.0, 1.0, 0.0),
+    vfov: framing.vfov,
+    aperture: 0.0,
+    focus_dist: None,
+  }
 }
 
 /// Perspective camera on the given orbit angles (in degrees), at the
@@ -131,6 +193,8 @@ fn build_camera(
   triangles: &[SmoothTriangle],
   azimuth: f32,
   elevation: f32,
+  width: usize,
+  height: usize,
 ) -> CameraConfig {
   let az = azimuth.to_radians();
   let el = elevation.to_radians();
@@ -146,7 +210,7 @@ fn build_camera(
   // `p·dir + |p·axis| / tan(fov/2)` away along `dir` to land inside that
   // FOV axis; take the max over all vertices and both axes.
   let tan_v = (VFOV_DEG.to_radians() * 0.5).tan();
-  let tan_h = tan_v * (WIDTH as f32 / HEIGHT as f32);
+  let tan_h = tan_v * (width as f32 / height as f32);
   let mut distance = 0.0_f32;
   for tri in triangles {
     for &v in &tri.verts {
@@ -317,12 +381,17 @@ fn srgb_bytes_to_linear(c: [u8; 3]) -> Color {
 }
 
 /// Write interleaved RGB8 bytes as a PNG.
-fn write_png(bytes: &[u8], path: &Path) -> Result<(), String> {
+fn write_png(
+  bytes: &[u8],
+  width: usize,
+  height: usize,
+  path: &Path,
+) -> Result<(), String> {
   let file = std::fs::File::create(path)
     .map_err(|e| format!("Failed to create {}: {e}", path.display()))?;
   let writer = BufWriter::new(file);
 
-  let mut encoder = png::Encoder::new(writer, WIDTH as u32, HEIGHT as u32);
+  let mut encoder = png::Encoder::new(writer, width as u32, height as u32);
   encoder.set_color(png::ColorType::Rgb);
   encoder.set_depth(png::BitDepth::Eight);
 
@@ -339,6 +408,72 @@ fn write_png(bytes: &[u8], path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn rgb8_rendering_honors_custom_resolutions_and_reports_rows() {
+    let geometries =
+      crate::lua_engine::execute_lua("render(cube({size = {10, 10, 10}}))")
+        .expect("Lua execution failed");
+
+    let (width, height) = (64, 48);
+    let rows = std::sync::atomic::AtomicUsize::new(0);
+    let bytes =
+      render_to_rgb8(&geometries, width, height, Some(2), None, None, || {
+        rows.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+      })
+      .expect("render failed");
+
+    assert_eq!(bytes.len(), width * height * 3);
+    assert_eq!(rows.load(std::sync::atomic::Ordering::Relaxed), height);
+
+    // Corner pixel is pure background; the center shows the cube.
+    assert_eq!(&bytes[0..3], &BG_COLOR);
+    let center = ((height / 2) * width + width / 2) * 3;
+    assert_ne!(&bytes[center..center + 3], &BG_COLOR);
+  }
+
+  #[test]
+  fn explicit_framing_controls_zoom_and_pan() {
+    // A 10-unit cube spanning 0..10 on each CAD axis
+    let geometries =
+      crate::lua_engine::execute_lua("render(cube({size = {10, 10, 10}}))")
+        .expect("Lua execution failed");
+
+    let object_pixels = |framing: Framing| {
+      let bytes = render_to_rgb8(
+        &geometries,
+        64,
+        48,
+        Some(2),
+        None,
+        Some(framing),
+        || {},
+      )
+      .expect("render failed");
+      bytes.chunks(3).filter(|&px| px != BG_COLOR).count()
+    };
+
+    // Zoom: halving the distance grows the cube's screen coverage
+    let near = object_pixels(Framing {
+      target: [5.0; 3],
+      distance: 25.0,
+      vfov: 45.0,
+    });
+    let far = object_pixels(Framing {
+      target: [5.0; 3],
+      distance: 50.0,
+      vfov: 45.0,
+    });
+    assert!(near > 2 * far, "near {near} px, far {far} px");
+
+    // Pan: a target far off the model leaves only background
+    let away = object_pixels(Framing {
+      target: [500.0, 0.0, 0.0],
+      distance: 25.0,
+      vfov: 45.0,
+    });
+    assert_eq!(away, 0, "panned-away view still shows {away} object px");
+  }
 
   #[test]
   fn a_colored_cube_renders_object_pixels_on_the_studio_background() {
