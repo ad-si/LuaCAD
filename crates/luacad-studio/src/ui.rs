@@ -381,7 +381,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         ui.separator();
         let num_objects = app.geometries.len();
         ui.label(format!(
-          "{} {}, {} {}",
+          "{} {}, {} Preview {}",
           num_objects,
           if num_objects == 1 {
             "Object"
@@ -394,7 +394,12 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           } else {
             "Triangles"
           },
-        ));
+        ))
+        .on_hover_text(
+          "Triangles drawn by the viewport preview (CSG inputs, \
+           booleans not applied). The exported mesh can differ — \
+           check it with Export or `luacad info`.",
+        );
       }
     });
     ui.add_space(4.0);
