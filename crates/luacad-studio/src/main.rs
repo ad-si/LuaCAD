@@ -51,6 +51,23 @@ fn save_last_file(path: Option<&Path>) {
   let _ = std::fs::write(&state_path, json.to_string());
 }
 
+/// Normalize source code for saving: strip trailing whitespace from each
+/// line and end a non-empty file with exactly one newline (POSIX).
+fn normalize_source(text: &str) -> String {
+  let mut normalized = text
+    .lines()
+    .map(|l| l.trim_end())
+    .collect::<Vec<_>>()
+    .join("\n");
+  while normalized.ends_with('\n') {
+    normalized.pop();
+  }
+  if !normalized.is_empty() {
+    normalized.push('\n');
+  }
+  normalized
+}
+
 /// Write the editor content to `path` and update app state accordingly.
 /// Returns true if the write succeeded.
 fn save_to_path(app: &mut AppState, path: &Path) -> bool {
@@ -758,12 +775,7 @@ impl Studio {
             }
           }
           FileAction::Save | FileAction::ForceSave => {
-            app.text_content = app
-              .text_content
-              .lines()
-              .map(|l| l.trim_end())
-              .collect::<Vec<_>>()
-              .join("\n");
+            app.text_content = normalize_source(&app.text_content);
             if let Some(path) = app.current_file.clone() {
               // Confirm before overwriting a file modified since load/save
               let changed_on_disk = matches!(action, FileAction::Save)
@@ -785,12 +797,7 @@ impl Studio {
             }
           }
           FileAction::SaveAs => {
-            app.text_content = app
-              .text_content
-              .lines()
-              .map(|l| l.trim_end())
-              .collect::<Vec<_>>()
-              .join("\n");
+            app.text_content = normalize_source(&app.text_content);
             let default_name = app
               .current_file
               .as_ref()
@@ -1140,4 +1147,35 @@ fn main() {
   event_loop
     .run_app(&mut studio_app)
     .expect("event loop failed");
+}
+
+#[cfg(test)]
+mod tests {
+  use super::normalize_source;
+
+  #[test]
+  fn adds_final_newline() {
+    assert_eq!(normalize_source("a = 1"), "a = 1\n");
+  }
+
+  #[test]
+  fn keeps_single_final_newline() {
+    assert_eq!(normalize_source("a = 1\n"), "a = 1\n");
+  }
+
+  #[test]
+  fn collapses_trailing_blank_lines() {
+    assert_eq!(normalize_source("a = 1\n\n\n"), "a = 1\n");
+  }
+
+  #[test]
+  fn trims_trailing_whitespace_per_line() {
+    assert_eq!(normalize_source("a = 1  \nb = 2\t"), "a = 1\nb = 2\n");
+  }
+
+  #[test]
+  fn empty_input_stays_empty() {
+    assert_eq!(normalize_source(""), "");
+    assert_eq!(normalize_source("\n\n"), "");
+  }
 }
