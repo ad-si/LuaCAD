@@ -82,7 +82,8 @@ enum Command {
     /// Output image (default: input with a .png extension)
     #[arg(value_name = "output.png")]
     output: Option<PathBuf>,
-    /// Smooth shading (default: flat, showing tessellation)
+    /// Smooth shading for rasterized renders (default: flat, showing
+    /// tessellation). Path-traced renders are always smooth.
     #[arg(long)]
     smooth: bool,
     /// Path-traced rendering (soft shadows, ambient occlusion)
@@ -527,7 +528,7 @@ fn cmd_render(
   let result = if raytrace {
     #[cfg(feature = "raytrace")]
     {
-      luacad::raytrace::render_to_png(&geometries, &output, smooth)
+      luacad::raytrace::render_to_png(&geometries, &output)
     }
     #[cfg(not(feature = "raytrace"))]
     {

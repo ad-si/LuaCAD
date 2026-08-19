@@ -1,7 +1,7 @@
 //! Path-traced rendering to PNG via the vendored `prime-core` crate.
 //!
 //! Shares the scene-collection pipeline with the rasterizer in `render.rs`
-//! (per-subtree colors, optional smooth vertex normals, camera framing) but
+//! (per-subtree colors, smooth vertex normals, camera framing) but
 //! replaces its fixed-function shading with physically based path tracing:
 //! a large area light in the studio's key-light direction plus a uniform
 //! environment standing in for the ambient/fill terms, which yields soft
@@ -50,19 +50,19 @@ const KEY_STRENGTH: f32 = 0.6;
 
 /// Render geometries to a PNG file using path tracing.
 ///
-/// `smooth` selects smooth vertex normals (averaged across faces meeting at
-/// less than 45°), exactly as in [`render::render_to_png`].
+/// Always shades with smooth vertex normals (averaged across faces meeting
+/// at less than 45°, so creases stay sharp): faceted round surfaces are a
+/// tessellation-debugging view, which the rasterizer covers.
 pub fn render_to_png(
   geometries: &[CsgGeometry],
   output: &Path,
-  smooth: bool,
 ) -> Result<(), String> {
   let blockers = crate::export::geometries_unsupported_for_display(geometries);
   if !blockers.is_empty() {
     return Err(crate::export::describe_unsupported(&blockers));
   }
 
-  let triangles = render::collect_smooth_triangles(geometries, smooth);
+  let triangles = render::collect_smooth_triangles(geometries, true);
   if triangles.is_empty() {
     return Err("No geometry to render".to_string());
   }
@@ -77,7 +77,7 @@ pub fn render_to_png(
     .max(bb_max[1] - bb_min[1])
     .max(bb_max[2] - bb_min[2]);
 
-  let (materials, mut primitives) = build_primitives(&triangles, smooth);
+  let (materials, mut primitives) = build_primitives(&triangles);
   let camera = build_camera(center, max_extent);
 
   // Key light in the studio's key direction (eye space (1, 1, 0.5)): rotate
@@ -180,7 +180,6 @@ fn to_prime_material(spec: &MaterialSpec, color: [f32; 3]) -> Material {
 /// one BSDF per distinct (color, material) pair.
 fn build_primitives(
   triangles: &[SmoothTriangle],
-  smooth: bool,
 ) -> (Vec<Material>, Vec<Primitive>) {
   let mut materials: Vec<Material> = Vec::new();
   let mut by_key: HashMap<([u32; 3], [u32; 5]), MaterialId> = HashMap::new();
@@ -195,9 +194,7 @@ fn build_primitives(
 
     let v = tri.verts.map(render::cad_to_gl).map(v3);
     let mut prim = Triangle::new(v[0], v[1], v[2], material);
-    if smooth {
-      prim.normals = Some(tri.normals.map(render::cad_to_gl).map(v3));
-    }
+    prim.normals = Some(tri.normals.map(render::cad_to_gl).map(v3));
     primitives.push(Primitive::from(prim));
   }
 
@@ -294,7 +291,7 @@ mod tests {
     let dir = std::env::temp_dir();
     let path = dir.join("luacad_raytrace_smoke_test.png");
 
-    render_to_png(&geometries, &path, false).expect("render failed");
+    render_to_png(&geometries, &path).expect("render failed");
 
     let file = std::fs::File::open(&path).expect("PNG missing");
     let decoder = png::Decoder::new(std::io::BufReader::new(file));

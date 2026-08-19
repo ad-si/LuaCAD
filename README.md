@@ -85,6 +85,7 @@ building the mesh with Manifold.
 `--smooth` turns that off.
 `--raytrace` renders with a path tracer instead of the rasterizer:
 soft shadows and ambient occlusion, at a few seconds per image.
+Path-traced renders always shade smooth (creases stay sharp).
 
 
 ### Studio
