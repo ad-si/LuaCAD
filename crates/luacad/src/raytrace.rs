@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use std::io::BufWriter;
 use std::path::Path;
 
-const WIDTH: usize = 1024;
-const HEIGHT: usize = 1024;
+const WIDTH: usize = 2048;
+const HEIGHT: usize = 1536;
 const DEFAULT_SAMPLES_PER_PIXEL: usize = 128;
 const MAX_DEPTH: usize = 8;
 
@@ -26,9 +26,9 @@ const MAX_DEPTH: usize = 8;
 /// same exponent, so the background round-trips to exactly `BG_COLOR`.
 const GAMMA: f32 = 2.2;
 
-/// Vertical field of view. The camera distance is derived from it so the
-/// model fills the frame like the rasterizer's orthographic framing
-/// (half-height = 0.75 × max extent at the target plane).
+/// Vertical field of view. The camera distance is the smallest one at
+/// which every vertex fits inside both FOV axes (see [`build_camera`]),
+/// matching the rasterizer's fit-to-extent framing.
 const VFOV_DEG: f32 = 30.0;
 
 /// Key light placement: distance and half-size relative to the scene's max
@@ -87,7 +87,7 @@ pub fn render_to_png(
   let (materials, mut primitives) = build_primitives(&triangles);
   let (azimuth, elevation) =
     camera.unwrap_or((CAMERA_AZIMUTH, CAMERA_ELEVATION));
-  let camera = build_camera(center, max_extent, azimuth, elevation);
+  let camera = build_camera(center, &triangles, azimuth, elevation);
 
   // Key light in the studio's key direction (eye space (1, 1, 0.5)): rotate
   // it into world space with the camera basis, mirroring `lights_to_world`.
@@ -122,30 +122,48 @@ pub fn render_to_png(
   write_png(&bytes, output)
 }
 
-/// Perspective camera on the given orbit angles (in degrees), far enough
-/// away to frame the model like the rasterizer's orthographic view.
+/// Perspective camera on the given orbit angles (in degrees), at the
+/// smallest distance where every vertex fits inside both the vertical and
+/// horizontal FOV (padded by [`render::FRAME_MARGIN`]), matching the
+/// rasterizer's fit-to-extent framing.
 fn build_camera(
   center: Vec3,
-  max_extent: f32,
+  triangles: &[SmoothTriangle],
   azimuth: f32,
   elevation: f32,
 ) -> CameraConfig {
   let az = azimuth.to_radians();
   let el = elevation.to_radians();
-  let half_height = max_extent * 0.75;
-  // 1.05: slack for perspective making near geometry larger.
-  let distance = half_height / (VFOV_DEG.to_radians() * 0.5).tan() * 1.05;
 
-  let offset = Vec3::new(
-    distance * el.cos() * az.sin(),
-    distance * el.sin(),
-    distance * el.cos() * az.cos(),
-  );
+  // Unit direction from the look-at target toward the camera, and the
+  // camera's right/up basis (forward is -dir).
+  let dir = Vec3::new(el.cos() * az.sin(), el.sin(), el.cos() * az.cos());
+  let vup = Vec3::new(0.0, 1.0, 0.0);
+  let right = (-dir).cross(vup).normalize();
+  let up = right.cross(-dir);
+
+  // A vertex at offset p from the target needs the camera at least
+  // `p·dir + |p·axis| / tan(fov/2)` away along `dir` to land inside that
+  // FOV axis; take the max over all vertices and both axes.
+  let tan_v = (VFOV_DEG.to_radians() * 0.5).tan();
+  let tan_h = tan_v * (WIDTH as f32 / HEIGHT as f32);
+  let mut distance = 0.0_f32;
+  for tri in triangles {
+    for &v in &tri.verts {
+      // CAD→GL: gl_x=cad_y, gl_y=cad_z, gl_z=cad_x
+      let p = Vec3::new(v[1], v[2], v[0]) - center;
+      let toward_cam = p.dot(dir);
+      distance = distance
+        .max(toward_cam + p.dot(up).abs() / tan_v)
+        .max(toward_cam + p.dot(right).abs() / tan_h);
+    }
+  }
+  distance *= render::FRAME_MARGIN;
 
   CameraConfig {
-    look_from: center + offset,
+    look_from: center + dir * distance,
     look_at: center,
-    vup: Vec3::new(0.0, 1.0, 0.0),
+    vup,
     vfov: VFOV_DEG,
     aperture: 0.0,
     focus_dist: None,

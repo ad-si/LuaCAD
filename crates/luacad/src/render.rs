@@ -13,8 +13,8 @@ use std::io::BufWriter;
 use std::path::Path;
 
 /// Default output image dimensions.
-const DEFAULT_WIDTH: u32 = 1024;
-const DEFAULT_HEIGHT: u32 = 1024;
+const DEFAULT_WIDTH: u32 = 2048;
+const DEFAULT_HEIGHT: u32 = 1536;
 
 /// Supersampling factor for anti-aliasing (2x = 4 samples per pixel).
 const SSAA: u32 = 2;
@@ -22,6 +22,11 @@ const SSAA: u32 = 2;
 /// Default camera angles matching the studio's initial view.
 pub(crate) const CAMERA_AZIMUTH: f32 = -30.0;
 pub(crate) const CAMERA_ELEVATION: f32 = 30.0;
+
+/// Padding around the model's projected extent when fitting the camera:
+/// the frame is 5% larger than the tightest fit. Shared with the path
+/// tracer so both renderers frame identically.
+pub(crate) const FRAME_MARGIN: f32 = 1.05;
 
 /// Background color, matching the studio's light theme
 /// (`ThemeColors::light().bg` = 0.85, 0.85, 0.88).
@@ -222,13 +227,42 @@ pub fn render_to_png(
   ];
 
   let view = look_at(cam_pos, gl_center, [0.0, 1.0, 0.0]);
-  let half = max_extent * 0.75;
+
+  // Fit the orthographic frustum to the model's extent as seen from this
+  // camera — the raw bounding box leaves large empty margins for oblong
+  // models — then pad and expand one axis to the output aspect ratio.
+  let mut min_x = f32::INFINITY;
+  let mut max_x = f32::NEG_INFINITY;
+  let mut min_y = f32::INFINITY;
+  let mut max_y = f32::NEG_INFINITY;
+  for tri in &triangles {
+    for &v in &tri.verts {
+      let p = transform_point(&view, cad_to_gl(v));
+      min_x = min_x.min(p[0]);
+      max_x = max_x.max(p[0]);
+      min_y = min_y.min(p[1]);
+      max_y = max_y.max(p[1]);
+    }
+  }
+  let cx = (min_x + max_x) * 0.5;
+  let cy = (min_y + max_y) * 0.5;
+  // Floor at a fraction of the max extent so a model seen edge-on
+  // (zero projected height) doesn't collapse the frustum.
+  let mut half_w =
+    ((max_x - min_x) * 0.5 * FRAME_MARGIN).max(max_extent * 1e-3);
+  let mut half_h =
+    ((max_y - min_y) * 0.5 * FRAME_MARGIN).max(max_extent * 1e-3);
   let aspect = DEFAULT_WIDTH as f32 / DEFAULT_HEIGHT as f32;
+  if half_w < half_h * aspect {
+    half_w = half_h * aspect;
+  } else {
+    half_h = half_w / aspect;
+  }
   let proj = ortho(
-    -half * aspect,
-    half * aspect,
-    -half,
-    half,
+    cx - half_w,
+    cx + half_w,
+    cy - half_h,
+    cy + half_h,
     -distance * 10.0,
     distance * 10.0,
   );
