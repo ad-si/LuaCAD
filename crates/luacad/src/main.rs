@@ -89,6 +89,10 @@ enum Command {
     /// Path-traced rendering (soft shadows, ambient occlusion)
     #[arg(long)]
     raytrace: bool,
+    /// Samples per pixel for path-traced renders; more samples mean
+    /// less noise at proportionally longer render times (default: 128)
+    #[arg(long, value_name = "N", requires = "raytrace")]
+    samples: Option<std::num::NonZeroUsize>,
   },
   /// Rebuild on file changes
   Watch(ConvertArgs),
@@ -503,6 +507,7 @@ fn cmd_render(
   output: Option<&Path>,
   smooth: bool,
   raytrace: bool,
+  samples: Option<std::num::NonZeroUsize>,
 ) -> ExitCode {
   let output = output
     .map(Path::to_path_buf)
@@ -528,10 +533,15 @@ fn cmd_render(
   let result = if raytrace {
     #[cfg(feature = "raytrace")]
     {
-      luacad::raytrace::render_to_png(&geometries, &output)
+      luacad::raytrace::render_to_png(
+        &geometries,
+        &output,
+        samples.map(std::num::NonZeroUsize::get),
+      )
     }
     #[cfg(not(feature = "raytrace"))]
     {
+      let _ = samples;
       Err(
         "This build of luacad has the `raytrace` feature disabled".to_string(),
       )
@@ -680,7 +690,8 @@ fn main_impl() -> ExitCode {
       output,
       smooth,
       raytrace,
-    } => cmd_render(input, output.as_deref(), *smooth, *raytrace),
+      samples,
+    } => cmd_render(input, output.as_deref(), *smooth, *raytrace, *samples),
     Command::Watch(args) => cmd_watch(args),
   }
 }

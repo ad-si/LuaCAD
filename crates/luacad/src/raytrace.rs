@@ -19,7 +19,7 @@ use std::path::Path;
 
 const WIDTH: usize = 1024;
 const HEIGHT: usize = 1024;
-const SAMPLES_PER_PIXEL: usize = 128;
+const DEFAULT_SAMPLES_PER_PIXEL: usize = 128;
 const MAX_DEPTH: usize = 8;
 
 /// Output transfer gamma. Albedos and the background are linearized with the
@@ -53,9 +53,13 @@ const KEY_STRENGTH: f32 = 0.6;
 /// Always shades with smooth vertex normals (averaged across faces meeting
 /// at less than 45°, so creases stay sharp): faceted round surfaces are a
 /// tessellation-debugging view, which the rasterizer covers.
+///
+/// `samples` overrides the samples-per-pixel count (default: 128); noise
+/// falls with the square root of the sample count.
 pub fn render_to_png(
   geometries: &[CsgGeometry],
   output: &Path,
+  samples: Option<usize>,
 ) -> Result<(), String> {
   let blockers = crate::export::geometries_unsupported_for_display(geometries);
   if !blockers.is_empty() {
@@ -96,7 +100,7 @@ pub fn render_to_png(
   let settings = RenderSettings {
     width: WIDTH,
     height: HEIGHT,
-    samples_per_pixel: SAMPLES_PER_PIXEL,
+    samples_per_pixel: samples.unwrap_or(DEFAULT_SAMPLES_PER_PIXEL),
     max_depth: MAX_DEPTH,
     seed: 0,
     low_discrepancy: true,
@@ -317,7 +321,7 @@ mod tests {
     let dir = std::env::temp_dir();
     let path = dir.join("luacad_raytrace_smoke_test.png");
 
-    render_to_png(&geometries, &path).expect("render failed");
+    render_to_png(&geometries, &path, None).expect("render failed");
 
     let file = std::fs::File::open(&path).expect("PNG missing");
     let decoder = png::Decoder::new(std::io::BufReader::new(file));

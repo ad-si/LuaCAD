@@ -86,6 +86,8 @@ building the mesh with Manifold.
 `--raytrace` renders with a path tracer instead of the rasterizer:
 soft shadows and ambient occlusion, at a few seconds per image.
 Path-traced renders always shade smooth (creases stay sharp).
+`--samples N` sets the path tracer's samples per pixel (default: 128);
+more samples mean less noise at proportionally longer render times.
 
 
 ### Studio
