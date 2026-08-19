@@ -12,6 +12,15 @@ any release.
 
 ### Added
 
+- Studio: the code editor panel can be hidden to use an external editor and
+  keep the whole window for the model
+  ([#12](https://github.com/ad-si/LuaCAD/issues/12)). Toggle it with the
+  checkbox in Settings → General, the `Editor` button in the bottom bar, or
+  `Cmd`/`Ctrl` + `E`. The choice is remembered across restarts
+  (`hide_editor` in the state file, like OpenSCAD's `hideEditor`). While the
+  panel is hidden, its `Run` and `Reload` buttons move into the bottom bar
+  (which now wraps in narrow windows), and errors show up there as well.
+
 - Surface materials via `shape:material(...)`, on 3D geometry and on 2D
   sketches (where they survive extrusion). The kinds are `matte`, `plastic`
   (the implicit default look), `metal`, `glass`, and `emissive`, with

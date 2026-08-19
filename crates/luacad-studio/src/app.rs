@@ -156,6 +156,8 @@ pub struct AppState {
   pub settings_tab: usize,
   /// Editor panel position relative to viewport
   pub editor_position: EditorPosition,
+  /// Whether the code editor panel is shown at all
+  pub editor_visible: bool,
   /// Editor cursor character offset (updated each frame by UI)
   pub editor_cursor_pos: usize,
   /// Editor selection length in characters (updated each frame by UI)
@@ -236,6 +238,7 @@ impl AppState {
       show_settings: false,
       settings_tab: 0,
       editor_position: EditorPosition::Right,
+      editor_visible: true,
       editor_cursor_pos: 0,
       editor_selection_len: 0,
       editor_focused: false,

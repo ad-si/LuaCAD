@@ -138,6 +138,15 @@ fn navigate_match(search: &mut SearchState, direction: i32) {
 
 /// Render the "General" settings tab content.
 fn render_settings_general(ui: &mut egui::Ui, app: &mut AppState) {
+  ui.label(egui::RichText::new("Code Editor").strong().size(14.0));
+  ui.add_space(4.0);
+  ui.checkbox(&mut app.editor_visible, "Show the code editor panel")
+    .on_hover_text(format!(
+      "Hide the panel to use an external editor \
+       and keep the full window for the model ({} E)",
+      modifier_label()
+    ));
+  ui.add_space(8.0);
   ui.label(egui::RichText::new("Editor Position").strong().size(14.0));
   ui.add_space(4.0);
   for &pos in EditorPosition::ALL {
@@ -161,6 +170,7 @@ fn render_settings_shortcuts(ui: &mut egui::Ui) {
         (format!("{m} O"), "Open file"),
         (format!("{m} S"), "Save file"),
         (format!("{m} ↵"), "Run code"),
+        (format!("{m} E"), "Show / hide the code editor"),
       ],
     ),
     (
@@ -243,7 +253,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
   // claims the bottom edge before a potential bottom editor panel).
   egui::Panel::bottom("controls").show(root_ui, |ui| {
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
       ui.label("Projection:");
       let ratio = 1.0 / (22.5_f32).to_radians().tan();
       if ui
@@ -362,9 +372,41 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         app.theme_mode = ThemeMode::Dark;
         app.theme_colors = app.resolve_theme();
       }
+      ui.separator();
+      // This toggle stays reachable while the editor panel (and with it the
+      // Settings button) is hidden.
+      if ui
+        .selectable_label(app.editor_visible, "Editor")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(format!("Show or hide the code editor ({m} E)"))
+        .clicked()
+      {
+        app.editor_visible = !app.editor_visible;
+      }
+      // With the editor panel hidden, its Run and Reload buttons move here so
+      // an externally edited file can still be re-run.
+      if !app.editor_visible {
+        ui.separator();
+        if ui
+          .button("Run")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .on_hover_text(format!("Run code ({m} ↵)"))
+          .clicked()
+        {
+          app.execute_lua_code();
+        }
+        if ui
+          .add_enabled(app.current_file.is_some(), egui::Button::new("Reload"))
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .on_hover_text("Load the latest version from disk and run it")
+          .clicked()
+        {
+          app.pending_file_action = Some(FileAction::Reload);
+        }
+      }
     });
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
       ui.label(format!(
         "Azimuth: {:.1}  Elevation: {:.1}  Distance: {:.1}",
         app.camera_azimuth, app.camera_elevation, app.camera_distance
@@ -402,6 +444,21 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         );
       }
     });
+    // With the editor panel hidden, errors and file status messages have no
+    // other place to appear.
+    if !app.editor_visible {
+      if let Some(error) = &app.lua_error {
+        ui.colored_label(egui::Color32::RED, format!("Error: {error}"));
+      }
+      if let Some((msg, is_error)) = &app.export_status {
+        let color = if *is_error {
+          egui::Color32::RED
+        } else {
+          egui::Color32::from_rgb(0, 180, 0)
+        };
+        ui.colored_label(color, msg.as_str());
+      }
+    }
     ui.add_space(4.0);
   });
 
@@ -412,6 +469,13 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
 
   // Capture position before borrowing app in the closure
   let editor_position = app.editor_position;
+  let editor_visible = app.editor_visible;
+  if !editor_visible {
+    // A hidden editor cannot keep the keyboard focus, and an editor action
+    // queued now must not fire once the panel is shown again
+    app.editor_focused = false;
+    app.pending_editor_action = None;
+  }
 
   // Closure that renders the editor panel contents.
   let mut render_editor_panel = |ui: &mut egui::Ui| {
@@ -1161,36 +1225,38 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
     }
   };
 
-  // Show the editor panel in the configured position.
+  // Show the editor panel in the configured position (unless it is hidden).
   // Each position uses a distinct ID so egui's persisted size state doesn't
   // conflict across sides (a side panel stores a width, a top/bottom one a
   // height, and both live under the same `Panel` type).
-  match editor_position {
-    EditorPosition::Right => {
-      egui::Panel::right("editor_right")
-        .default_size(screen_width * 0.4)
-        .min_size(screen_width * 0.2)
-        .show(root_ui, |ui| render_editor_panel(ui));
-    }
-    EditorPosition::Left => {
-      egui::Panel::left("editor_left")
-        .default_size(screen_width * 0.4)
-        .min_size(screen_width * 0.2)
-        .show(root_ui, |ui| render_editor_panel(ui));
-    }
-    EditorPosition::Top => {
-      egui::Panel::top("editor_top")
-        .default_size(screen_height * 0.4)
-        .size_range(100.0..=screen_height * 0.8)
-        .resizable(true)
-        .show(root_ui, |ui| render_editor_panel(ui));
-    }
-    EditorPosition::Bottom => {
-      egui::Panel::bottom("editor_bottom")
-        .default_size(screen_height * 0.4)
-        .size_range(100.0..=screen_height * 0.8)
-        .resizable(true)
-        .show(root_ui, |ui| render_editor_panel(ui));
+  if editor_visible {
+    match editor_position {
+      EditorPosition::Right => {
+        egui::Panel::right("editor_right")
+          .default_size(screen_width * 0.4)
+          .min_size(screen_width * 0.2)
+          .show(root_ui, |ui| render_editor_panel(ui));
+      }
+      EditorPosition::Left => {
+        egui::Panel::left("editor_left")
+          .default_size(screen_width * 0.4)
+          .min_size(screen_width * 0.2)
+          .show(root_ui, |ui| render_editor_panel(ui));
+      }
+      EditorPosition::Top => {
+        egui::Panel::top("editor_top")
+          .default_size(screen_height * 0.4)
+          .size_range(100.0..=screen_height * 0.8)
+          .resizable(true)
+          .show(root_ui, |ui| render_editor_panel(ui));
+      }
+      EditorPosition::Bottom => {
+        egui::Panel::bottom("editor_bottom")
+          .default_size(screen_height * 0.4)
+          .size_range(100.0..=screen_height * 0.8)
+          .resizable(true)
+          .show(root_ui, |ui| render_editor_panel(ui));
+      }
     }
   }
 
@@ -1360,6 +1426,8 @@ mod tests {
     ctx: egui::Context,
     app: AppState,
     time: f64,
+    /// Scene rect returned by the most recent `render_ui` pass
+    scene_rect: egui::Rect,
   }
 
   impl Harness {
@@ -1375,24 +1443,31 @@ mod tests {
         ctx,
         app,
         time: 0.0,
+        scene_rect: egui::Rect::NOTHING,
       }
     }
 
     /// Run one UI pass with the given events, advancing time by `dt` seconds.
     fn pass(&mut self, dt: f64, events: Vec<egui::Event>) {
+      self.pass_at_width(dt, events, 1200.0);
+    }
+
+    /// Run one UI pass in a window of the given width.
+    fn pass_at_width(&mut self, dt: f64, events: Vec<egui::Event>, width: f32) {
       self.time += dt;
       let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
           egui::Pos2::ZERO,
-          egui::vec2(1200.0, 800.0),
+          egui::vec2(width, 800.0),
         )),
         time: Some(self.time),
         events,
         ..Default::default()
       };
       let app = &mut self.app;
+      let scene_rect = &mut self.scene_rect;
       let mut output = self.ctx.run_ui(input, |ui| {
-        render_ui(ui, app);
+        *scene_rect = render_ui(ui, app).scene_rect;
       });
       // Nothing paints in these tests, and epaint asserts that a
       // `TexturesDelta` is not dropped with deltas still pending.
@@ -1469,6 +1544,48 @@ mod tests {
       "double click cost press={press:?} release={release:?}, idle pass={idle:?}"
     );
     assert_eq!(h.selected_text(), "width_0");
+  }
+
+  /// Hiding the editor panel hands its space to the 3D scene, so an external
+  /// editor can be used next to a window that is all viewport.
+  #[test]
+  fn hiding_the_editor_expands_the_scene() {
+    let mut h = Harness::new("local width = 10\n");
+    h.pass(0.016, vec![]);
+    let with_editor = h.scene_rect.width();
+    assert!(
+      with_editor < 1000.0,
+      "editor panel did not claim space: scene is {with_editor} wide"
+    );
+
+    h.app.editor_visible = false;
+    h.pass(0.016, vec![]);
+    assert!(
+      h.scene_rect.width() >= 1199.0,
+      "hidden editor still claims space: scene is {} wide",
+      h.scene_rect.width()
+    );
+    assert!(!h.app.editor_focused);
+
+    h.app.editor_visible = true;
+    h.pass(0.016, vec![]);
+    assert_eq!(h.scene_rect.width(), with_editor, "panel did not come back");
+  }
+
+  /// In a narrow window the bottom bar wraps its controls onto more lines
+  /// instead of clipping them at the right edge.
+  #[test]
+  fn narrow_windows_wrap_the_bottom_bar() {
+    let mut h = Harness::new("local width = 10\n");
+    h.pass(0.016, vec![]);
+    let wide_panel_top = h.scene_rect.bottom();
+    h.pass_at_width(0.016, vec![], 400.0);
+    let narrow_panel_top = h.scene_rect.bottom();
+    assert!(
+      narrow_panel_top < wide_panel_top - 10.0,
+      "bottom bar did not grow at 400px width: its top edge moved from \
+       {wide_panel_top} to {narrow_panel_top}"
+    );
   }
 
   #[test]

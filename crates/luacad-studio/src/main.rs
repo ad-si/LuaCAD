@@ -36,19 +36,60 @@ fn state_file_path() -> Option<PathBuf> {
   dirs::config_dir().map(|d| d.join("luacad").join("state.json"))
 }
 
-/// Persist the last opened file path (or clear it).
-fn save_last_file(path: Option<&Path>) {
+/// Read the state file as a JSON object (empty if missing or invalid).
+fn load_state() -> serde_json::Map<String, serde_json::Value> {
+  state_file_path()
+    .and_then(|p| std::fs::read_to_string(p).ok())
+    .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+    .and_then(|value| match value {
+      serde_json::Value::Object(obj) => Some(obj),
+      _ => None,
+    })
+    .unwrap_or_default()
+}
+
+/// Apply a change to the state file, keeping its other entries.
+fn update_state(
+  update: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) {
   let Some(state_path) = state_file_path() else {
     return;
   };
+  let mut state = load_state();
+  update(&mut state);
   if let Some(parent) = state_path.parent() {
     let _ = std::fs::create_dir_all(parent);
   }
-  let json = match path {
-    Some(p) => serde_json::json!({ "last_file": p }),
-    None => serde_json::json!({}),
-  };
-  let _ = std::fs::write(&state_path, json.to_string());
+  let _ =
+    std::fs::write(&state_path, serde_json::Value::Object(state).to_string());
+}
+
+/// Persist the last opened file path (or clear it).
+fn save_last_file(path: Option<&Path>) {
+  update_state(|state| match path {
+    Some(p) => {
+      state.insert("last_file".to_string(), serde_json::json!(p));
+    }
+    None => {
+      state.remove("last_file");
+    }
+  });
+}
+
+/// Persist whether the code editor panel is hidden
+/// (named after OpenSCAD's `hideEditor` setting).
+fn save_hide_editor(hidden: bool) {
+  update_state(|state| {
+    state.insert("hide_editor".to_string(), serde_json::json!(hidden));
+  });
+}
+
+/// Whether the code editor panel was hidden when the app last ran.
+fn load_hide_editor() -> bool {
+  load_state()
+    .get("hide_editor")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
 }
 
 /// Normalize source code for saving: strip trailing whitespace from each
@@ -88,10 +129,8 @@ fn save_to_path(app: &mut AppState, path: &Path) -> bool {
 
 /// Load the last opened file path from state, if the file still exists.
 fn load_last_file() -> Option<PathBuf> {
-  let state_path = state_file_path()?;
-  let data = std::fs::read_to_string(state_path).ok()?;
-  let obj: serde_json::Value = serde_json::from_str(&data).ok()?;
-  let path_str = obj.get("last_file")?.as_str()?;
+  let state = load_state();
+  let path_str = state.get("last_file")?.as_str()?;
   let path = PathBuf::from(path_str);
   if path.exists() { Some(path) } else { None }
 }
@@ -197,7 +236,8 @@ impl winit::application::ApplicationHandler for StudioApp {
     // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
     let gl = gl_context::GlWindowContext::new(&winit_window, 8);
     let gui = EguiIntegration::new(gl.gl.clone());
-    let app = AppState::new(self.initial_file.take());
+    let mut app = AppState::new(self.initial_file.take());
+    app.editor_visible = !load_hide_editor();
 
     // Persist the initial file if it was loaded successfully
     if let Some(ref path) = app.current_file {
@@ -278,6 +318,8 @@ impl Studio {
       window: winit_window,
     } = self;
     {
+      let editor_was_visible = app.editor_visible;
+
       // Update window title to reflect the current file
       let window_title = match &app.current_file {
         Some(path) => format!(
@@ -382,6 +424,9 @@ impl Studio {
               }
               Key::O => {
                 app.pending_file_action = Some(FileAction::Open);
+              }
+              Key::E => {
+                app.editor_visible = !app.editor_visible;
               }
               Key::Enter => {
                 app.execute_lua_code();
@@ -628,6 +673,12 @@ impl Studio {
         && let Some(cb) = clipboard.as_mut()
       {
         let _ = cb.set_text(copied_text);
+      }
+
+      // Persist the editor visibility when it was toggled this frame
+      // (shortcut, bottom bar, or settings dialog)
+      if app.editor_visible != editor_was_visible {
+        save_hide_editor(!app.editor_visible);
       }
 
       // Handle csgrs export requests
