@@ -93,6 +93,16 @@ enum Command {
     /// less noise at proportionally longer render times (default: 128)
     #[arg(long, value_name = "N", requires = "raytrace")]
     samples: Option<std::num::NonZeroUsize>,
+    /// Camera angle in degrees as azimuth,elevation: azimuth orbits
+    /// around the vertical axis, elevation tilts above the model
+    /// (default: -30,30, the studio's initial view)
+    #[arg(
+      long,
+      value_name = "AZ,EL",
+      allow_hyphen_values = true,
+      value_parser = parse_camera
+    )]
+    camera: Option<(f32, f32)>,
   },
   /// Rebuild on file changes
   Watch(ConvertArgs),
@@ -502,12 +512,24 @@ where
   }
 }
 
+/// Parse a `--camera` value: two comma-separated angles in degrees.
+fn parse_camera(s: &str) -> Result<(f32, f32), String> {
+  let err =
+    || format!("expected two comma-separated angles (e.g. -30,30), got '{s}'");
+  let (az, el) = s.split_once(',').ok_or_else(err)?;
+  Ok((
+    az.trim().parse().map_err(|_| err())?,
+    el.trim().parse().map_err(|_| err())?,
+  ))
+}
+
 fn cmd_render(
   input: &Path,
   output: Option<&Path>,
   smooth: bool,
   raytrace: bool,
   samples: Option<std::num::NonZeroUsize>,
+  camera: Option<(f32, f32)>,
 ) -> ExitCode {
   let output = output
     .map(Path::to_path_buf)
@@ -537,6 +559,7 @@ fn cmd_render(
         &geometries,
         &output,
         samples.map(std::num::NonZeroUsize::get),
+        camera,
       )
     }
     #[cfg(not(feature = "raytrace"))]
@@ -547,7 +570,7 @@ fn cmd_render(
       )
     }
   } else {
-    luacad::render::render_to_png(&geometries, &output, smooth)
+    luacad::render::render_to_png(&geometries, &output, smooth, camera)
   };
   match result {
     Ok(()) => {
@@ -691,7 +714,15 @@ fn main_impl() -> ExitCode {
       smooth,
       raytrace,
       samples,
-    } => cmd_render(input, output.as_deref(), *smooth, *raytrace, *samples),
+      camera,
+    } => cmd_render(
+      input,
+      output.as_deref(),
+      *smooth,
+      *raytrace,
+      *samples,
+      *camera,
+    ),
     Command::Watch(args) => cmd_watch(args),
   }
 }

@@ -167,10 +167,14 @@ fn downsample(src: &Framebuffer, dst_w: u32, dst_h: u32) -> Framebuffer {
 /// tessellation is visible — useful for judging mesh quality / printability.
 /// When `smooth` is true, averages vertex normals across adjacent coplanar
 /// faces for a polished look.
+///
+/// `camera` overrides the (azimuth, elevation) orbit angles in degrees
+/// (default: the studio's initial view).
 pub fn render_to_png(
   geometries: &[CsgGeometry],
   output: &Path,
   smooth: bool,
+  camera: Option<(f32, f32)>,
 ) -> Result<(), String> {
   // Name whatever the backend cannot tessellate rather than reporting an
   // empty scene.
@@ -198,9 +202,11 @@ pub fn render_to_png(
   ];
   let max_extent = extent[0].max(extent[1]).max(extent[2]);
 
-  // Camera: orbit around center, same angles as studio default
-  let az = CAMERA_AZIMUTH.to_radians();
-  let el = CAMERA_ELEVATION.to_radians();
+  // Camera: orbit around center, studio default angles unless overridden
+  let (azimuth, elevation) =
+    camera.unwrap_or((CAMERA_AZIMUTH, CAMERA_ELEVATION));
+  let az = azimuth.to_radians();
+  let el = elevation.to_radians();
   let distance = max_extent * 1.8;
 
   let cam_x = distance * el.cos() * az.sin();

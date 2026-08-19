@@ -55,11 +55,14 @@ const KEY_STRENGTH: f32 = 0.6;
 /// tessellation-debugging view, which the rasterizer covers.
 ///
 /// `samples` overrides the samples-per-pixel count (default: 128); noise
-/// falls with the square root of the sample count.
+/// falls with the square root of the sample count. `camera` overrides the
+/// (azimuth, elevation) orbit angles in degrees (default: the studio's
+/// initial view).
 pub fn render_to_png(
   geometries: &[CsgGeometry],
   output: &Path,
   samples: Option<usize>,
+  camera: Option<(f32, f32)>,
 ) -> Result<(), String> {
   let blockers = crate::export::geometries_unsupported_for_display(geometries);
   if !blockers.is_empty() {
@@ -82,7 +85,9 @@ pub fn render_to_png(
     .max(bb_max[2] - bb_min[2]);
 
   let (materials, mut primitives) = build_primitives(&triangles);
-  let camera = build_camera(center, max_extent);
+  let (azimuth, elevation) =
+    camera.unwrap_or((CAMERA_AZIMUTH, CAMERA_ELEVATION));
+  let camera = build_camera(center, max_extent, azimuth, elevation);
 
   // Key light in the studio's key direction (eye space (1, 1, 0.5)): rotate
   // it into world space with the camera basis, mirroring `lights_to_world`.
@@ -117,12 +122,16 @@ pub fn render_to_png(
   write_png(&bytes, output)
 }
 
-/// Perspective camera on the studio's default orbit (azimuth −30°,
-/// elevation 30°), far enough away to frame the model like the
-/// rasterizer's orthographic view.
-fn build_camera(center: Vec3, max_extent: f32) -> CameraConfig {
-  let az = CAMERA_AZIMUTH.to_radians();
-  let el = CAMERA_ELEVATION.to_radians();
+/// Perspective camera on the given orbit angles (in degrees), far enough
+/// away to frame the model like the rasterizer's orthographic view.
+fn build_camera(
+  center: Vec3,
+  max_extent: f32,
+  azimuth: f32,
+  elevation: f32,
+) -> CameraConfig {
+  let az = azimuth.to_radians();
+  let el = elevation.to_radians();
   let half_height = max_extent * 0.75;
   // 1.05: slack for perspective making near geometry larger.
   let distance = half_height / (VFOV_DEG.to_radians() * 0.5).tan() * 1.05;
@@ -321,7 +330,7 @@ mod tests {
     let dir = std::env::temp_dir();
     let path = dir.join("luacad_raytrace_smoke_test.png");
 
-    render_to_png(&geometries, &path, None).expect("render failed");
+    render_to_png(&geometries, &path, None, None).expect("render failed");
 
     let file = std::fs::File::open(&path).expect("PNG missing");
     let decoder = png::Decoder::new(std::io::BufReader::new(file));
