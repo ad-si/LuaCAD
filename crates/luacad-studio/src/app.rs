@@ -1,6 +1,7 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::SystemTime;
 
 use crate::csg_tree::{CsgGroup, CsgScene, OverlayMesh, flatten_geometries};
@@ -103,6 +104,17 @@ struct LuaJobResult {
   fit_extent: Option<f32>,
 }
 
+/// What a background raytrace produces: interleaved RGB8 pixels.
+pub struct RaytraceImage {
+  pub width: usize,
+  pub height: usize,
+  pub rgb: Vec<u8>,
+}
+
+/// Camera pose and scene revision a displayed raytraced still belongs to;
+/// any change means the still no longer shows the current view.
+pub type RaytraceSnapshot = (f32, f32, f32, [f32; 3], u64);
+
 /// Camera pose the viewport starts with and returns to on document change.
 pub const DEFAULT_CAMERA_AZIMUTH: f32 = -30.0;
 pub const DEFAULT_CAMERA_ELEVATION: f32 = 30.0;
@@ -182,6 +194,25 @@ pub struct AppState {
   /// Starting a new execution replaces the receiver, so a superseded run's
   /// result can never arrive — its send just fails.
   lua_job: Option<mpsc::Receiver<LuaJobResult>>,
+  /// Receiver for the raytrace currently running on a background thread
+  raytrace_job: Option<mpsc::Receiver<Result<RaytraceImage, String>>>,
+  /// Scanlines finished by the running raytrace, written by its worker
+  /// threads and read by the progress readout
+  raytrace_rows_done: Option<Arc<AtomicUsize>>,
+  /// Total scanlines of the running raytrace
+  raytrace_rows_total: usize,
+  /// One-shot flag set by the Raytrace button; the UI starts the job once
+  /// the viewport size is known
+  pub pending_raytrace: bool,
+  /// Finished raytraced image waiting for the UI to upload it as a texture
+  pub raytrace_image: Option<RaytraceImage>,
+  /// Uploaded raytraced still shown over the viewport
+  pub raytrace_texture: Option<egui::TextureHandle>,
+  /// Letterbox fill continuing the raytraced image's background color
+  pub raytrace_bg: [u8; 3],
+  /// Camera pose and scene revision the displayed still was taken at; the
+  /// still is dismissed as soon as either changes
+  pub raytrace_snapshot: Option<RaytraceSnapshot>,
   /// Bounding radius of the current scene (precomputed off-thread), consumed
   /// by fit-to-view. `None` while the scene is empty.
   pub scene_fit_extent: Option<f32>,
@@ -252,6 +283,14 @@ impl AppState {
       overlay_meshes: vec![],
       scene_revision: 0,
       lua_job: None,
+      raytrace_job: None,
+      raytrace_rows_done: None,
+      raytrace_rows_total: 0,
+      pending_raytrace: false,
+      raytrace_image: None,
+      raytrace_texture: None,
+      raytrace_bg: [0; 3],
+      raytrace_snapshot: None,
       scene_fit_extent: None,
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
@@ -392,6 +431,121 @@ impl AppState {
           Some("Internal error: model evaluation crashed".to_string());
       }
     }
+  }
+
+  /// Start path tracing the current geometries at the given resolution on a
+  /// background thread, reproducing the studio's current view: orbit
+  /// angles, pan target, and zoom. The result arrives via
+  /// [`Self::poll_raytrace_job`].
+  pub fn start_raytrace(&mut self, width: usize, height: usize) {
+    let geometries = self.geometries.clone();
+    let camera = (self.camera_azimuth, self.camera_elevation);
+
+    // The viewport camera lives in GL coordinates (gl = (cad_y, cad_z,
+    // cad_x)); the raytrace API takes the target in CAD coordinates.
+    let [gx, gy, gz] = self.camera_target;
+    // The path tracer is perspective-only: an orthographic view uses the
+    // equivalent perspective distance, exactly like the studio's own
+    // projection toggle (same visible height at the target, see
+    // `ui::render_ui`).
+    let distance = if self.orthogonal_view {
+      self.camera_distance / (22.5_f32).to_radians().tan()
+    } else {
+      self.camera_distance
+    };
+    let framing = luacad::raytrace::Framing {
+      target: [gz, gx, gy],
+      distance,
+      // The studio's perspective projection FOV (`scene::build_camera`)
+      vfov: 45.0,
+    };
+
+    let rows_done = Arc::new(AtomicUsize::new(0));
+    self.raytrace_rows_done = Some(rows_done.clone());
+    self.raytrace_rows_total = height;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+      let result = luacad::raytrace::render_to_rgb8(
+        &geometries,
+        width,
+        height,
+        None,
+        Some(camera),
+        Some(framing),
+        || {
+          rows_done.fetch_add(1, Ordering::Relaxed);
+        },
+      )
+      .map(|rgb| RaytraceImage { width, height, rgb });
+      let _ = tx.send(result);
+    });
+    self.raytrace_job = Some(rx);
+  }
+
+  /// Whether a raytrace is currently running in the background.
+  pub fn is_raytracing(&self) -> bool {
+    self.raytrace_job.is_some()
+  }
+
+  /// Fraction of the running raytrace's scanlines that are finished.
+  pub fn raytrace_progress(&self) -> f32 {
+    match &self.raytrace_rows_done {
+      Some(rows) if self.raytrace_rows_total > 0 => {
+        rows.load(Ordering::Relaxed) as f32 / self.raytrace_rows_total as f32
+      }
+      _ => 0.0,
+    }
+  }
+
+  /// The camera pose and scene revision a raytrace of the current state
+  /// would depict.
+  pub fn raytrace_view(&self) -> RaytraceSnapshot {
+    (
+      self.camera_azimuth,
+      self.camera_elevation,
+      self.camera_distance,
+      self.camera_target,
+      self.scene_revision,
+    )
+  }
+
+  /// Apply the result of a finished background raytrace, if one arrived.
+  /// Called once per frame from the render loop.
+  pub fn poll_raytrace_job(&mut self) {
+    let Some(rx) = &self.raytrace_job else {
+      return;
+    };
+    match rx.try_recv() {
+      Ok(result) => {
+        self.raytrace_job = None;
+        self.raytrace_rows_done = None;
+        match result {
+          Ok(image) => {
+            self.raytrace_snapshot = Some(self.raytrace_view());
+            self.raytrace_image = Some(image);
+          }
+          Err(e) => {
+            self.export_status = Some((format!("Raytrace failed: {e}"), true));
+          }
+        }
+      }
+      Err(mpsc::TryRecvError::Empty) => {}
+      Err(mpsc::TryRecvError::Disconnected) => {
+        // The worker thread panicked before sending its result
+        self.raytrace_job = None;
+        self.raytrace_rows_done = None;
+        self.export_status =
+          Some(("Internal error: raytrace crashed".to_string(), true));
+      }
+    }
+  }
+
+  /// Dismiss the raytraced still and return to the live preview.
+  pub fn clear_raytrace(&mut self) {
+    self.raytrace_image = None;
+    self.raytrace_texture = None;
+    self.raytrace_snapshot = None;
   }
 
   /// Re-run the linter if the editor text has changed since last check.

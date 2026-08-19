@@ -358,6 +358,25 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         app.camera_elevation = 0.0;
       }
       ui.separator();
+      // The raytrace runs in the background; the button stays disabled
+      // until the still is dismissed (camera move, scene change, or its
+      // close button), since re-rendering the same view is pointless.
+      let can_raytrace = !app.geometries.is_empty()
+        && !app.is_raytracing()
+        && app.raytrace_texture.is_none()
+        && app.raytrace_image.is_none();
+      if ui
+        .add_enabled(can_raytrace, egui::Button::new("Raytrace"))
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(
+          "Path-trace the current view (an orthographic projection is \
+           rendered as the equivalent perspective)",
+        )
+        .clicked()
+      {
+        app.pending_raytrace = true;
+      }
+      ui.separator();
       ui.label("Theme:");
       if ui
         .selectable_label(app.theme_mode == ThemeMode::System, "Auto")
@@ -1424,7 +1443,123 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
       });
   }
 
+  render_raytrace_overlay(gui_context, app, scene_rect);
+
   PanelLayout { scene_rect }
+}
+
+/// Cap for the raytrace resolution: the CLI's fixed render width, so a
+/// large or high-DPI viewport doesn't multiply the (already long) render
+/// time any further.
+const RAYTRACE_MAX_DIM: f32 = 2048.0;
+
+/// Start a requested raytrace, upload a finished one as a texture, and draw
+/// the still (or a progress spinner) over the viewport.
+fn render_raytrace_overlay(
+  gui_context: &egui::Context,
+  app: &mut AppState,
+  scene_rect: egui::Rect,
+) {
+  // Start the job here rather than at the button, where the viewport size
+  // (needed for the render resolution) is not known yet.
+  if app.pending_raytrace {
+    app.pending_raytrace = false;
+    let size = scene_rect.size() * gui_context.pixels_per_point();
+    let scale = (RAYTRACE_MAX_DIM / size.max_elem()).min(1.0);
+    let width = (size.x * scale).round().max(1.0) as usize;
+    let height = (size.y * scale).round().max(1.0) as usize;
+    app.start_raytrace(width, height);
+  }
+
+  // Upload a finished raytrace as an egui texture
+  if let Some(image) = app.raytrace_image.take() {
+    // Letterbox bars continue the image's background color seamlessly
+    app.raytrace_bg = [image.rgb[0], image.rgb[1], image.rgb[2]];
+    let color_image =
+      egui::ColorImage::from_rgb([image.width, image.height], &image.rgb);
+    app.raytrace_texture = Some(gui_context.load_texture(
+      "raytrace",
+      color_image,
+      egui::TextureOptions::LINEAR,
+    ));
+  }
+
+  // Show the still over the viewport, letterboxed to keep its aspect if the
+  // window was resized since the render started
+  if let Some(texture) = &app.raytrace_texture {
+    let painter = gui_context.layer_painter(egui::LayerId::new(
+      egui::Order::Middle,
+      egui::Id::new("raytrace_view"),
+    ));
+    let [r, g, b] = app.raytrace_bg;
+    painter.rect_filled(
+      scene_rect,
+      egui::CornerRadius::ZERO,
+      egui::Color32::from_rgb(r, g, b),
+    );
+    let size = texture.size_vec2();
+    let scale = (scene_rect.width() / size.x).min(scene_rect.height() / size.y);
+    let fitted =
+      egui::Rect::from_center_size(scene_rect.center(), size * scale);
+    painter.image(
+      texture.id(),
+      fitted,
+      egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+      egui::Color32::WHITE,
+    );
+
+    egui::Area::new(egui::Id::new("raytrace_close"))
+      .order(egui::Order::Foreground)
+      .pivot(egui::Align2::RIGHT_TOP)
+      .fixed_pos(scene_rect.right_top() + egui::vec2(-8.0, 8.0))
+      .show(gui_context, |ui| {
+        if ui
+          .button("× Close")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .on_hover_text("Back to the live preview")
+          .clicked()
+        {
+          app.clear_raytrace();
+        }
+      });
+  }
+
+  // Spinner with a scanline progress readout while the raytrace runs. The
+  // live preview stays visible (dimmed) and interactive underneath.
+  if app.is_raytracing() {
+    let painter = gui_context.layer_painter(egui::LayerId::new(
+      egui::Order::Middle,
+      egui::Id::new("raytrace_progress_dim"),
+    ));
+    painter.rect_filled(
+      scene_rect,
+      egui::CornerRadius::ZERO,
+      egui::Color32::from_black_alpha(64),
+    );
+    egui::Area::new(egui::Id::new("raytrace_progress"))
+      .order(egui::Order::Foreground)
+      .pivot(egui::Align2::CENTER_CENTER)
+      .fixed_pos(scene_rect.center())
+      .show(gui_context, |ui| {
+        // A popup-style frame keeps the readout legible over the model
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+          ui.vertical_centered(|ui| {
+            ui.add(egui::Spinner::new().size(40.0));
+            ui.add_space(8.0);
+            ui.add(
+              egui::Label::new(
+                egui::RichText::new(format!(
+                  "Raytracing… {:.0} %",
+                  100.0 * app.raytrace_progress()
+                ))
+                .size(14.0),
+              )
+              .extend(),
+            );
+          });
+        });
+      });
+  }
 }
 
 #[cfg(test)]
@@ -1581,6 +1716,51 @@ mod tests {
     h.app.editor_visible = true;
     h.pass(0.016, vec![]);
     assert_eq!(h.scene_rect.width(), with_editor, "panel did not come back");
+  }
+
+  /// The raytrace runs in the background and its result reaches the
+  /// viewport as an egui texture: spinner state while it runs, still (with
+  /// its background color captured for the letterbox) once it is done, and
+  /// the pose snapshot that dismisses it on the next camera move.
+  #[test]
+  fn a_raytrace_ends_as_a_texture_with_a_matching_pose_snapshot() {
+    let mut h = Harness::new("render(cube({size = {10, 10, 10}}))");
+    h.app.execute_lua_code();
+    while h.app.is_lua_executing() {
+      h.app.poll_lua_job();
+      std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(!h.app.geometries.is_empty(), "Lua produced no geometry");
+
+    h.app.start_raytrace(64, 48);
+    assert!(h.app.is_raytracing());
+    h.pass(0.016, vec![]);
+    assert!(
+      h.app.raytrace_texture.is_none(),
+      "texture before completion"
+    );
+
+    while h.app.is_raytracing() {
+      h.app.poll_raytrace_job();
+      std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(h.app.raytrace_image.is_some(), "raytrace produced no image");
+    assert_eq!(h.app.raytrace_snapshot, Some(h.app.raytrace_view()));
+
+    // The next UI pass uploads the image as a texture and captures the
+    // letterbox color from its top-left (background) pixel
+    h.pass(0.016, vec![]);
+    assert!(h.app.raytrace_image.is_none());
+    assert!(h.app.raytrace_texture.is_some());
+    assert_ne!(h.app.raytrace_bg, [0; 3]);
+
+    // A camera move invalidates the snapshot — the render loop then
+    // dismisses the still
+    h.app.camera_azimuth += 10.0;
+    assert_ne!(h.app.raytrace_snapshot, Some(h.app.raytrace_view()));
+    h.app.clear_raytrace();
+    assert!(h.app.raytrace_texture.is_none());
+    assert!(h.app.raytrace_snapshot.is_none());
   }
 
   /// In a narrow window the bottom bar wraps its controls onto more lines

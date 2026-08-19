@@ -658,45 +658,49 @@ impl Studio {
 
           panel_layout = render_ui(root_ui, app);
 
-          // Draw axis labels as overlay within the 3D scene area.
+          // Draw axis labels as overlay within the 3D scene area — unless a
+          // raytraced still covers it (they would be misplaced) or one is
+          // rendering (they would scribble over the progress readout).
           // Camera viewport is at origin (0,0), so pixel_at_position returns
           // coordinates relative to the scene area. Offset by scene_rect.
           let scene_rect = panel_layout.scene_rect;
-          let tips_gl = [
-            vec3(0.0, 0.0, 5.2), // CAD +X → GL +Z
-            vec3(5.2, 0.0, 0.0), // CAD +Y → GL +X
-            vec3(0.0, 5.2, 0.0), // CAD +Z → GL +Y
-          ];
-          let labels = ["X", "Y", "Z"];
-          let colors = [
-            egui::Color32::RED,
-            egui::Color32::GREEN,
-            egui::Color32::from_rgb(80, 80, 255),
-          ];
-          let painter = gui_context.layer_painter(egui::LayerId::new(
-            egui::Order::Foreground,
-            egui::Id::new("axis_labels"),
-          ));
-          let vp = camera.viewport();
-          // The camera viewport is supersampled, so its pixels are that much
-          // smaller than physical ones.
-          let px_per_point = dpr * SSAA_FACTOR as f32;
-          for i in 0..3 {
-            let px = camera.pixel_at_position(tips_gl[i]);
-            // pixel_at_position returns render pixels relative to origin viewport.
-            // Convert to logical and offset by scene_rect position.
-            let ex = px.x as f32 / px_per_point + scene_rect.left();
-            let ey = (vp.height as f32 - px.y as f32) / px_per_point
-              + scene_rect.top();
-            let pos = egui::Pos2::new(ex, ey);
-            if scene_rect.contains(pos) {
-              painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                labels[i],
-                egui::FontId::proportional(14.0),
-                colors[i],
-              );
+          if app.raytrace_texture.is_none() && !app.is_raytracing() {
+            let tips_gl = [
+              vec3(0.0, 0.0, 5.2), // CAD +X → GL +Z
+              vec3(5.2, 0.0, 0.0), // CAD +Y → GL +X
+              vec3(0.0, 5.2, 0.0), // CAD +Z → GL +Y
+            ];
+            let labels = ["X", "Y", "Z"];
+            let colors = [
+              egui::Color32::RED,
+              egui::Color32::GREEN,
+              egui::Color32::from_rgb(80, 80, 255),
+            ];
+            let painter = gui_context.layer_painter(egui::LayerId::new(
+              egui::Order::Foreground,
+              egui::Id::new("axis_labels"),
+            ));
+            let vp = camera.viewport();
+            // The camera viewport is supersampled, so its pixels are that
+            // much smaller than physical ones.
+            let px_per_point = dpr * SSAA_FACTOR as f32;
+            for i in 0..3 {
+              let px = camera.pixel_at_position(tips_gl[i]);
+              // pixel_at_position returns render pixels relative to origin
+              // viewport. Convert to logical and offset by scene_rect.
+              let ex = px.x as f32 / px_per_point + scene_rect.left();
+              let ey = (vp.height as f32 - px.y as f32) / px_per_point
+                + scene_rect.top();
+              let pos = egui::Pos2::new(ex, ey);
+              if scene_rect.contains(pos) {
+                painter.text(
+                  pos,
+                  egui::Align2::CENTER_CENTER,
+                  labels[i],
+                  egui::FontId::proportional(14.0),
+                  colors[i],
+                );
+              }
             }
           }
 
@@ -1075,6 +1079,18 @@ impl Studio {
 
       // Pick up the result of a background Lua execution, if one finished
       app.poll_lua_job();
+
+      // Pick up the result of a background raytrace, if one finished
+      app.poll_raytrace_job();
+
+      // Dismiss the raytraced still as soon as the camera moves or the
+      // scene changes: it no longer shows the current view, and hiding it
+      // is what makes the live preview respond to the interaction again.
+      if let Some(snapshot) = app.raytrace_snapshot
+        && snapshot != app.raytrace_view()
+      {
+        app.clear_raytrace();
+      }
 
       // Handle scene rebuild on Lua re-execution
       if app.scene_dirty {
