@@ -37,6 +37,22 @@ test:
 	cargo test
 
 
+# Regenerate the rasterized and path-traced image next to every example's
+# entry point (literal_openscad has none: it only emits OpenSCAD code)
+.PHONY: example-images
+example-images:
+	cargo build --package luacad --release
+	@for lua in examples/*/*.lua; do \
+		case $$lua in examples/literal_openscad/*) continue;; esac; \
+		base=$${lua%.lua}; \
+		echo "→ $$base.png"; \
+		target/release/luacad render "$$lua" "$$base.png"; \
+		echo "→ $${base}_raytraced.png"; \
+		target/release/luacad render --raytrace "$$lua" \
+			"$${base}_raytraced.png"; \
+	done
+
+
 # The browser build behind https://luacad.ad-si.com/playground.
 #
 # Needs Emscripten on the shell: `nix develop` provides it, as does sourcing
