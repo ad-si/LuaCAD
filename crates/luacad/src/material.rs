@@ -27,6 +27,41 @@ pub enum MaterialKind {
   Emissive,
 }
 
+/// Procedural wood-grain parameters: noise-warped growth rings around an
+/// axis, darkening the albedo toward the latewood band of each ring (see
+/// `prime_core::noise::wood_grain` for the field).
+///
+/// The grain is anchored in world space — transforms are baked into the mesh
+/// before rendering, so a translated part is "cut from a different spot in
+/// the log" rather than carrying its grain along.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrainSpec {
+  /// Width of one growth ring, in world units.
+  pub ring_width: f32,
+  /// How dark the latewood band is relative to the base color, `[0, 1]`.
+  pub contrast: f32,
+  /// Ring waviness, in ring widths.
+  pub distortion: f32,
+  /// Grain axis in CAD coordinates: the log's long direction.
+  pub axis: [f32; 3],
+  /// A point the grain axis passes through, in CAD coordinates: where the
+  /// log's center line sits. The rings are concentric around that line, so
+  /// moving it away from a part flattens the ring curvature across it.
+  pub offset: [f32; 3],
+}
+
+impl Default for GrainSpec {
+  fn default() -> Self {
+    GrainSpec {
+      ring_width: 2.5,
+      contrast: 0.12,
+      distortion: 0.4,
+      axis: [0.0, 0.0, 1.0],
+      offset: [0.0, 0.0, 0.0],
+    }
+  }
+}
+
 /// A resolved material: kind plus its parameters.
 ///
 /// All parameters are stored for every kind; each kind reads only the ones
@@ -44,6 +79,9 @@ pub struct MaterialSpec {
   pub strength: f32,
   /// Preset color, applied only when the object has no explicit `color()`.
   pub default_color: Option<[f32; 3]>,
+  /// Procedural wood grain modulating the albedo (`None` = uniform color).
+  /// Read for matte, plastic, and metal; glass and emissive ignore it.
+  pub grain: Option<GrainSpec>,
 }
 
 /// Roughness/specular of the implicit material every object had before
@@ -60,6 +98,7 @@ impl Default for MaterialSpec {
       ior: 1.5,
       strength: 1.0,
       default_color: None,
+      grain: None,
     }
   }
 }
@@ -133,6 +172,7 @@ impl MaterialSpec {
         roughness: 0.5,
         specular: 0.04,
         default_color: c(166, 124, 82),
+        grain: Some(GrainSpec::default()),
         ..base
       }),
       "ivory" => Some(MaterialSpec {
@@ -158,18 +198,37 @@ impl MaterialSpec {
   }
 
   /// Bit-exact hash key (for material deduplication maps).
-  pub fn key(&self) -> [u32; 5] {
+  pub fn key(&self) -> [u32; 15] {
+    let g = self.grain.unwrap_or(GrainSpec {
+      ring_width: 0.0,
+      contrast: 0.0,
+      distortion: 0.0,
+      axis: [0.0; 3],
+      offset: [0.0; 3],
+    });
     [
       self.kind as u32,
       self.roughness.to_bits(),
       self.specular.to_bits(),
       self.ior.to_bits(),
       self.strength.to_bits(),
+      self.grain.is_some() as u32,
+      g.ring_width.to_bits(),
+      g.contrast.to_bits(),
+      g.distortion.to_bits(),
+      g.axis[0].to_bits(),
+      g.axis[1].to_bits(),
+      g.axis[2].to_bits(),
+      g.offset[0].to_bits(),
+      g.offset[1].to_bits(),
+      g.offset[2].to_bits(),
     ]
   }
 
   /// Apply parameter overrides from a Lua options table
-  /// (`roughness`, `specular`, `ior`, `strength`).
+  /// (`roughness`, `specular`, `ior`, `strength`, and the grain options
+  /// `grain`, `ring_width`, `grain_contrast`, `grain_distortion`,
+  /// `grain_axis`, `grain_offset`).
   fn apply_options(&mut self, t: &mlua::Table) {
     let get =
       |key: &str| t.get::<LuaValue>(key).ok().and_then(|v| lua_val_to_f32(&v));
@@ -184,6 +243,47 @@ impl MaterialSpec {
     }
     if let Some(v) = get("strength") {
       self.strength = v.max(0.0);
+    }
+
+    // `grain = true/false` toggles wood grain wholesale; the individual
+    // grain options below create it (with the wood preset's defaults) when
+    // it is absent, so `material("matte", {ring_width = 4})` just works.
+    match t.get::<LuaValue>("grain") {
+      Ok(LuaValue::Boolean(false)) => self.grain = None,
+      Ok(LuaValue::Boolean(true)) => {
+        self.grain.get_or_insert_default();
+      }
+      _ => {}
+    }
+    if let Some(v) = get("ring_width") {
+      self.grain.get_or_insert_default().ring_width = v.max(0.01);
+    }
+    if let Some(v) = get("grain_contrast") {
+      self.grain.get_or_insert_default().contrast = v.clamp(0.0, 1.0);
+    }
+    if let Some(v) = get("grain_distortion") {
+      self.grain.get_or_insert_default().distortion = v.max(0.0);
+    }
+    let vec3 = |key: &str| {
+      let t = t.get::<Option<mlua::Table>>(key).ok().flatten()?;
+      let comp = |i: i64| {
+        t.get::<LuaValue>(i)
+          .ok()
+          .and_then(|v| lua_val_to_f32(&v))
+          .unwrap_or(0.0)
+      };
+      Some([comp(1), comp(2), comp(3)])
+    };
+    if let Some(a) = vec3("grain_axis") {
+      // A zero axis would degenerate; keep the previous one instead.
+      if a.iter().any(|c| c.abs() > 1e-6) {
+        self.grain.get_or_insert_default().axis = a;
+      }
+    }
+    // A point the grain axis passes through (the log's center line); zero
+    // is a valid position, so it is taken as-is.
+    if let Some(o) = vec3("grain_offset") {
+      self.grain.get_or_insert_default().offset = o;
     }
   }
 }
@@ -327,5 +427,73 @@ mod tests {
     assert_eq!(spec.kind, MaterialKind::Plastic);
     assert_eq!(spec.roughness, DEFAULT_ROUGHNESS);
     assert_eq!(spec.specular, DEFAULT_SPECULAR);
+    assert_eq!(spec.grain, None);
+  }
+
+  #[test]
+  fn wood_preset_has_grain_and_others_do_not() {
+    assert!(MaterialSpec::named("wood").unwrap().grain.is_some());
+    for name in ["matte", "plastic", "metal", "glass", "rubber", "ivory"] {
+      assert!(
+        MaterialSpec::named(name).unwrap().grain.is_none(),
+        "{name} should have no grain"
+      );
+    }
+  }
+
+  #[test]
+  fn grain_changes_the_dedup_key() {
+    let wood = MaterialSpec::named("wood").unwrap();
+    let mut plain = wood;
+    plain.grain = None;
+    assert_ne!(wood.key(), plain.key());
+
+    let mut wide = wood;
+    wide.grain.as_mut().unwrap().ring_width = 5.0;
+    assert_ne!(wood.key(), wide.key());
+  }
+
+  #[test]
+  fn grain_options_parse_from_lua() {
+    let lua = mlua::Lua::new();
+    let opts = |src: &str| {
+      let t: mlua::Table = lua.load(src).eval().unwrap();
+      t
+    };
+
+    // Individual keys create grain (with defaults) on grainless materials.
+    let mut matte = MaterialSpec::named("matte").unwrap();
+    matte.apply_options(&opts(
+      "{ring_width = 4, grain_contrast = 0.5, grain_axis = {1, 0, 0}}",
+    ));
+    let g = matte.grain.expect("grain should be created");
+    assert_eq!(g.ring_width, 4.0);
+    assert_eq!(g.contrast, 0.5);
+    assert_eq!(g.axis, [1.0, 0.0, 0.0]);
+    assert_eq!(g.distortion, GrainSpec::default().distortion);
+
+    // `grain = false` removes the wood preset's grain.
+    let mut wood = MaterialSpec::named("wood").unwrap();
+    wood.apply_options(&opts("{grain = false}"));
+    assert_eq!(wood.grain, None);
+
+    // A zero axis is rejected, keeping the default.
+    let mut wood = MaterialSpec::named("wood").unwrap();
+    wood.apply_options(&opts("{grain_axis = {0, 0, 0}}"));
+    assert_eq!(wood.grain.unwrap().axis, GrainSpec::default().axis);
+
+    // The offset takes zero components as-is: any point is a valid place
+    // for the log's center line.
+    let mut wood = MaterialSpec::named("wood").unwrap();
+    wood.apply_options(&opts("{grain_offset = {0, 80, -250}}"));
+    assert_eq!(wood.grain.unwrap().offset, [0.0, 80.0, -250.0]);
+  }
+
+  #[test]
+  fn grain_offset_changes_the_dedup_key() {
+    let wood = MaterialSpec::named("wood").unwrap();
+    let mut moved = wood;
+    moved.grain.as_mut().unwrap().offset = [0.0, 0.0, -250.0];
+    assert_ne!(wood.key(), moved.key());
   }
 }

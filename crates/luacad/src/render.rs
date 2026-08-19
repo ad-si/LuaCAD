@@ -284,6 +284,7 @@ pub fn render_to_png(
     rasterize_smooth_triangle(
       &mut fb,
       &screen,
+      &gl_verts,
       &gl_normals,
       tri.color,
       &tri.material,
@@ -818,6 +819,7 @@ fn ortho(
 fn rasterize_smooth_triangle(
   fb: &mut Framebuffer,
   screen: &[[f32; 3]; 3],
+  world: &[[f32; 3]; 3],
   normals: &[[f32; 3]; 3],
   color: [f32; 3],
   material: &MaterialSpec,
@@ -864,8 +866,18 @@ fn rasterize_smooth_triangle(
         // Interpolate normal across triangle
         let pixel_normal =
           lerp3(normals[0], normals[1], normals[2], w0, w1, w2);
+        // Wood grain modulates the albedo per pixel; the orthographic
+        // projection is affine, so screen-space barycentrics interpolate
+        // world positions correctly.
+        let albedo = match &material.grain {
+          Some(g) => {
+            let pos = lerp3(world[0], world[1], world[2], w0, w1, w2);
+            grain_color(color, g, pos)
+          }
+          None => color,
+        };
         let pixel_color =
-          shade_pixel(pixel_normal, color, material, view_dir, lights);
+          shade_pixel(pixel_normal, albedo, material, view_dir, lights);
         fb.set_pixel(x, y, depth, pixel_color);
       }
     }
@@ -874,6 +886,39 @@ fn rasterize_smooth_triangle(
 
 fn edge_function(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
   (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
+}
+
+/// Base color darkened by the wood-grain field at GL-space position `pos` —
+/// the same scalar field the path tracer's `Texture::Wood` samples, so both
+/// renderers show the same rings. The grain axis is stored in CAD
+/// coordinates and swizzled like the geometry.
+#[cfg(feature = "raytrace")]
+fn grain_color(
+  base: [f32; 3],
+  grain: &crate::material::GrainSpec,
+  pos: [f32; 3],
+) -> [f32; 3] {
+  use prime_core::Vec3;
+  let axis = cad_to_gl(grain.axis);
+  let p = sub(pos, cad_to_gl(grain.offset));
+  let w = prime_core::noise::wood_grain(
+    Vec3::new(p[0], p[1], p[2]),
+    Vec3::new(axis[0], axis[1], axis[2]),
+    1.0 / grain.ring_width.max(1e-3),
+    grain.distortion,
+  );
+  base.map(|c| c * (1.0 - grain.contrast * w))
+}
+
+/// Without the path tracer (wasm builds) the noise module is unavailable;
+/// wood falls back to its uniform base color.
+#[cfg(not(feature = "raytrace"))]
+fn grain_color(
+  base: [f32; 3],
+  _grain: &crate::material::GrainSpec,
+  _pos: [f32; 3],
+) -> [f32; 3] {
+  base
 }
 
 // --- PNG output ---

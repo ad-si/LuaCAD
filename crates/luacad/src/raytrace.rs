@@ -143,23 +143,49 @@ fn build_camera(center: Vec3, max_extent: f32) -> CameraConfig {
 /// saturates over roughly a 10-unit-thick part.
 const GLASS_ABSORPTION: f32 = 0.1;
 
+/// The albedo of a material: uniform, or procedural wood grain blending the
+/// base color toward a darkened latewood variant of itself.
+///
+/// The grain axis is given in CAD coordinates; the texture is evaluated at
+/// path-tracer hit points, which live in GL space, so the axis is swizzled
+/// the same way as the geometry. The rasterizer's grain path
+/// (`render::grain_color`) evaluates the identical scalar field, keeping the
+/// two renderers' grain aligned.
+fn albedo_texture(
+  spec: &MaterialSpec,
+  color: [f32; 3],
+) -> prime_core::texture::Texture {
+  use prime_core::texture::Texture;
+  match spec.grain {
+    None => Texture::Constant(srgb_to_linear(color)),
+    Some(g) => Texture::Wood {
+      early: srgb_to_linear(color),
+      late: srgb_to_linear(color.map(|c| c * (1.0 - g.contrast))),
+      frequency: 1.0 / g.ring_width.max(1e-3),
+      distortion: g.distortion,
+      axis: v3(render::cad_to_gl(g.axis)),
+      offset: v3(render::cad_to_gl(g.offset)),
+    },
+  }
+}
+
 /// Map a LuaCAD material + resolved color onto a prime-core BSDF.
 fn to_prime_material(spec: &MaterialSpec, color: [f32; 3]) -> Material {
   use crate::material::MaterialKind;
   let albedo = srgb_to_linear(color);
   match spec.kind {
     MaterialKind::Matte => Material::Lambertian {
-      albedo: albedo.into(),
+      albedo: albedo_texture(spec, color),
       normal: None,
     },
     MaterialKind::Plastic => Material::Plastic {
-      albedo: albedo.into(),
+      albedo: albedo_texture(spec, color),
       roughness: spec.roughness,
       specular: spec.specular,
       normal: None,
     },
     MaterialKind::Metal => Material::Metal {
-      albedo: albedo.into(),
+      albedo: albedo_texture(spec, color),
       roughness: spec.roughness,
       normal: None,
     },
@@ -182,7 +208,7 @@ fn build_primitives(
   triangles: &[SmoothTriangle],
 ) -> (Vec<Material>, Vec<Primitive>) {
   let mut materials: Vec<Material> = Vec::new();
-  let mut by_key: HashMap<([u32; 3], [u32; 5]), MaterialId> = HashMap::new();
+  let mut by_key: HashMap<([u32; 3], [u32; 15]), MaterialId> = HashMap::new();
   let mut primitives = Vec::with_capacity(triangles.len());
 
   for tri in triangles {

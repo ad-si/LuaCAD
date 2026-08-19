@@ -24,6 +24,21 @@ any release.
   with per-object highlight parameters. Materials have no OpenSCAD
   equivalent, so a `.scad` export omits them. An unknown material name is an
   error rather than a silent fallback. See the new `examples/materials/`.
+- Procedural wood grain: the `wood` preset now shows noise-warped growth
+  rings instead of a flat color, in both the rasterizer and `--raytrace`.
+  The rings are concentric around a configurable axis and darken the base
+  color (an explicit `color()` is kept as the earlywood tone). Options:
+  `material("wood", {ring_width = 4, grain_axis = {1, 0, 0}, grain_offset =
+  {0, 0, -250}, grain_contrast = 0.5, grain_distortion = 0.3, grain =
+  false})` — `ring_width` in model units, `grain_axis` the log's long
+  direction (default z), `grain_offset` a point that axis passes through
+  (the log's center line; move it away from a part for flatter, more even
+  rings), `grain_contrast` how dark the latewood bands are,
+  `grain_distortion` the ring waviness, and `grain = false` restores the
+  flat color. Setting any grain option on
+  another matte/plastic/metal material enables grain there too. The grain is
+  anchored in world space, so a moved part is "cut from a different spot in
+  the log".
 
 ### Fixed
 

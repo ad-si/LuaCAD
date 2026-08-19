@@ -38,6 +38,7 @@ pub mod hit;
 pub mod integrator;
 pub mod material;
 pub mod math;
+pub mod noise;
 pub mod obj;
 pub mod ray;
 pub mod sampler;

@@ -534,7 +534,7 @@ fn aov_once(scene: &Scene, mut ray: Ray, max_chain: usize, sampler: &mut Sampler
             ray = Ray::new(offset_origin(&hit, bs.wi), bs.wi);
             continue;
         }
-        let a = tint * material.albedo_hint(hit.u, hit.v);
+        let a = tint * material.albedo_hint(hit.u, hit.v, hit.p);
         return (a.min(Color::ONE), hit.normal);
     }
     // Still inside a specular chain after max_chain bounces: give up cleanly.

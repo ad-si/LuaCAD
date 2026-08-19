@@ -1,12 +1,15 @@
-//! Textures: spatially varying surface parameters sampled by `(u, v)`.
+//! Textures: spatially varying surface parameters.
 //!
-//! A [`Texture`] is `Constant`, a procedural `Checker`, or an `Image`. As with
-//! the environment map, decoding image *files* is a front-end concern; the core
-//! works on already-decoded pixels ([`ImageData`]). An `Image` texture stores
-//! only its path until [`Texture::resolve`] (driven by a front-end decoder)
-//! fills in the pixels — which keeps the scene description serializable and the
-//! core codec-free.
+//! A [`Texture`] is `Constant`, a procedural `Checker`, a procedural solid
+//! `Wood`, or an `Image`. Surface-parameterized textures sample by `(u, v)`;
+//! solid textures sample by the world-space hit position, so they need no UV
+//! unwrap (CSG meshes have none). As with the environment map, decoding image
+//! *files* is a front-end concern; the core works on already-decoded pixels
+//! ([`ImageData`]). An `Image` texture stores only its path until
+//! [`Texture::resolve`] (driven by a front-end decoder) fills in the pixels —
+//! which keeps the scene description serializable and the core codec-free.
 
+use crate::math::Vec3;
 use crate::{Color, Float};
 use std::path::Path;
 use std::sync::Arc;
@@ -79,6 +82,25 @@ pub enum Texture {
         odd: Color,
         scale: Float,
     },
+    /// Procedural wood grain: a solid texture of noise-warped growth rings
+    /// around `axis`, evaluated at the world-space hit position (see
+    /// [`crate::noise::wood_grain`]). LuaCAD addition, not in upstream Prime.
+    Wood {
+        /// Earlywood (light) color.
+        early: Color,
+        /// Latewood (dark ring) color.
+        late: Color,
+        /// Growth rings per world unit.
+        frequency: Float,
+        /// Ring waviness, in ring widths.
+        distortion: Float,
+        /// Grain axis — the log's long direction. Need not be unit length.
+        axis: Vec3,
+        /// A point the grain axis passes through — where the log's center
+        /// line sits in world space (the rings are concentric around it).
+        #[cfg_attr(feature = "serde", serde(default))]
+        offset: Vec3,
+    },
     /// An image file (resolved by the front-end via [`Texture::resolve`]).
     Image {
         path: String,
@@ -100,8 +122,9 @@ impl Texture {
         Texture::Constant(c)
     }
 
-    /// Sample the texture color at `(u, v)`.
-    pub fn sample(&self, u: Float, v: Float) -> Color {
+    /// Sample the texture color at surface coordinates `(u, v)` and
+    /// world-space position `p` (only solid textures read `p`).
+    pub fn sample(&self, u: Float, v: Float, p: Vec3) -> Color {
         match self {
             Texture::Constant(c) => *c,
             Texture::Checker { even, odd, scale } => {
@@ -111,6 +134,17 @@ impl Texture {
                 } else {
                     *odd
                 }
+            }
+            Texture::Wood {
+                early,
+                late,
+                frequency,
+                distortion,
+                axis,
+                offset,
+            } => {
+                let w = crate::noise::wood_grain(p - *offset, *axis, *frequency, *distortion);
+                *early + (*late - *early) * w
             }
             Texture::Image { data, .. } => match data {
                 Some(img) => img.sample(u, v),
@@ -172,7 +206,7 @@ mod tests {
     #[test]
     fn constant_is_uniform() {
         let t = Texture::constant(Color::new(0.2, 0.4, 0.6));
-        assert_eq!(t.sample(0.1, 0.9), Color::new(0.2, 0.4, 0.6));
+        assert_eq!(t.sample(0.1, 0.9, Vec3::ZERO), Color::new(0.2, 0.4, 0.6));
     }
 
     #[test]
@@ -183,9 +217,38 @@ mod tests {
             scale: 2.0,
         };
         // scale 2 -> cells of width 0.5. (0.25,0.25)->(0,0) even; (0.75,0.25)->(1,0) odd.
-        assert_eq!(t.sample(0.25, 0.25), Color::ZERO);
-        assert_eq!(t.sample(0.75, 0.25), Color::ONE);
-        assert_eq!(t.sample(0.75, 0.75), Color::ZERO);
+        assert_eq!(t.sample(0.25, 0.25, Vec3::ZERO), Color::ZERO);
+        assert_eq!(t.sample(0.75, 0.25, Vec3::ZERO), Color::ONE);
+        assert_eq!(t.sample(0.75, 0.75, Vec3::ZERO), Color::ZERO);
+    }
+
+    #[test]
+    fn wood_blends_between_early_and_late_and_varies_with_position() {
+        let early = Color::new(0.8, 0.6, 0.4);
+        let late = Color::new(0.4, 0.25, 0.1);
+        let t = Texture::Wood {
+            early,
+            late,
+            frequency: 0.4,
+            distortion: 0.4,
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            offset: Vec3::ZERO,
+        };
+        let mut distinct = std::collections::HashSet::new();
+        for i in 0..100 {
+            let p = Vec3::new(i as Float * 0.1, 0.0, 0.0);
+            let c = t.sample(0.0, 0.0, p);
+            // Every sample lies on the early↔late segment.
+            for k in 0..3 {
+                let (lo, hi) = (
+                    late.axis(k).min(early.axis(k)),
+                    late.axis(k).max(early.axis(k)),
+                );
+                assert!(c.axis(k) >= lo - 1e-6 && c.axis(k) <= hi + 1e-6, "{c:?}");
+            }
+            distinct.insert(c.x.to_bits());
+        }
+        assert!(distinct.len() > 10, "wood should vary spatially");
     }
 
     #[test]
@@ -203,7 +266,7 @@ mod tests {
             srgb: false,
             data: None,
         };
-        assert_eq!(t.sample(0.5, 0.5), Color::new(1.0, 0.0, 1.0));
+        assert_eq!(t.sample(0.5, 0.5, Vec3::ZERO), Color::new(1.0, 0.0, 1.0));
         let mut decoder = |_p: &Path| {
             Ok(ImageData {
                 width: 1,
@@ -212,6 +275,6 @@ mod tests {
             })
         };
         t.resolve(Path::new("."), &mut decoder).unwrap();
-        assert_eq!(t.sample(0.5, 0.5), Color::new(0.25, 0.5, 0.75));
+        assert_eq!(t.sample(0.5, 0.5, Vec3::ZERO), Color::new(0.25, 0.5, 0.75));
     }
 }

@@ -152,11 +152,11 @@ impl Material {
     /// emitters and clear dielectrics (whose color comes from what they show,
     /// not from the surface itself).
     #[inline]
-    pub fn albedo_hint(&self, u: Float, v: Float) -> Color {
+    pub fn albedo_hint(&self, u: Float, v: Float, p: Vec3) -> Color {
         match self {
             Material::Lambertian { albedo, .. }
             | Material::Metal { albedo, .. }
-            | Material::Plastic { albedo, .. } => albedo.sample(u, v),
+            | Material::Plastic { albedo, .. } => albedo.sample(u, v, p),
             _ => Color::ONE,
         }
     }
@@ -194,7 +194,7 @@ impl Material {
                 }
                 Some(BsdfSample {
                     wi,
-                    f: albedo.sample(hit.u, hit.v) * FRAC_1_PI,
+                    f: albedo.sample(hit.u, hit.v, hit.p) * FRAC_1_PI,
                     pdf: cos * FRAC_1_PI,
                     specular: false,
                 })
@@ -212,7 +212,7 @@ impl Material {
                     }
                     return Some(BsdfSample {
                         wi: wi.normalize(),
-                        f: albedo.sample(hit.u, hit.v),
+                        f: albedo.sample(hit.u, hit.v, hit.p),
                         pdf: 1.0,
                         specular: true,
                     });
@@ -371,7 +371,7 @@ impl Material {
         match self {
             Material::Lambertian { albedo, .. } => {
                 if wi.dot(n) > 0.0 && wo.dot(n) > 0.0 {
-                    albedo.sample(hit.u, hit.v) * FRAC_1_PI
+                    albedo.sample(hit.u, hit.v, hit.p) * FRAC_1_PI
                 } else {
                     Color::ZERO
                 }
@@ -394,7 +394,7 @@ impl Material {
                 let a2 = ggx_alpha(roughness).powi(2);
                 let d = ggx_d(nh, a2);
                 let g = smith_g2(no, nl, a2);
-                let fr = fresnel_schlick(vh, albedo.sample(hit.u, hit.v));
+                let fr = fresnel_schlick(vh, albedo.sample(hit.u, hit.v, hit.p));
                 fr * (d * g / (4.0 * no * nl))
             }
             Material::Dielectric {
@@ -432,7 +432,7 @@ impl Material {
                 let fr = *specular + (1.0 - *specular) * m5;
                 let spec = fr * ggx_d(nh, a2) * smith_g2(no, nl, a2) / (4.0 * no * nl);
                 // The energy the coat reflects never reaches the base.
-                let diffuse = albedo.sample(hit.u, hit.v) * ((1.0 - fr) * FRAC_1_PI);
+                let diffuse = albedo.sample(hit.u, hit.v, hit.p) * ((1.0 - fr) * FRAC_1_PI);
                 diffuse + Color::splat(spec)
             }
             _ => Color::ZERO,
@@ -538,7 +538,7 @@ pub fn apply_normal_map(hit: &HitRecord, normal_map: &Texture) -> Vec3 {
     // Orthonormalize the tangent against n (Gram-Schmidt).
     let t = (hit.tangent - n * hit.tangent.dot(n)).normalize_or(crate::hit::fallback_tangent(n));
     let b = n.cross(t);
-    let c = normal_map.sample(hit.u, hit.v);
+    let c = normal_map.sample(hit.u, hit.v, hit.p);
     let m = Vec3::new(c.x * 2.0 - 1.0, c.y * 2.0 - 1.0, c.z * 2.0 - 1.0);
     (t * m.x + b * m.y + n * m.z).normalize_or(n)
 }
