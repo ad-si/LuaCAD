@@ -352,7 +352,11 @@ fn shade_pixel(
 
 /// Angle threshold for smooth normal averaging.
 /// Edges steeper than this keep hard normals (preserves sharp creases).
-const SMOOTH_ANGLE_COS: f32 = 0.707; // cos(45°)
+/// 30° keeps default-tessellation spheres/cylinders (~11° between facets)
+/// smooth, while a boolean cut meeting a curved surface — e.g. the ~41°
+/// crease where a sphere exits a cube face — stays a hard edge. At 45° such
+/// crease vertices blended both surfaces and smeared shading across them.
+const SMOOTH_ANGLE_COS: f32 = 0.866; // cos(30°)
 
 /// Collect triangles with per-vertex normals, respecting per-subtree colors.
 ///
@@ -558,8 +562,9 @@ fn apply_wrappers(mut node: ScadNode, wrappers: &[WrapFn]) -> ScadNode {
   node
 }
 
-/// Map from quantized vertex position to the normals of adjacent faces.
-type VertexNormalMap = HashMap<[i32; 3], Vec<[f32; 3]>>;
+/// Map from quantized vertex position to the normals of adjacent faces, each
+/// paired with the face's corner angle at that vertex (its averaging weight).
+type VertexNormalMap = HashMap<[i32; 3], Vec<([f32; 3], f32)>>;
 
 /// Materialize a Manifold's mesh into SmoothTriangles.
 fn materialize_mesh(
@@ -583,12 +588,21 @@ fn materialize_mesh(
 
   // Build vertex→adjacent-face-normals map only when smooth shading is
   // requested
+  // Angle-weighted (not plain-averaged): boolean output triangulations are
+  // irregular, and a fan of skinny triangles on one side of a vertex would
+  // otherwise dominate the average and blotch the shading.
   let vert_faces: Option<VertexNormalMap> = if smooth {
     let mut map = VertexNormalMap::new();
     for (fi, tri) in mesh.triangles.iter().enumerate() {
-      for &vi in tri {
-        let key = quantize(mesh.vertices[vi as usize]);
-        map.entry(key).or_default().push(face_normals[fi]);
+      for corner in 0..3 {
+        let v = mesh.vertices[tri[corner] as usize];
+        let a = mesh.vertices[tri[(corner + 1) % 3] as usize];
+        let b = mesh.vertices[tri[(corner + 2) % 3] as usize];
+        let angle = corner_angle(v, a, b);
+        map
+          .entry(quantize(v))
+          .or_default()
+          .push((face_normals[fi], angle));
       }
     }
     Some(map)
@@ -610,11 +624,11 @@ fn materialize_mesh(
         let key = quantize(*vert);
         let neighbors = &vf[&key];
         let mut accum = [0.0f32; 3];
-        for &neighbor_normal in neighbors {
+        for &(neighbor_normal, weight) in neighbors {
           if dot(my_normal, neighbor_normal) >= SMOOTH_ANGLE_COS {
-            accum[0] += neighbor_normal[0];
-            accum[1] += neighbor_normal[1];
-            accum[2] += neighbor_normal[2];
+            accum[0] += neighbor_normal[0] * weight;
+            accum[1] += neighbor_normal[1] * weight;
+            accum[2] += neighbor_normal[2] * weight;
           }
         }
         n[vi] = normalize(accum);
@@ -632,6 +646,14 @@ fn materialize_mesh(
       material,
     });
   }
+}
+
+/// Interior angle of a triangle at corner `v` (the other corners being `a`
+/// and `b`).
+fn corner_angle(v: [f32; 3], a: [f32; 3], b: [f32; 3]) -> f32 {
+  let e1 = normalize(sub(a, v));
+  let e2 = normalize(sub(b, v));
+  dot(e1, e2).clamp(-1.0, 1.0).acos()
 }
 
 /// Quantize a position to ~1μm grid for vertex welding.
