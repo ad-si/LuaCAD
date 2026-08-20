@@ -12,6 +12,13 @@ any release.
 
 ### Added
 
+- Studio: the selected projection is remembered across restarts
+  ([#18](https://github.com/ad-si/LuaCAD/issues/18)), so a perspective view
+  no longer falls back to orthogonal on every launch (`orthogonal_view` in
+  the state file, next to `hide_editor` and `auto_reload`). Resetting the
+  camera now also uses the distance that matches the current projection
+  instead of always the orthogonal one.
+
 - Studio: `-h` / `--help` and `-v` / `--version` print their information and
   exit instead of starting the GUI
   ([#15](https://github.com/ad-si/LuaCAD/issues/15)). The file to open is now
