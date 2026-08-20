@@ -42,6 +42,11 @@ pub enum ScadNode {
   },
   Polygon {
     points: Vec<[f32; 2]>,
+    /// Contour index lists, as OpenSCAD's `polygon(points, paths)`. `None`
+    /// means every point forms a single contour. With several contours the
+    /// even-odd rule applies, so one drawn inside another is a hole — which is
+    /// how `text()` gets the counter in an "o".
+    paths: Option<Vec<Vec<usize>>>,
   },
   Text {
     text: String,
@@ -433,7 +438,7 @@ impl ScadNode {
         }
       }
 
-      ScadNode::Polygon { points } => {
+      ScadNode::Polygon { points, paths } => {
         write_indent(out, depth);
         out.push_str("polygon(points = [\n");
         for (i, p) in points.iter().enumerate() {
@@ -447,7 +452,26 @@ impl ScadNode {
           );
         }
         write_indent(out, depth);
-        out.push_str("]);\n");
+        match paths {
+          Some(paths) => {
+            out.push_str("], paths = [");
+            for (i, path) in paths.iter().enumerate() {
+              if i > 0 {
+                out.push_str(", ");
+              }
+              out.push('[');
+              for (j, idx) in path.iter().enumerate() {
+                if j > 0 {
+                  out.push_str(", ");
+                }
+                let _ = write!(out, "{idx}");
+              }
+              out.push(']');
+            }
+            out.push_str("]);\n");
+          }
+          None => out.push_str("]);\n"),
+        }
       }
 
       ScadNode::Text {
@@ -1220,12 +1244,35 @@ mod tests {
   fn polygon_2d() {
     let node = ScadNode::Polygon {
       points: vec![[0.0, 0.0], [10.0, 0.0], [5.0, 10.0]],
+      paths: None,
     };
     let scad = node.to_scad();
     assert!(scad.contains("polygon(points = ["));
     assert!(scad.contains("[0, 0]"));
     assert!(scad.contains("[10, 0]"));
     assert!(scad.contains("[5, 10]"));
+    assert!(!scad.contains("paths"));
+  }
+
+  #[test]
+  fn polygon_2d_with_paths() {
+    // A square with a square hole: the contours are written as index lists, so
+    // OpenSCAD reads back the same even-odd region.
+    let node = ScadNode::Polygon {
+      points: vec![
+        [0.0, 0.0],
+        [10.0, 0.0],
+        [10.0, 10.0],
+        [0.0, 10.0],
+        [3.0, 3.0],
+        [7.0, 3.0],
+        [7.0, 7.0],
+        [3.0, 7.0],
+      ],
+      paths: Some(vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]]),
+    };
+    let scad = node.to_scad();
+    assert!(scad.contains("paths = [[0, 1, 2, 3], [4, 5, 6, 7]]"), "{scad}");
   }
 
   #[test]

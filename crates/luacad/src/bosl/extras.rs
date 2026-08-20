@@ -192,6 +192,7 @@ fn hull_points(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     );
     crate::scad_export::ScadNode::Polygon {
       points: hull.iter().map(|p| [p[0] as f32, p[1] as f32]).collect(),
+      paths: None,
     }
   } else {
     let Some(tris) = crate::bosl::geom::hull3d(&points) else {

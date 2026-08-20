@@ -1664,7 +1664,24 @@ pub fn materialize_scad_cross_section(
       )
     }),
 
-    ScadNode::Polygon { points } => CrossSection::from_points(points),
+    ScadNode::Polygon { points, paths } => match paths {
+      // Several contours resolve even-odd, so one drawn inside another is a
+      // hole. A single contour keeps the cheaper simple-polygon path.
+      Some(paths) => {
+        let contours: Vec<Vec<[f64; 2]>> = paths
+          .iter()
+          .map(|path| {
+            path
+              .iter()
+              .filter_map(|&i| points.get(i))
+              .map(|p| [p[0] as f64, p[1] as f64])
+              .collect()
+          })
+          .collect();
+        CrossSection::of_outlines(&contours)
+      }
+      None => CrossSection::from_points(points),
+    },
 
     ScadNode::Import { file, .. } if file.to_lowercase().ends_with(".svg") => {
       match crate::svg_import::svg_to_polygons(file) {
@@ -4082,6 +4099,7 @@ mod cross_section_tests {
     let scad = extrude(
       ScadNode::Polygon {
         points: vec![[0.0, 0.0], [4.0, 0.0], [4.0, 3.0]],
+        paths: None,
       },
       2.0,
     );
@@ -4095,6 +4113,7 @@ mod cross_section_tests {
     let scad = extrude(
       ScadNode::Polygon {
         points: vec![[0.0, 0.0], [1.0, 0.0]],
+        paths: None,
       },
       2.0,
     );
