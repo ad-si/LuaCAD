@@ -1895,6 +1895,7 @@ version = "1.1.0"
 dependencies = [
  "arboard",
  "cgmath",
+ "clap",
  "csgrs",
  "dirs",
  "egui",

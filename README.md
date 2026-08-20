@@ -89,11 +89,17 @@ Path-traced renders always shade smooth (creases stay sharp).
 `--samples N` sets the path tracer's samples per pixel (default: 128);
 more samples mean less noise at proportionally longer render times.
 
+`luacad --help` lists the subcommands, and `luacad --version` (or `-v`)
+prints the version — see [Version information](#version-information).
+
 
 ### Studio
 
 ```sh
-luacad-studio
+luacad-studio            # Reopen the file from the last session
+luacad-studio model.lua  # Open a file
+luacad-studio --help     # Show the command line options and exit
+luacad-studio --version  # Show the version and exit
 ```
 
 Desktop app with a code editor and 3D viewport.
@@ -101,6 +107,32 @@ Edit Lua code on the right, see the model update on the left.
 The viewport draws the CSG tree itself through [OpenCSG],
 so a boolean shows up as soon as the script runs,
 without waiting for a mesh to be built for it.
+Settings → About shows the same version information as `--version`,
+plus the target the binary was built for.
+
+
+### Version information
+
+Both binaries accept `-v` / `--version` and `-h` / `--help`, and exit
+immediately:
+
+```sh
+$ luacad --version
+luacad 1.1.0 (v1.1.0-3-g23a0ea2-dirty)
+```
+
+A binary built from a git checkout appends
+`git describe --always --dirty --tags` to the crate version, so a local build
+can be traced back to the commit it came from — the hash alone when the
+checkout has no tags, with `-dirty` marking a modified working tree.
+Released binaries and installs from crates.io print the plain version
+(`luacad 1.1.0`).
+Set `LUACAD_GIT_DESCRIBE` at build time to pin the suffix (or to drop it,
+with an empty value) for reproducible builds:
+
+```sh
+LUACAD_GIT_DESCRIBE=nixpkgs cargo build --release
+```
 
 
 ### Playground

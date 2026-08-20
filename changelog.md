@@ -12,6 +12,24 @@ any release.
 
 ### Added
 
+- Studio: `-h` / `--help` and `-v` / `--version` print their information and
+  exit instead of starting the GUI
+  ([#15](https://github.com/ad-si/LuaCAD/issues/15)). The file to open is now
+  a declared argument (`luacad-studio [file.lua]`), so an unknown flag is
+  reported instead of being taken for a file name. The same version
+  information is in the GUI under Settings → About, reachable through the new
+  `ℹ About` button (which is also in the bottom bar while the code editor is
+  hidden), together with the target the binary was built for and a button
+  that copies it all for a bug report.
+
+- Both binaries append `git describe --always --dirty --tags` to their version
+  when they are built from a git checkout, e.g.
+  `luacad 1.1.0 (v1.1.0-3-g23a0ea2-dirty)`, so a locally built binary can be
+  traced back to its commit. Builds from crates.io (and from a clean release
+  tag) print the plain version. `LUACAD_GIT_DESCRIBE` overrides the suffix at
+  build time — set it to an empty value to drop it, e.g. for a reproducible
+  distro package.
+
 - Studio: the opened file is watched and reloaded automatically when another
   program changes it on disk
   ([#14](https://github.com/ad-si/LuaCAD/issues/14)), matching `luacad watch`
