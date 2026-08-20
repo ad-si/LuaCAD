@@ -83,8 +83,9 @@ jobs:
       - name: Check luacad-studio at 1.95
         run: cargo +1.95.0 check --package luacad-studio --all-targets
 
-  # Publishing is four irreversible pushes to crates.io in dependency order, so
-  # a defective tarball has to surface here rather than halfway through.
+  # Publishing is a series of irreversible pushes to crates.io in dependency
+  # order, so a defective tarball has to surface here rather than halfway
+  # through. `make release` lists the order.
   package:
     runs-on: ubuntu-latest
     name: Package
