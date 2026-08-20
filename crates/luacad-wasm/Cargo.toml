@@ -2,7 +2,9 @@
 name = "luacad-wasm"
 version.workspace = true
 repository.workspace = true
-rust-version.workspace = true
+# Higher than the workspace default: `luacad` requires 1.96, and cargo checks
+# that regardless of which of its features are enabled.
+rust-version = "1.96"
 edition = "2024"
 description = "WebAssembly build of the LuaCAD engine, powering the web playground"
 license = "AGPL-3.0-or-later"

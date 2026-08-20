@@ -12,9 +12,9 @@ resolver = "3"
 [workspace.package]
 version = "1.1.0"
 repository = "https://github.com/ad-si/LuaCAD"
-# Edition 2024 needs 1.85; the dependency tree pushes it to 1.89.
-# `luacad-studio` overrides this — the egui stack needs 1.95.
-# `luacad-prime-core` (and with it `luacad`) overrides it to 1.96.
+# Edition 2024 needs 1.85; the dependency tree pushes it to 1.89. Only the two
+# -sys crates still inherit this. `luacad-prime-core` needs 1.96, and that
+# carries through `luacad` to `luacad-studio` and `luacad-wasm`.
 rust-version = "1.89"
 
 # An unoptimized path tracer makes `luacad render --raytrace` painfully slow
