@@ -133,7 +133,7 @@ fn save_to_path(app: &mut AppState, path: &Path) -> bool {
       app.disk_mtime = file_mtime(path);
       app.mark_saved();
       app.export_status = Some((format!("Saved to {}", path.display()), false));
-      app.execute_lua_code();
+      app.execute_source();
       true
     }
     Err(e) => {
@@ -154,7 +154,7 @@ fn reload_current_file(app: &mut AppState) {
       app.text_content = contents;
       app.mark_saved();
       app.disk_mtime = file_mtime(&path);
-      app.execute_lua_code();
+      app.execute_source();
       app.export_status = Some((format!("Reloaded {}", path.display()), false));
     }
     Err(e) => {
@@ -472,7 +472,7 @@ impl Studio {
                 app.editor_visible = !app.editor_visible;
               }
               Key::Enter => {
-                app.execute_lua_code();
+                app.execute_source();
               }
               Key::Num4 => {
                 app.camera_azimuth = -90.0;
@@ -879,8 +879,10 @@ impl Studio {
           }
           FileAction::Open => {
             if let Some(path) = rfd::FileDialog::new()
-              .set_title("Open Lua File")
+              .set_title("Open Model")
+              .add_filter("Model Files", &["lua", "scad"])
               .add_filter("Lua Files", &["lua"])
+              .add_filter("OpenSCAD Files", &["scad"])
               .pick_file()
             {
               match std::fs::read_to_string(&path) {
@@ -890,7 +892,7 @@ impl Studio {
                   app.current_file = Some(path.clone());
                   app.disk_mtime = file_mtime(&path);
                   app.reset_render_area();
-                  app.execute_lua_code();
+                  app.execute_source();
                   save_last_file(Some(&path));
                 }
                 Err(e) => {
@@ -912,8 +914,9 @@ impl Studio {
                 save_to_path(app, &path);
               }
             } else if let Some(path) = rfd::FileDialog::new()
-              .set_title("Save Lua File")
+              .set_title("Save Model")
               .add_filter("Lua Files", &["lua"])
+              .add_filter("OpenSCAD Files", &["scad"])
               .set_file_name("untitled.lua")
               .save_file()
               && save_to_path(app, &path)
@@ -930,9 +933,17 @@ impl Studio {
               .and_then(|p| p.file_name())
               .map(|n| n.to_string_lossy().to_string())
               .unwrap_or_else(|| "untitled.lua".to_string());
-            if let Some(path) = rfd::FileDialog::new()
-              .set_title("Save Lua File As")
-              .add_filter("Lua Files", &["lua"])
+            let dialog = rfd::FileDialog::new().set_title("Save Model As");
+            let dialog = if app.is_scad() {
+              dialog
+                .add_filter("OpenSCAD Files", &["scad"])
+                .add_filter("Lua Files", &["lua"])
+            } else {
+              dialog
+                .add_filter("Lua Files", &["lua"])
+                .add_filter("OpenSCAD Files", &["scad"])
+            };
+            if let Some(path) = dialog
               .set_file_name(&default_name)
               .save_file()
               && save_to_path(app, &path)
@@ -1221,14 +1232,20 @@ impl Studio {
           }
         }
         winit::event::WindowEvent::DroppedFile(path) => {
-          if path.extension().and_then(|e| e.to_str()) == Some("lua") {
+          let droppable = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| {
+              e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("scad")
+            });
+          if droppable {
             match std::fs::read_to_string(path) {
               Ok(contents) => {
                 app.text_content = contents;
                 app.mark_saved();
                 app.current_file = Some(path.clone());
                 app.disk_mtime = file_mtime(path);
-                app.execute_lua_code();
+                app.execute_source();
                 app.scene_dirty = true;
                 app.needs_fit_to_view = true;
                 save_last_file(Some(path));

@@ -296,7 +296,7 @@ impl AppState {
       lint_text_snapshot: String::new(),
       search: SearchState::default(),
     };
-    app.execute_lua_code();
+    app.execute_source();
     app
   }
 
@@ -359,10 +359,23 @@ impl AppState {
     }
   }
 
-  /// Start executing the editor content on a background thread, so the UI
-  /// stays responsive while a complex model builds. The previous scene keeps
-  /// showing until [`Self::poll_lua_job`] picks up the result.
-  pub fn execute_lua_code(&mut self) {
+  /// Whether the open file is OpenSCAD rather than LuaCAD. Decided by the
+  /// file's extension, so an unsaved buffer is Lua.
+  pub fn is_scad(&self) -> bool {
+    self
+      .current_file
+      .as_deref()
+      .is_some_and(luacad::scad_import::is_scad_file)
+  }
+
+  /// Start building the editor content on a background thread, so the UI stays
+  /// responsive while a complex model builds. The previous scene keeps showing
+  /// until [`Self::poll_lua_job`] picks up the result.
+  ///
+  /// Lua and OpenSCAD both end up as `ScadNode` trees, so only the front end
+  /// differs — the viewport, the CSG tree and every export read the result the
+  /// same way.
+  pub fn execute_source(&mut self) {
     // Resolve relative paths (e.g. import("tracings/outline.svg"))
     // against the opened file's directory, like OpenSCAD does
     if let Some(dir) = self.current_file.as_ref().and_then(|f| f.parent()) {
@@ -375,20 +388,41 @@ impl AppState {
 
     let code = self.text_content.clone();
     let path = self.current_file.clone();
+    let scad = self.is_scad();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-      let (geometries, lua_error) =
-        match luacad::lua_engine::execute_lua_with_path(&code, path.as_deref())
-        {
-          Ok(geometries) => {
-            let error = geometries.is_empty().then(|| {
+      let built = if scad {
+        let dir = path
+          .as_deref()
+          .and_then(|p| p.parent())
+          .unwrap_or(std::path::Path::new("."))
+          .to_path_buf();
+        luacad::scad_import::load_scad(&code, &dir).map(|program| {
+          for line in &program.echoes {
+            println!("{line}");
+          }
+          for warning in &program.warnings {
+            eprintln!("Warning: {warning}");
+          }
+          program.geometries
+        })
+      } else {
+        luacad::lua_engine::execute_lua_with_path(&code, path.as_deref())
+      };
+      let (geometries, lua_error) = match built {
+        Ok(geometries) => {
+          let error = geometries.is_empty().then(|| {
+            if scad {
+              "No geometry to render.".to_string()
+            } else {
               "No geometry to render. Use render(obj) or return a geometry object."
                 .to_string()
-            });
-            (geometries, error)
-          }
-          Err(e) => (vec![], Some(e)),
-        };
+            }
+          });
+          (geometries, error)
+        }
+        Err(e) => (vec![], Some(e)),
+      };
       let scene = flatten_geometries(&geometries);
       let fit_extent = crate::scene::compute_scene_extent(&geometries);
       let _ = tx.send(LuaJobResult {
@@ -549,7 +583,14 @@ impl AppState {
   }
 
   /// Re-run the linter if the editor text has changed since last check.
+  ///
+  /// selene only understands Lua, so an OpenSCAD buffer is left unlinted
+  /// rather than reported as one long syntax error.
   pub fn update_lint(&mut self) {
+    if self.is_scad() {
+      self.lint_diagnostics.clear();
+      return;
+    }
     if self.text_content == self.lint_text_snapshot {
       return;
     }
