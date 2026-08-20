@@ -164,7 +164,8 @@ pub struct AppState {
   pub needs_fit_to_view: bool,
   /// Whether the settings dialog is open
   pub show_settings: bool,
-  /// Which tab is active in the settings dialog (0=General, 1=Shortcuts)
+  /// Which tab is active in the settings dialog
+  /// (0=General, 1=Shortcuts, 2=About)
   pub settings_tab: usize,
   /// Editor panel position relative to viewport
   pub editor_position: EditorPosition,

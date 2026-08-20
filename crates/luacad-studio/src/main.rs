@@ -12,6 +12,7 @@ mod ui;
 use app::{AppState, FileAction, file_mtime};
 use camera::{Camera, Viewport, degrees, vec3};
 use cgmath::InnerSpace;
+use clap::{ArgAction, Parser};
 use editor::EditorAction;
 use editor::byte_index_of;
 use editor::whole_line_at;
@@ -29,6 +30,7 @@ use scene::{
 use theme::ThemeMode;
 use ui::{PanelLayout, render_ui};
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Return the path to the state file (`~/.config/luacad/state.json`).
@@ -1248,16 +1250,47 @@ impl Studio {
   }
 }
 
+/// Command line interface of the GUI binary: a file to open, plus the
+/// `--help` and `--version` queries that exit before any window is created.
+#[derive(Parser)]
+#[command(
+  name = "luacad-studio",
+  version = luacad::version::VERSION,
+  about = "A 3D CAD studio with Lua scripting and live preview",
+  after_help = "Without a file, Studio reopens the one from the last session.",
+  // Spelled out below so that `-v` works, like it does for the `luacad` CLI
+  // (clap's built-in flag is `-V`).
+  disable_version_flag = true
+)]
+struct Cli {
+  /// Show version
+  #[arg(short = 'v', long = "version", action = ArgAction::Version)]
+  version: Option<bool>,
+
+  /// LuaCAD file to open
+  #[arg(value_name = "file.lua")]
+  file: Option<PathBuf>,
+}
+
+/// Drop the `-psn_…` process serial number that macOS' LaunchServices passes
+/// to an app started from Finder — clap would reject it as an unknown flag,
+/// and the app would not come up at all.
+fn without_launch_serial(
+  args: impl Iterator<Item = OsString>,
+) -> impl Iterator<Item = OsString> {
+  args.filter(|arg| !arg.to_string_lossy().starts_with("-psn_"))
+}
+
 fn main() {
   // Resolve initial file: CLI argument takes priority, then last opened file.
-  let initial_file = std::env::args()
-    .nth(1)
-    .map(|arg| {
-      let path = PathBuf::from(&arg);
-      // Canonicalize relative paths so the state file stores absolute paths
-      std::fs::canonicalize(&path).unwrap_or(path)
-    })
-    .or_else(load_last_file);
+  let initial_file =
+    Cli::parse_from(without_launch_serial(std::env::args_os()))
+      .file
+      .map(|path| {
+        // Canonicalize relative paths so the state file stores absolute paths
+        std::fs::canonicalize(&path).unwrap_or(path)
+      })
+      .or_else(load_last_file);
 
   let event_loop =
     winit::event_loop::EventLoop::new().expect("failed to create event loop");
@@ -1272,7 +1305,25 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-  use super::normalize_source;
+  use super::{
+    Cli, OsString, PathBuf, normalize_source, without_launch_serial,
+  };
+  use clap::Parser;
+
+  #[test]
+  fn cli_definition_is_consistent() {
+    use clap::CommandFactory;
+    Cli::command().debug_assert();
+  }
+
+  #[test]
+  fn finder_process_serial_number_is_ignored() {
+    let args = ["luacad-studio", "-psn_0_12345", "model.lua"]
+      .into_iter()
+      .map(OsString::from);
+    let cli = Cli::parse_from(without_launch_serial(args));
+    assert_eq!(cli.file, Some(PathBuf::from("model.lua")));
+  }
 
   #[test]
   fn adds_final_newline() {

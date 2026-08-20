@@ -243,6 +243,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The version string embeds `git describe`, which needs the tags and
+          # the history between them; the default shallow clone has neither.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -25,7 +25,13 @@ luacad render model.lua preview.png   # Render to a PNG image
 luacad watch model.lua output.stl     # Rebuild on file changes
 luacad info model.lua                 # Print geometry metadata
 luacad lint model.lua                 # Lint with selene
+luacad --help                         # Show the subcommands and exit
+luacad --version                      # Show the version and exit
 ```
+
+`--version` (or `-v`) prints the crate version, followed by
+`git describe --always --dirty --tags` for a binary built from a git
+checkout, so a local build can be traced back to its commit.
 
 For the GUI application with a live 3D preview, see
 [`luacad-studio`](https://crates.io/crates/luacad-studio).
