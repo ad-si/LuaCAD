@@ -943,9 +943,7 @@ impl Studio {
                 .add_filter("Lua Files", &["lua"])
                 .add_filter("OpenSCAD Files", &["scad"])
             };
-            if let Some(path) = dialog
-              .set_file_name(&default_name)
-              .save_file()
+            if let Some(path) = dialog.set_file_name(&default_name).save_file()
               && save_to_path(app, &path)
             {
               app.current_file = Some(path.clone());
@@ -1232,10 +1230,8 @@ impl Studio {
           }
         }
         winit::event::WindowEvent::DroppedFile(path) => {
-          let droppable = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| {
+          let droppable =
+            path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
               e.eq_ignore_ascii_case("lua") || e.eq_ignore_ascii_case("scad")
             });
           if droppable {

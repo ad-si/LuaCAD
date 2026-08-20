@@ -1,0 +1,4 @@
+# Deliberately empty: rustfmt's defaults, which is what upstream OpenRSCAD
+# uses. rustfmt resolves its config from the file being formatted upwards, so
+# this shadows the workspace's 2-space/80-column style for the vendored
+# sources and keeps them diffable against upstream.

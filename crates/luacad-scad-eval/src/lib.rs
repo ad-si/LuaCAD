@@ -1389,9 +1389,7 @@ impl Interp<'_> {
         // LuaCAD deviation: no fonts are bundled, so resolution can come up
         // empty. Warn and emit no geometry rather than aborting the render.
         let Some((points, paths, family_known)) = rendered else {
-            self.warn(
-                "text(): no font found, and no fallback is installed".to_string(),
-            );
+            self.warn("text(): no font found, and no fallback is installed".to_string());
             return Ok(Node::Empty);
         };
         if !font.is_empty() && !family_known {

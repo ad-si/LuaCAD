@@ -12,6 +12,41 @@ any release.
 
 ### Added
 
+- OpenSCAD files can be opened directly: `.scad` works anywhere `.lua` does,
+  on the command line (`run`, `info`, `convert`, `watch`, `render`) and in
+  Studio, through File → Open or by dropping one on the window. LuaCAD parses
+  and evaluates the language itself, so no OpenSCAD installation is involved
+  and this is unrelated to `--via-openscad`. `include`/`use` resolve relative
+  to the file and then against `OPENSCADPATH`.
+
+  The front end is a vendored copy of [OpenRSCAD]'s — a clean-room
+  reimplementation of OpenSCAD 2021.01, Apache-2.0 OR MIT — as the new
+  `luacad-scad-syntax`, `luacad-scad-ir` and `luacad-scad-eval` crates. Only
+  its parser and evaluator are taken; Manifold still does the meshing. It
+  bundles no fonts, unlike upstream, so `text()` uses installed system fonts
+  the way LuaCAD's own `text()` already does.
+
+  Both languages lower to the same tree, so an opened `.scad` file reaches
+  every export format, the PNG renderer, the path tracer and Studio's live
+  preview unchanged. `luacad convert model.scad out.scad` round-trips it with
+  modules inlined and `$fn`/`$fa`/`$fs` resolved to facet counts.
+
+  Three constructs cannot be carried across exactly and warn rather than
+  quietly differing: `linear_extrude` with a non-uniform `scale`,
+  `resize(auto = …)`, and an `import()` in a format LuaCAD cannot read.
+  Studio does not lint `.scad` buffers, and the browser playground stays
+  Lua-only.
+
+  [OpenRSCAD]: https://github.com/matthova/openrscad
+
+### Changed
+
+- `polygon()` in the SCAD tree carries optional contour index lists, resolved
+  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
+  unchanged; this is what lets an imported `polygon(points, paths)` — and the
+  counters in an OpenSCAD `text()` — come through as holes rather than
+  filling in.
+
 - Studio: the opened file is watched and reloaded automatically when another
   program changes it on disk
   ([#14](https://github.com/ad-si/LuaCAD/issues/14)), matching `luacad watch`

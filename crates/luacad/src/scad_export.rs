@@ -1272,7 +1272,10 @@ mod tests {
       paths: Some(vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]]),
     };
     let scad = node.to_scad();
-    assert!(scad.contains("paths = [[0, 1, 2, 3], [4, 5, 6, 7]]"), "{scad}");
+    assert!(
+      scad.contains("paths = [[0, 1, 2, 3], [4, 5, 6, 7]]"),
+      "{scad}"
+    );
   }
 
   #[test]

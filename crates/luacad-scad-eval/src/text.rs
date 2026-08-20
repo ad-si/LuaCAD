@@ -239,14 +239,15 @@ pub struct TextParams<'a> {
     pub segments: usize,
 }
 
+/// Glyph contours plus whether the requested family was the one used: the
+/// points, the contour index lists, and `known`.
+pub type TextContours = (Vec<[f64; 2]>, Vec<Vec<u32>>, bool);
+
 /// Build the glyph contours for `text(font=…, …)` as `(points, paths, known)`.
 /// `known` is whether the requested family exists (see [`with_face`]); `false`
 /// means the caller should warn that it fell back to another family. `None`
 /// means no font could be resolved at all — nothing is installed.
-pub fn render_text(
-    font: &str,
-    params: &TextParams,
-) -> Option<(Vec<[f64; 2]>, Vec<Vec<u32>>, bool)> {
+pub fn render_text(font: &str, params: &TextParams) -> Option<TextContours> {
     with_face(font, |face, known| {
         let (points, paths) = text_contours(&TextOpts {
             text: params.text,

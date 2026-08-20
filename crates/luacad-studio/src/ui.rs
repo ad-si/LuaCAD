@@ -1723,7 +1723,10 @@ mod tests {
       h.app.poll_lua_job();
       std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    assert!(h.app.lua_error.is_some(), "Lua should reject OpenSCAD source");
+    assert!(
+      h.app.lua_error.is_some(),
+      "Lua should reject OpenSCAD source"
+    );
   }
 
   /// selene only knows Lua, so an OpenSCAD buffer is left unlinted rather
@@ -1740,7 +1743,10 @@ mod tests {
 
     h.app.current_file = Some(std::path::PathBuf::from("model.scad"));
     h.app.update_lint();
-    assert!(h.app.lint_diagnostics.is_empty(), "OpenSCAD must not be linted");
+    assert!(
+      h.app.lint_diagnostics.is_empty(),
+      "OpenSCAD must not be linted"
+    );
   }
 
   /// Hiding the editor panel hands its space to the 3D scene, so an external

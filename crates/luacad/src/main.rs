@@ -147,7 +147,9 @@ fn infer_format(path: &Path) -> Option<&'static str> {
 /// point — export, render, info — is unaware of which one it came from. The
 /// OpenSCAD path prints `echo()` output and reports what it could not carry
 /// across exactly.
-fn load_model(input: &Path) -> Result<Vec<luacad::geometry::CsgGeometry>, String> {
+fn load_model(
+  input: &Path,
+) -> Result<Vec<luacad::geometry::CsgGeometry>, String> {
   if luacad::scad_import::is_scad_file(input) {
     let program = luacad::scad_import::load_scad_file(input)?;
     for line in &program.echoes {

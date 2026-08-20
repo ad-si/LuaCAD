@@ -181,8 +181,9 @@ fn fragments(r: f64, f: FragmentSpec) -> u32 {
   if f.fn_ > 0.0 {
     return if f.fn_ >= 3.0 { f.fn_ as u32 } else { 3 };
   }
-  ((360.0 / f.fa).min(r * 2.0 * std::f64::consts::PI / f.fs)).max(5.0).ceil()
-    as u32
+  ((360.0 / f.fa).min(r * 2.0 * std::f64::consts::PI / f.fs))
+    .max(5.0)
+    .ceil() as u32
 }
 
 /// Lowers `openrscad_ir::Node` to [`ScadNode`], collecting what it cannot carry
@@ -398,9 +399,7 @@ impl Convert {
       Node::Hull(children) => {
         ScadNode::Hull(Box::new(ScadNode::Union(self.children(children))))
       }
-      Node::Minkowski(children) => {
-        ScadNode::Minkowski(self.children(children))
-      }
+      Node::Minkowski(children) => ScadNode::Minkowski(self.children(children)),
 
       Node::Projection { cut, child } => ScadNode::Projection {
         cut: *cut,
@@ -465,7 +464,12 @@ impl Convert {
         faces: mesh
           .triangles
           .iter()
-          .map(|t| vec![t[0] as usize, t[1] as usize, t[2] as usize])
+          // ScadNode::Polyhedron faces wind the way OpenSCAD writes them —
+          // clockwise seen from outside — and the materializer reverses them
+          // for Manifold. mesh_import already yields Manifold's winding, so
+          // reverse here to cancel out; otherwise the solid comes in
+          // inside-out and its volume is negative.
+          .map(|t| vec![t[0] as usize, t[2] as usize, t[1] as usize])
           .collect(),
       },
       Err(e) => {
@@ -590,10 +594,9 @@ mod tests {
     assert_eq!(min, [0.0, 0.0, 0.0]);
     assert_eq!(max, [10.0, 10.0, 10.0]);
     let solid = crate::export::materialize_scad_manifold(&node("cube(10);"));
-    let cut =
-      crate::export::materialize_scad_manifold(&node(
-        "difference() { cube(10); cube(4); }",
-      ));
+    let cut = crate::export::materialize_scad_manifold(&node(
+      "difference() { cube(10); cube(4); }",
+    ));
     assert!(cut.volume() < solid.volume());
   }
 
@@ -639,9 +642,8 @@ mod tests {
   #[test]
   fn modifier_characters_map_to_luacad_modifiers() {
     // `%` leaves the mesh, `#` stays in it — OpenSCAD's own reading.
-    let m = crate::export::materialize_scad_manifold(&node(
-      "cube(10); %cube(20);",
-    ));
+    let m =
+      crate::export::materialize_scad_manifold(&node("cube(10); %cube(20);"));
     assert!((m.volume() - 1000.0).abs() < 0.01, "volume {}", m.volume());
     let m = crate::export::materialize_scad_manifold(&node(
       "cube(10); #translate([20,0,0]) cube(10);",
