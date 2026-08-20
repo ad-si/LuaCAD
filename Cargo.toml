@@ -6,6 +6,9 @@ members = [
   "crates/opencsg-sys",
   "crates/luacad-manifold-sys",
   "crates/luacad-prime-core",
+  "crates/luacad-scad-syntax",
+  "crates/luacad-scad-ir",
+  "crates/luacad-scad-eval",
 ]
 resolver = "3"
 
