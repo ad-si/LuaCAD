@@ -57,6 +57,12 @@ any release.
   anchored in world space, so a moved part is "cut from a different spot in
   the log".
 
+### Changed
+
+- The minimum supported Rust version of `luacad` and `luacad-studio` is now
+  1.96, raised by the vendored path tracer behind `--raytrace`. The
+  `luacad-manifold-sys` and `opencsg-sys` crates still build on 1.89.
+
 ### Fixed
 
 - Studio crashed on scripts containing multi-byte characters like `ß` or an
