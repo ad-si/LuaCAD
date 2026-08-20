@@ -120,6 +120,13 @@ pub const DEFAULT_CAMERA_AZIMUTH: f32 = -30.0;
 pub const DEFAULT_CAMERA_ELEVATION: f32 = 30.0;
 pub const DEFAULT_CAMERA_DISTANCE: f32 = 5.0;
 
+/// Factor between the orthogonal and the perspective camera distance that
+/// keeps the scene at the same apparent size when the projection changes
+/// (half of the perspective FOV is 22.5°, see `scene::build_camera`).
+pub fn projection_distance_ratio() -> f32 {
+  1.0 / (22.5_f32).to_radians().tan()
+}
+
 pub struct AppState {
   pub text_content: String,
   /// Snapshot of text_content as it was last loaded from or written to disk
@@ -315,11 +322,31 @@ impl AppState {
     self.saved_text = self.text_content.clone();
   }
 
-  /// Move the camera back to the pose the app starts with.
+  /// Switch the projection, moving the camera so that the scene keeps its
+  /// apparent size (a perspective view needs the larger distance).
+  pub fn set_orthogonal_view(&mut self, orthogonal: bool) {
+    if orthogonal == self.orthogonal_view {
+      return;
+    }
+    let ratio = projection_distance_ratio();
+    self.camera_distance = if orthogonal {
+      self.camera_distance / ratio
+    } else {
+      self.camera_distance * ratio
+    };
+    self.orthogonal_view = orthogonal;
+  }
+
+  /// Move the camera back to the pose the app starts with, at the distance
+  /// that matches the current projection.
   pub fn reset_camera(&mut self) {
     self.camera_azimuth = DEFAULT_CAMERA_AZIMUTH;
     self.camera_elevation = DEFAULT_CAMERA_ELEVATION;
-    self.camera_distance = DEFAULT_CAMERA_DISTANCE;
+    self.camera_distance = if self.orthogonal_view {
+      DEFAULT_CAMERA_DISTANCE
+    } else {
+      DEFAULT_CAMERA_DISTANCE * projection_distance_ratio()
+    };
     self.camera_target = [0.0; 3];
   }
 
@@ -448,9 +475,9 @@ impl AppState {
     // The path tracer is perspective-only: an orthographic view uses the
     // equivalent perspective distance, exactly like the studio's own
     // projection toggle (same visible height at the target, see
-    // `ui::render_ui`).
+    // `Self::set_orthogonal_view`).
     let distance = if self.orthogonal_view {
-      self.camera_distance / (22.5_f32).to_radians().tan()
+      self.camera_distance * projection_distance_ratio()
     } else {
       self.camera_distance
     };
@@ -557,5 +584,55 @@ impl AppState {
     self.lint_text_snapshot = self.text_content.clone();
     self.lint_diagnostics =
       luacad::linter::lint(&self.text_content).unwrap_or_default();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{AppState, DEFAULT_CAMERA_DISTANCE, projection_distance_ratio};
+
+  #[test]
+  fn switching_projection_keeps_the_apparent_size() {
+    let mut app = AppState::new(None);
+    let orthogonal_distance = app.camera_distance;
+    assert!(app.orthogonal_view);
+
+    app.set_orthogonal_view(false);
+    assert!(!app.orthogonal_view);
+    assert!(
+      (app.camera_distance - orthogonal_distance * projection_distance_ratio())
+        .abs()
+        < 1e-4
+    );
+
+    app.set_orthogonal_view(true);
+    assert!(app.orthogonal_view);
+    assert!((app.camera_distance - orthogonal_distance).abs() < 1e-4);
+  }
+
+  #[test]
+  fn switching_to_the_current_projection_leaves_the_camera_alone() {
+    let mut app = AppState::new(None);
+    app.camera_distance = 12.0;
+    app.set_orthogonal_view(true);
+    assert_eq!(app.camera_distance, 12.0);
+  }
+
+  #[test]
+  fn resetting_the_camera_uses_the_current_projection() {
+    let mut app = AppState::new(None);
+    app.set_orthogonal_view(false);
+    app.camera_distance = 99.0;
+    app.reset_camera();
+    assert!(
+      (app.camera_distance
+        - DEFAULT_CAMERA_DISTANCE * projection_distance_ratio())
+      .abs()
+        < 1e-4
+    );
+
+    app.set_orthogonal_view(true);
+    app.reset_camera();
+    assert_eq!(app.camera_distance, DEFAULT_CAMERA_DISTANCE);
   }
 }

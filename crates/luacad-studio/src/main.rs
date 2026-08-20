@@ -110,6 +110,22 @@ fn load_auto_reload() -> bool {
     .unwrap_or(true)
 }
 
+/// Persist which projection the 3D view uses.
+fn save_orthogonal_view(orthogonal: bool) {
+  update_state(|state| {
+    state.insert("orthogonal_view".to_string(), serde_json::json!(orthogonal));
+  });
+}
+
+/// Which projection the 3D view used when the app last ran
+/// (default: orthogonal, like OpenSCAD).
+fn load_orthogonal_view() -> bool {
+  load_state()
+    .get("orthogonal_view")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(true)
+}
+
 /// Normalize source code for saving: strip trailing whitespace from each
 /// line and end a non-empty file with exactly one newline (POSIX).
 fn normalize_source(text: &str) -> String {
@@ -280,6 +296,9 @@ impl winit::application::ApplicationHandler for StudioApp {
     let mut app = AppState::new(self.initial_file.take());
     app.editor_visible = !load_hide_editor();
     app.auto_reload = load_auto_reload();
+    // Moves the camera to the distance the restored projection needs, so a
+    // scene without geometry to fit to still starts at the default zoom.
+    app.set_orthogonal_view(load_orthogonal_view());
 
     // Persist the initial file if it was loaded successfully
     if let Some(ref path) = app.current_file {
@@ -364,6 +383,7 @@ impl Studio {
     {
       let editor_was_visible = app.editor_visible;
       let auto_reload_was_enabled = app.auto_reload;
+      let was_orthogonal_view = app.orthogonal_view;
 
       // Update window title to reflect the current file
       let window_title = match &app.current_file {
@@ -733,6 +753,11 @@ impl Studio {
       // Persist the auto-reload setting when it was toggled this frame
       if app.auto_reload != auto_reload_was_enabled {
         save_auto_reload(app.auto_reload);
+      }
+
+      // Persist the projection when it was switched this frame
+      if app.orthogonal_view != was_orthogonal_view {
+        save_orthogonal_view(app.orthogonal_view);
       }
 
       // Watch the opened file and pick up external changes (issue #14),

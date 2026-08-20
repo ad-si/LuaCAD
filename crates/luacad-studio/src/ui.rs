@@ -303,24 +303,19 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
       ui.label("Projection:");
-      let ratio = 1.0 / (22.5_f32).to_radians().tan();
       if ui
         .selectable_label(app.orthogonal_view, "Orthogonal")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
-        && !app.orthogonal_view
       {
-        app.camera_distance /= ratio;
-        app.orthogonal_view = true;
+        app.set_orthogonal_view(true);
       }
       if ui
         .selectable_label(!app.orthogonal_view, "Perspective")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
-        && app.orthogonal_view
       {
-        app.camera_distance *= ratio;
-        app.orthogonal_view = false;
+        app.set_orthogonal_view(false);
       }
 
       ui.separator();
