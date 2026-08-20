@@ -1,4 +1,4 @@
--- Colours for the assembled car.
+-- Colours and surface materials for the assembled car.
 --
 -- The original OpenSCAD model is monochrome apart from a single call on
 -- the D435's lens, so the whole scheme here is invented. Two rules:
@@ -16,7 +16,7 @@
 -- lenses. The other eight are mixed to fill gaps Nord does not cover:
 -- rubber, aluminium, PCB green, battery and the darker housings.
 
-return {
+local colors = {
   -- Flat plate stock: chassis, crossbar, both electronics trays
   deck = "#2e3440",
   gearbox = "#434c5e", -- moulded nylon housings
@@ -39,3 +39,20 @@ return {
   battery = "#8fa1b3",
   servo = "#2e3338",
 }
+
+-- How each surface scatters light (`shape:material(...)`), keyed like
+-- `colors`. Roles without an entry keep the implicit glossy-plastic look,
+-- which suits the printed and moulded structure. The explicit colours
+-- above override the presets' built-in ones, so the tires stay #191a1d.
+local materials = {
+  tire = "rubber",
+  link = { kind = "metal", roughness = 0.35 }, -- brushed aluminium
+  shaft = { kind = "metal", roughness = 0.4 }, -- machined steel
+  damper = { kind = "metal", roughness = 0.08 }, -- polished shock body
+  spring = { kind = "metal", roughness = 0.3 }, -- anodised, keeps the warm hue
+  electronics = "matte", -- sensor housings are matte plastic
+  battery = { kind = "plastic", roughness = 0.15 }, -- glossy shrink wrap
+  camera = { kind = "plastic", roughness = 0.08, specular = 0.1 }, -- lens panels
+}
+
+return { colors = colors, materials = materials }

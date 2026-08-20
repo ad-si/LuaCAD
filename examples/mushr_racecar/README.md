@@ -33,7 +33,7 @@ render(require("parts.wheel").hub())
 | --- | --- |
 | `racecar.lua` | Top level: renders body then chassis |
 | `parts/utils.lua` | Shared primitives — fasteners, trapezoids, springs |
-| `parts/palette.lua` | The colour scheme |
+| `parts/palette.lua` | The colour and material scheme |
 | `parts/platform.lua` | The 374 mm chassis plate and its nose cone |
 | `parts/gearbox.lua` | Gearbox housings, steering rack, motor cover |
 | `parts/wheel.lua` | Tyre, hub and upright |
@@ -57,8 +57,11 @@ render(require("parts.wheel").hub())
   university logo into each rear side panel, lettering into the two front
   side panels, and a race number into the nose. Everything else is
   geometrically identical.
-- **Parts are coloured.** The original is monochrome apart from a single
-  `color()` call on the D435's lens.
+- **Parts are coloured and get surface materials.** The original is
+  monochrome apart from a single `color()` call on the D435's lens. Here
+  the tires are rubber, the linkage, shafts and shocks are metal, and the
+  camera lenses and batteries are glossy — visible in the ray-traced
+  render.
 - Three OpenSCAD quirks are reproduced rather than corrected, and flagged
   in comments where they occur: a stray X offset folded into the shock
   towers' Z placement, `_spec_trap`'s inconsistent face list, and a
