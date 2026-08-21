@@ -131,6 +131,10 @@ any release.
   leaving at a shallow angle was blocked by the triangle next door. Secondary
   rays now start further off the surface, by an amount that also grows as the
   ray leaves more shallowly.
+- A C-style list comprehension with an empty init or update clause —
+  `[for (; is_list(l); l = l[0]) len(l)]`, which BOSL2 writes to walk a
+  variable from the enclosing scope — was a parse error, taking the whole
+  library down with it. Both clauses may now be empty, as in OpenSCAD.
 - An OpenSCAD `text()` naming a font with no outlines to give — a bitmap-only
   face such as macOS's "GB18030 Bitmap" — warned "no font found" and emitted
   nothing, even with hundreds of usable fonts installed. Font resolution now

@@ -3921,6 +3921,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn c_style_comprehensions_take_empty_clauses() {
+        assert_eq!(
+            echoes("echo([for(i=0; i<5; i=i+1) i]);"),
+            vec!["ECHO: [0, 1, 2, 3, 4]"]
+        );
+        // An empty init walks a variable from the enclosing scope, which is how
+        // BOSL2's linalg.scad measures the depth of a nested list. Verified
+        // against OpenSCAD 2021.01.
+        assert_eq!(
+            echoes(
+                "l = [[[1,2],[3,4]],[[5,6]]];\n\
+                 echo([for(; is_list(l) && len(l)>0; l=l[0]) len(l)]);"
+            ),
+            vec!["ECHO: [2, 2, 2]"]
+        );
+        // An empty update leaves the loop to the body's own side effects; with
+        // a condition that never holds it simply yields nothing.
+        assert_eq!(echoes("echo([for(i=0; false;) i]);"), vec!["ECHO: []"]);
+    }
+
     // The bytecode VM is a transparent fast path: these assert it produces the
     // same results as the tree-walk across the constructs it compiles, and that
     // unsupported constructs (comprehensions/closures in a body) fall back

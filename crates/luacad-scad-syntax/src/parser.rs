@@ -301,7 +301,10 @@ impl<'a> Parser<'a> {
 
     fn parse_bindings(&mut self) -> PResult<Vec<(String, Expr)>> {
         let mut out = Vec::new();
-        if self.peek() == Some(&Token::RParen) {
+        // Empty binding lists: `let()`/`for()`, and either the init or the
+        // update clause of a C-style `for(; cond; )` — BOSL2 writes the empty
+        // init form when the loop variable comes from the enclosing scope.
+        if matches!(self.peek(), Some(Token::RParen | Token::Semi)) {
             return Ok(out);
         }
         loop {
