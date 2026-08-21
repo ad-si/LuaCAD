@@ -15,8 +15,19 @@ const TOLERANCE: f64 = 0.05;
 pub fn svg_to_polygons(file: &str) -> Result<Vec<Vec<[f32; 2]>>, String> {
   let data = std::fs::read(file)
     .map_err(|e| format!("Cannot read SVG file {file}: {e}"))?;
-  let tree = usvg::Tree::from_data(&data, &usvg::Options::default())
-    .map_err(|e| format!("Cannot parse SVG file {file}: {e}"))?;
+  svg_bytes_to_polygons(&data)
+    .map_err(|e| format!("Cannot parse SVG file {file}: {e}"))
+}
+
+/// Parse SVG bytes into closed contours in mm.
+///
+/// The `.scad` front end reads the file itself — `import()` resolves against
+/// `OPENSCADPATH` — and so arrives with bytes rather than a path.
+pub fn svg_bytes_to_polygons(
+  data: &[u8],
+) -> Result<Vec<Vec<[f32; 2]>>, String> {
+  let tree = usvg::Tree::from_data(data, &usvg::Options::default())
+    .map_err(|e| e.to_string())?;
   let height_px = tree.size().height() as f64;
   let mut contours = Vec::new();
   collect_group(tree.root(), height_px, &mut contours);

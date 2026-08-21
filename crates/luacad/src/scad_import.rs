@@ -425,25 +425,35 @@ impl Convert {
       // Editor↔preview source spans; no geometry of its own.
       Node::Provenance { child, .. } => self.node(child),
 
-      Node::Import { data, format } => self.import(data, format),
+      Node::Import {
+        data,
+        format,
+        center,
+      } => self.import(data, format, *center),
     }
   }
 
-  /// Turn an `import()`ed mesh into a polyhedron.
+  /// Turn an `import()`ed file into geometry: a mesh becomes a polyhedron, an
+  /// SVG becomes a 2D polygon.
   ///
-  /// The evaluator resolves the file and hands over its bytes, while
-  /// [`crate::mesh_import`] reads from a path, so the bytes go back to disk
-  /// briefly. Emitting a polyhedron rather than [`ScadNode::Import`] also means
-  /// the mesh survives into formats that cannot reference an external file.
-  fn import(&mut self, data: &[u8], format: &str) -> ScadNode {
+  /// Emitting the geometry rather than [`ScadNode::Import`] means it survives
+  /// into formats that cannot reference an external file — and the evaluator
+  /// hands over bytes rather than a path anyway, because `import()` resolves
+  /// against `OPENSCADPATH` the way `include <>` does.
+  fn import(&mut self, data: &[u8], format: &str, center: bool) -> ScadNode {
     let empty = ScadNode::Union(Vec::new());
+    if format == "svg" {
+      return self.import_svg(data, center);
+    }
     if !crate::mesh_import::IMPORT_FORMATS.contains(&format) {
       self.warn(format!(
-        "import(): cannot read .{format} files.\nSupported: {}",
+        "import(): cannot read .{format} files.\nSupported: {}, svg",
         crate::mesh_import::IMPORT_FORMATS.join(", ")
       ));
       return empty;
     }
+    // [`crate::mesh_import`] reads from a path, so the bytes go back to disk
+    // briefly.
     let stamp = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
       .map(|d| d.as_nanos())
@@ -477,6 +487,70 @@ impl Convert {
         empty
       }
     }
+  }
+
+  /// Turn an `import()`ed SVG into a 2D polygon, so `linear_extrude()` and the
+  /// rest of the 2D pipeline work on it.
+  ///
+  /// Every closed contour of the drawing becomes one path of the polygon. Their
+  /// even-odd reading makes a contour drawn inside another one a hole, which is
+  /// what the counter of an "o" or the middle of a washer needs — however the
+  /// two wind relative to each other. That is the reading OpenSCAD gives an
+  /// SVG too, checked against 2021.01.
+  ///
+  /// `center` puts the middle of the drawing's bounding box on the origin,
+  /// rather than leaving it where the SVG's own coordinates put it.
+  fn import_svg(&mut self, data: &[u8], center: bool) -> ScadNode {
+    let empty = ScadNode::Union(Vec::new());
+    let mut contours = match crate::svg_import::svg_bytes_to_polygons(data) {
+      Ok(contours) => contours,
+      Err(e) => {
+        self.warn(format!("import(): cannot read the SVG: {e}"));
+        return empty;
+      }
+    };
+    if contours.is_empty() {
+      self.warn(
+        "import(): the SVG holds no closed contours, so it imports as nothing"
+          .to_string(),
+      );
+      return empty;
+    }
+    if center {
+      recenter(&mut contours);
+    }
+
+    let mut points: Vec<[f32; 2]> = Vec::new();
+    let paths = contours
+      .into_iter()
+      .map(|contour| {
+        let start = points.len();
+        points.extend(contour);
+        (start..points.len()).collect()
+      })
+      .collect();
+    ScadNode::Polygon {
+      points,
+      paths: Some(paths),
+    }
+  }
+}
+
+/// Move contours so the middle of their common bounding box sits on the
+/// origin, which is what `import(center = true)` asks of a 2D drawing.
+fn recenter(contours: &mut [Vec<[f32; 2]>]) {
+  let mut min = [f32::INFINITY; 2];
+  let mut max = [f32::NEG_INFINITY; 2];
+  for p in contours.iter().flatten() {
+    for axis in 0..2 {
+      min[axis] = min[axis].min(p[axis]);
+      max[axis] = max[axis].max(p[axis]);
+    }
+  }
+  let offset = [(min[0] + max[0]) / 2.0, (min[1] + max[1]) / 2.0];
+  for p in contours.iter_mut().flatten() {
+    p[0] -= offset[0];
+    p[1] -= offset[1];
   }
 }
 

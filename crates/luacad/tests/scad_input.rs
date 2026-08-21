@@ -140,6 +140,41 @@ fn import_reads_a_mesh_luacad_wrote() {
 }
 
 #[test]
+fn import_reads_an_svg_as_a_2d_sketch() {
+  // A 20 mm square with a 10 mm square hole, the hole wound the same way as
+  // the outline: OpenSCAD reads an SVG even-odd, so it is a hole either way.
+  // The volume and bounding box below match OpenSCAD 2021.01 on the same file.
+  let dir = Scratch::new("import-svg");
+  dir.write(
+    "ring.svg",
+    "<svg xmlns=\"http://www.w3.org/2000/svg\"\n\
+        width=\"20mm\" height=\"20mm\" viewBox=\"0 0 20 20\">\n\
+       <path d=\"M 0,0 L 20,0 L 20,20 L 0,20 Z \
+                 M 5,5 L 15,5 L 15,15 L 5,15 Z\"/>\n\
+     </svg>\n",
+  );
+  let path =
+    dir.write("model.scad", "linear_extrude(2) import(\"ring.svg\");\n");
+  let program = load_scad_file(&path).expect("loads");
+  assert!(program.warnings.is_empty(), "{:?}", program.warnings);
+  let (volume, (min, max)) = mesh_of(&path);
+  // (20² − 10²) × 2
+  assert!((volume - 600.0).abs() < 0.01, "volume {volume}");
+  assert_eq!(min, [0.0, 0.0, 0.0]);
+  assert_eq!(max, [20.0, 20.0, 2.0]);
+
+  // `center` moves the drawing onto the origin — for 2D formats only, which
+  // is why the mesh import above is unaffected by it.
+  let path = dir.write(
+    "centered.scad",
+    "linear_extrude(2) import(\"ring.svg\", center = true);\n",
+  );
+  let (_, (min, max)) = mesh_of(&path);
+  assert_eq!(min, [-10.0, -10.0, 0.0]);
+  assert_eq!(max, [10.0, 10.0, 2.0]);
+}
+
+#[test]
 fn an_import_in_an_unreadable_format_warns_and_yields_nothing() {
   let dir = Scratch::new("import-bad");
   dir.write("drawing.dxf", "not really a dxf\n");

@@ -1245,8 +1245,14 @@ impl Interp<'_> {
             _ => return Ok(Node::Empty),
         };
         let format = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+        // OpenSCAD honors `center` for 2D formats only; a mesh import ignores it.
+        let center = m.get("center").map(Value::truthy).unwrap_or(false);
         match self.resolver.load_bytes(&path, &self.cur_dir) {
-            Some(data) => Ok(Node::Import { data, format }),
+            Some(data) => Ok(Node::Import {
+                data,
+                format,
+                center,
+            }),
             None => {
                 self.warn(format!("Can't open import file '{path}'"));
                 Ok(Node::Empty)

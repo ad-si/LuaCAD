@@ -135,6 +135,12 @@ any release.
   `[for (; is_list(l); l = l[0]) len(l)]`, which BOSL2 writes to walk a
   variable from the enclosing scope — was a parse error, taking the whole
   library down with it. Both clauses may now be empty, as in OpenSCAD.
+- `import()` of an SVG in a `.scad` file warned that the format cannot be read
+  and imported nothing. It now returns a 2D sketch ready for
+  `linear_extrude()`, with the contours read even-odd — so a shape drawn
+  inside another one is a hole, however the two wind, which is what OpenSCAD
+  makes of the same file. `import(center = true)` is honored too, on 2D
+  formats only, as in OpenSCAD.
 - An OpenSCAD `text()` naming a font with no outlines to give — a bitmap-only
   face such as macOS's "GB18030 Bitmap" — warned "no font found" and emitted
   nothing, even with hundreds of usable fonts installed. Font resolution now

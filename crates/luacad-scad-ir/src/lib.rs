@@ -142,10 +142,15 @@ pub enum Node {
     Hull(Vec<Node>),
     /// Minkowski sum of all children.
     Minkowski(Vec<Node>),
-    /// An imported mesh file (raw bytes + lowercase format, e.g. "stl").
+    /// An imported file (raw bytes + lowercase format, e.g. "stl").
+    ///
+    /// `center` is `import(center = true)`, which OpenSCAD honors for 2D
+    /// formats only: the drawing lands centered on the origin instead of where
+    /// it was drawn. A mesh import ignores it, as OpenSCAD does.
     Import {
         data: Vec<u8>,
         format: String,
+        center: bool,
     },
     /// `projection(cut)` — flatten a 3D child to 2D. `cut=true` sections at z=0.
     Projection {
