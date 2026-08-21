@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="10mm"
+   height="40mm"
+   viewBox="0 0 10 40"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (e7c3feb100, 2024-10-09)"
+   sodipodi:docname="queen_profile.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#cccccc"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="1"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="4.6513897"
+     inkscape:cx="27.088678"
+     inkscape:cy="78.578667"
+     inkscape:window-width="1910"
+     inkscape:window-height="1052"
+     inkscape:window-x="1920"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Calque 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       d="M 0,9.0608263 V 40 H 10 V 38.960841 H 9.7030975 c -0.1484512,0 -0.4453537,-0.148451 -0.1484512,-0.445354 C 10.148451,37.921682 9.7030975,36.882524 8.663939,36.585621 7.2640752,36.144573 5.1275945,32.583379 5.215341,30.823501 3.9262103,30.198959 3.5118266,21.818221 3.5118266,17.364685 4.0314058,17.290459 7.378056,15.62655 7.378056,14.43894 c 0,-0.593805 -0.2873152,-1.113385 -1.4749248,-1.410286 0,-0.445354 -0.3711282,-1.113384 -1.336061,-1.261836 v -0.924577 c 0.5938048,-0.148452 0.7422561,-0.445354 0.7422561,-0.593806 0,-0.148451 -0.1484513,-0.4453536 -0.7422561,-0.5938043 V 9.0608263 H 0"
+       fill="none"
+       stroke-width="0.0742257"
+       stroke-linejoin="bevel"
+       stroke-linecap="round"
+       id="path1521"
+       sodipodi:nodetypes="ccccsscccscccsccc"
+       style="fill:#000000;fill-opacity:0.546171" />
+  </g>
+</svg>

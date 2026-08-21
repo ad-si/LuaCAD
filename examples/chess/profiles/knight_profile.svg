@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="10mm"
+   height="40mm"
+   viewBox="0 0 10 40"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (e7c3feb100, 2024-10-09)"
+   sodipodi:docname="knight_profile.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#cccccc"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="1"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="3.2890292"
+     inkscape:cx="16.114178"
+     inkscape:cy="82.547155"
+     inkscape:window-width="1910"
+     inkscape:window-height="1052"
+     inkscape:window-x="3835"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Calque 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       d="M 0,40 H 10 V 39.193549 H 9.6774192 c -0.3225807,0 -0.1612902,-0.322581 0,-0.483871 C 10,38.387097 9.8387094,37.580646 9.0322581,37.258065 6.6935482,36.451613 7.1774192,33.629033 8.629032,32.258065 8.7903226,32.016129 8.709677,31.693549 8.3870966,31.693549 H 0 Z"
+       fill="none"
+       stroke-width="0.0806453"
+       stroke-linejoin="bevel"
+       stroke-linecap="round"
+       id="path1"
+       style="fill:#000000;fill-opacity:0.546171;stroke:none;stroke-opacity:1" />
+  </g>
+</svg>

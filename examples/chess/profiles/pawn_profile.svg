@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="10mm"
+   height="40mm"
+   viewBox="0 0 10 40"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4 (e7c3feb100, 2024-10-09)"
+   sodipodi:docname="pawn_profile.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#cccccc"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="1"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="90.509668"
+     inkscape:cx="-0.41984465"
+     inkscape:cy="150.61927"
+     inkscape:window-width="1910"
+     inkscape:window-height="1052"
+     inkscape:window-x="1920"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Calque 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       d="M 0.05574972,40 H 10.055757 V 39.18946 H 9.6504803 c -0.405269,0 0,-0.405269 0,-0.405269 C 10.055757,38.378922 10.055757,37.568384 9.2452113,37.163115 6.0030583,35.947307 5.5977891,33.920962 5.5977891,31.489347 4.6859335,31.084078 3.0648571,29.853004 2.9635398,24.888457 3.368809,24.78714 5.410422,23.682056 5.410422,22.668883 c 0,-0.810538 -1.5350267,-1.390001 -2.1429304,-1.491318 -0.3039518,-0.05066 -0.594589,-0.389276 -0.3412958,-0.490594 0.9189463,-1.148288 1.724127,-1.683237 1.724127,-3.608265 0,-2.275148 -1.7510982,-4.347027 -4.59457308,-4.435885"
+       fill="none"
+       stroke-width="0.101317"
+       stroke-linejoin="bevel"
+       stroke-linecap="round"
+       id="path899"
+       sodipodi:nodetypes="cccsccccsscsc"
+       style="fill:#000000;fill-opacity:0.546171" />
+  </g>
+</svg>

@@ -42,13 +42,13 @@ test:
 .PHONY: example-images
 example-images:
 	cargo build --package luacad --release
-	@for lua in examples/*/*.lua; do \
-		case $$lua in examples/literal_openscad/*) continue;; esac; \
-		base=$${lua%.lua}; \
+	@for entry in examples/*/*.lua examples/*/*.scad; do \
+		case $$entry in examples/literal_openscad/*) continue;; esac; \
+		base=$${entry%.*}; \
 		echo "→ $$base.png"; \
-		target/release/luacad render "$$lua" "$$base.png"; \
+		target/release/luacad render "$$entry" "$$base.png"; \
 		echo "→ $${base}_raytraced.png"; \
-		target/release/luacad render --raytrace "$$lua" \
+		target/release/luacad render --raytrace "$$entry" \
 			"$${base}_raytraced.png"; \
 	done
 

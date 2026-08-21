@@ -39,6 +39,17 @@ any release.
 
   [OpenRSCAD]: https://github.com/matthova/openrscad
 
+- The new `examples/chess/` is the first example written in OpenSCAD rather
+  than Lua: a game in progress, laid out from a FEN string parsed by a
+  recursive function in the `.scad` file itself. It puts SVG import, mesh
+  import, `rotate_extrude`, `linear_extrude`, booleans, `search()` and
+  recursion through the new front end in one model, and is meant to be seen
+  with `--raytrace`. The pieces are from [scad-chess], CC-BY-4.0; the board,
+  the parser and the position are new. `make example-images` now regenerates
+  images for `.scad` entry points too, not only `.lua` ones.
+
+  [scad-chess]: https://github.com/quaternionmedia/scad-chess
+
 - Studio: the selected projection is remembered across restarts
   ([#18](https://github.com/ad-si/LuaCAD/issues/18)), so a perspective view
   no longer falls back to orthogonal on every launch (`orthogonal_view` in
