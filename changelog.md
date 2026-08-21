@@ -123,6 +123,14 @@ any release.
 
 ### Fixed
 
+- `render --raytrace` drew the triangulation of large flat faces into the
+  image as thin dark lines, most visible where the light grazes the face —
+  a fan of them across the side of a big brick, a seam down a baseplate.
+  Manifold cuts such a face into long, thin triangles, and hits on those
+  land far enough beneath the plane of the face that a shadow or bounce ray
+  leaving at a shallow angle was blocked by the triangle next door. Secondary
+  rays now start further off the surface, by an amount that also grows as the
+  ray leaves more shallowly.
 - Studio crashed on scripts containing multi-byte characters like `ß` or an
   emoji: the status line turned the caret, which counts characters, into a
   byte offset directly and sliced the text in the middle of a character. The

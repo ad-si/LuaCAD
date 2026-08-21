@@ -68,6 +68,10 @@ impl Default for RenderSettings {
 /// Shadow-ray/self-intersection epsilon (in world units).
 const T_MIN: Float = 1e-3;
 
+/// Floor on the cosine used to widen the push for grazing rays, capping the
+/// widening at `1 / GRAZING_COS_MIN`.
+const GRAZING_COS_MIN: Float = 0.05;
+
 /// Nudge a secondary-ray origin off the surface it starts on, towards the
 /// side `dir` leaves through. `hit.p = origin + dir · t` carries a
 /// floating-point error that grows with the hit distance and the coordinate
@@ -76,6 +80,23 @@ const T_MIN: Float = 1e-3;
 /// bounce rays then re-hit the surface (or a coplanar face buried by a
 /// union) from inside, turning whole regions black. The push distance scales
 /// with those magnitudes instead.
+///
+/// The relative factor is far more than the handful of ulps a well-shaped
+/// triangle needs, because boolean output is not well-shaped: Manifold
+/// triangulates a large flat face into a fan of long, thin triangles, and
+/// the barycentric solve on such a sliver is ill-conditioned. On the side of
+/// a brick a hundred units across, hits came back nearly 3e-3 beneath the
+/// plane the face sits on — an order of magnitude more than the old push.
+///
+/// The push also scales with `1 / |dir · n|`. A ray leaving at a grazing
+/// angle climbs away from the surface slowly, so a point pushed a fixed
+/// distance up still crosses the plane again within the neighbouring
+/// triangle of the same face, and is counted as shadowed by it. Left
+/// unbiased, the triangulation of a flat face draws itself into the image as
+/// dark lines along its interior edges, most visible where the light grazes
+/// the face. Pushing further the more shallowly the ray leaves clears the
+/// plane in one step; the floor keeps the push bounded for rays parallel to
+/// the surface.
 #[inline]
 fn offset_origin(hit: &HitRecord, dir: Vec3) -> Vec3 {
     let scale = hit
@@ -85,7 +106,8 @@ fn offset_origin(hit: &HitRecord, dir: Vec3) -> Vec3 {
         .max(hit.p.y.abs())
         .max(hit.p.z.abs())
         .max(hit.t);
-    let eps = (scale * 1e-5).max(1e-4);
+    let cos = dir.dot(hit.geo_normal).abs().max(GRAZING_COS_MIN);
+    let eps = (scale * 1e-4).max(1e-4) / cos;
     // Offset along the *geometric* normal: a smooth shading normal can lean
     // away from the surface plane, and offsetting along it would leave the
     // origin beneath the actual triangle.
@@ -557,6 +579,67 @@ fn power_heuristic(a: Float, b: Float) -> Float {
 mod tests {
     use super::*;
     use crate::demo;
+
+    /// A flat face must not shadow itself.
+    ///
+    /// Manifold cuts a large flat face into a fan of long, thin triangles, and
+    /// intersecting one of those slivers is ill-conditioned enough that the
+    /// reported hit lands a few thousandths of a unit under the plane the face
+    /// actually lies on. A shadow ray from there re-entered the sliver next
+    /// door, which drew the triangulation into the image as dark lines along
+    /// its interior edges. The numbers below are from such a case, measured on
+    /// the side of a brick a hundred units across: the hit sits 2.7e-3 beneath
+    /// z = 40 after travelling 200 units from the camera.
+    #[test]
+    fn a_flat_face_does_not_shadow_itself_from_beneath_its_own_plane() {
+        use crate::geometry::Triangle;
+        use crate::math::Vec3;
+
+        // Two triangles of one face's fan, sharing the edge the shading point
+        // sits next to.
+        let apex = Vec3::new(-62.2, 3.4, 40.0);
+        let left = Triangle::new(
+            apex,
+            Vec3::new(30.0, 8.0, 40.0),
+            Vec3::new(30.0, 0.0, 40.0),
+            0,
+        );
+        let right = Triangle::new(
+            apex,
+            Vec3::new(30.0, 0.0, 40.0),
+            Vec3::new(30.0, -8.0, 40.0),
+            0,
+        );
+
+        let p = Vec3::new(23.483398, 3.7770767, 39.997276);
+        let view = Vec3::new(0.31, 0.44, -0.84).normalize();
+        let hit = HitRecord::with_face_normal(
+            &Ray::new(p - view * 200.0, view),
+            200.0,
+            p,
+            Vec3::new(0.0, 0.0, 1.0),
+            0.0,
+            0.0,
+            1.0,
+            0,
+        );
+
+        for i in 0..64 {
+            // Sweep the light around the face, from 5° above it down to 1°.
+            let a = i as Float * std::f32::consts::TAU as Float / 64.0;
+            let up = 0.09 - (i % 8) as Float * 0.01;
+            let wi = (Vec3::new(a.cos(), a.sin(), up)).normalize();
+            let origin = offset_origin(&hit, wi);
+            let ray = Ray::new(origin, wi);
+            for (name, tri) in [("left", &left), ("right", &right)] {
+                assert!(
+                    tri.hit(&ray, T_MIN, 500.0).is_none(),
+                    "the {name} triangle of the face blocked a ray leaving it \
+                     towards {wi:?} (origin {origin:?})"
+                );
+            }
+        }
+    }
 
     fn mean_luma(bytes: &[u8]) -> f64 {
         let sum: u64 = bytes.iter().map(|&b| b as u64).sum();

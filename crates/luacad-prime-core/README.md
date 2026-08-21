@@ -24,5 +24,11 @@ allow git dependencies. This mirrors the `luacad-manifold-sys` arrangement.
 - `material.rs`: added `Material::Plastic` (diffuse base + untinted GGX
   specular coat), used for LuaCAD's studio-style glossy shading — a candidate
   for upstreaming
+- `integrator.rs`: `offset_origin()` pushes secondary rays further off the
+  surface — a larger relative epsilon, widened for grazing rays. Upstream's
+  epsilon assumes hits as precise as well-shaped triangles give; a boolean
+  result is triangulated into slivers, whose hits land far enough under the
+  surface that a flat face shadows itself along its own triangulation. Also a
+  candidate for upstreaming
 - Source files are otherwise unmodified; keep it that way where possible so
   upstream updates stay a plain re-copy
