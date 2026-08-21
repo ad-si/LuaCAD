@@ -3596,19 +3596,39 @@ mod tests {
         eval(src).echoes
     }
 
-    /// An installed font family, or `None` when the machine has no fonts.
+    /// An installed font family that can draw Latin letters, or `None` when the
+    /// machine has none.
     ///
     /// LuaCAD deviation from upstream OpenRSCAD: upstream bundles the Liberation
     /// family, so its `text()` tests name it directly and assert on its exact
     /// glyph metrics. LuaCAD bundles no fonts, so these tests use whatever is
     /// installed, assert on shape rather than on metrics, and skip when nothing
     /// is installed at all.
+    ///
+    /// Latin coverage has to be checked rather than assumed: a font database is
+    /// not all text faces, and on macOS it opens with private-use ones
+    /// (".Al Bayan PUA") that render "A" as nothing at all.
     fn installed_family() -> Option<String> {
         text::register_system_fonts();
         text::font_completions()
             .into_iter()
             .map(|c| c.value)
-            .find(|v| !v.contains(":style="))
+            .filter(|v| !v.contains(":style="))
+            .find(|v| draws_latin(v))
+    }
+
+    /// Whether `family` turns "AB" into actual contours.
+    fn draws_latin(family: &str) -> bool {
+        let params = text::TextParams {
+            text: "AB",
+            size: 10.0,
+            halign: "left",
+            valign: "baseline",
+            spacing: 1.0,
+            direction: "ltr",
+            segments: 8,
+        };
+        text::render_text(family, &params).is_some_and(|(_, paths, _)| !paths.is_empty())
     }
 
     #[test]
@@ -4136,30 +4156,59 @@ mod tests {
 
     #[test]
     fn text_glyph_outline() {
-        // text() produces a closed polygon sitting on the baseline. Upstream can
-        // pin the exact bbox because it bundles the font; here the face varies by
-        // machine, so this asserts the scale-invariant properties instead: a
-        // non-degenerate "A" roughly as tall as the requested size, on y = 0.
+        // text() produces a closed polygon placed by `valign`. Upstream can pin
+        // the exact bbox because it bundles the font; here the face varies by
+        // machine, so this asserts what holds whatever the face is: a
+        // non-degenerate "A" roughly as tall as the requested size, resting on
+        // the baseline for `valign="baseline"` and hanging below the line top
+        // for `valign="top"`. How far above the baseline the glyph starts is
+        // the font's business — plenty of faces do not put "A" exactly on it.
         let Some(family) = installed_family() else {
             eprintln!("skipped: no fonts installed");
             return;
         };
-        let out = eval(&format!("text(\"A\", size = 10, font = \"{family}\");"));
-        let Node::Polygon { points, paths } = out.node else {
-            panic!("expected polygon, got {:?}", out.node);
+        let extent = |valign: &str| {
+            let out = eval(&format!(
+                "text(\"A\", size = 10, font = \"{family}\", valign = \"{valign}\");"
+            ));
+            let Node::Polygon { points, paths } = out.node else {
+                panic!("expected polygon, got {:?}", out.node);
+            };
+            assert!(!paths.unwrap().is_empty());
+            let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+            for p in &points {
+                x0 = x0.min(p[0]);
+                x1 = x1.max(p[0]);
+                y0 = y0.min(p[1]);
+                y1 = y1.max(p[1]);
+            }
+            (x0, x1, y0, y1)
         };
-        assert!(!paths.unwrap().is_empty());
-        let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-        for p in &points {
-            x0 = x0.min(p[0]);
-            x1 = x1.max(p[0]);
-            y0 = y0.min(p[1]);
-            y1 = y1.max(p[1]);
-        }
+
+        let (x0, x1, y0, y1) = extent("baseline");
         // A cap-height "A" at size 10 lands well inside this range for any face.
         assert!((3.0..20.0).contains(&(x1 - x0)), "width {}", x1 - x0);
         assert!((5.0..20.0).contains(&(y1 - y0)), "height {}", y1 - y0);
-        assert!(y0.abs() < 0.01, "baseline should be y=0, got {y0}");
+        assert!(
+            y0 > -0.01,
+            "an \"A\" should not dip below the baseline, got {y0}"
+        );
+
+        // `valign="top"` puts the face's ascender at y = 0, so the glyph moves
+        // wholly underneath it, keeping its size and its horizontal placement.
+        let (tx0, tx1, ty0, ty1) = extent("top");
+        assert!(
+            ty1 < 0.01,
+            "top-aligned text should sit below y=0, got {ty1}"
+        );
+        assert!(
+            (tx0, tx1) == (x0, x1),
+            "valign must not move the text sideways"
+        );
+        assert!(
+            ((ty1 - ty0) - (y1 - y0)).abs() < 1e-9,
+            "valign must not resize the text"
+        );
     }
 
     #[test]

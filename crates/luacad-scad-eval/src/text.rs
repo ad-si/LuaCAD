@@ -160,17 +160,31 @@ fn with_face<T>(font: &str, f: impl FnOnce(&Face, bool) -> T) -> Option<T> {
             style: slant,
         })
     };
-    // Last resort: any installed face at all, so a model with `text()` still
-    // renders on a machine whose fonts are all unfamiliar.
-    let id = query(requested)
-        .or_else(|| query(DEFAULT_FAMILY))
-        .or_else(|| db.faces().next().map(|fi| fi.id))?;
+    // In preference order, ending with any installed face at all so a model
+    // with `text()` still renders on a machine whose fonts are all unfamiliar.
+    // A candidate is skipped when `ttf-parser` cannot read it: a font database
+    // holds faces with no outlines to give — macOS ships the bitmap-only
+    // "GB18030 Bitmap", for one — and stopping at the first of those would
+    // leave `text()` with no geometry while usable faces sit right behind it.
+    let mut candidates = query(requested)
+        .into_iter()
+        .chain(query(DEFAULT_FAMILY))
+        .chain(db.faces().map(|fi| fi.id));
+    let id = candidates.find(|&id| parses(&db, id))?;
 
     db.with_face_data(id, |data, index| {
         let face = Face::parse(data, index).ok()?;
         Some(f(&face, known))
     })
     .flatten()
+}
+
+/// Whether the face `id` is one `ttf-parser` can read. Parsing is header-only
+/// and the data is memory-mapped, so this is cheap enough to run over
+/// candidates until one sticks.
+fn parses(db: &Database, id: fontdb::ID) -> bool {
+    db.with_face_data(id, |data, index| Face::parse(data, index).is_ok())
+        .unwrap_or(false)
 }
 
 /// The coarse OpenSCAD `:style=` bucket for a fontdb face, chosen so a value from
@@ -462,6 +476,17 @@ mod tests {
             .find(|v| !v.contains(":style="))
     }
 
+    /// The first installed family that has a Latin 'M' at all, or `None`.
+    /// Plenty do not: macOS alone ships private-use faces (".Al Bayan PUA")
+    /// and script-only ones, and its font list starts with them.
+    fn latin_family() -> Option<String> {
+        installed()
+            .into_iter()
+            .map(|c| c.value)
+            .filter(|v| !v.contains(":style="))
+            .find(|v| with_face(v, |f, _| f.glyph_index('M').is_some()).unwrap_or(false))
+    }
+
     #[test]
     fn resolve_font_selects_family_and_reports_unknown() {
         let Some(family) = any_family() else {
@@ -474,7 +499,17 @@ mod tests {
         // caller can warn.
         assert!(!known("No Such Family 4Q7X"));
         // An empty `font=` means the sans-serif default, which always resolves.
-        assert!(advance(&family, 'M') > 0, "{family} should have an 'M'");
+        assert!(known(""), "the default family should resolve");
+        // The face a family resolves to is a usable one: where the glyph is
+        // there, so is its advance.
+        let Some(latin) = latin_family() else {
+            eprintln!("skipped: no family with Latin glyphs installed");
+            return;
+        };
+        assert!(
+            advance(&latin, 'M') > 0,
+            "{latin} should advance past its 'M'"
+        );
     }
 
     #[test]

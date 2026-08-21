@@ -131,6 +131,10 @@ any release.
   leaving at a shallow angle was blocked by the triangle next door. Secondary
   rays now start further off the surface, by an amount that also grows as the
   ray leaves more shallowly.
+- An OpenSCAD `text()` naming a font with no outlines to give — a bitmap-only
+  face such as macOS's "GB18030 Bitmap" — warned "no font found" and emitted
+  nothing, even with hundreds of usable fonts installed. Font resolution now
+  walks on past a face it cannot read to the next candidate.
 - Studio crashed on scripts containing multi-byte characters like `ß` or an
   emoji: the status line turned the caret, which counts characters, into a
   byte offset directly and sliced the text in the middle of a character. The
