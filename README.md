@@ -330,6 +330,10 @@ SVG and DXF return a 2D sketch instead, ready to extrude:
 render(import("logo.svg"):linear_extrude(2))
 ```
 
+An SVG keeps its physical units (mm, cm, in, …); unitless coordinates are read
+at 72 dpi, the default OpenSCAD's `import()` uses, and the y-axis is flipped so
+the drawing keeps the orientation it has on screen.
+
 Only geometry is read; colors, materials and texture coordinates are dropped.
 A DXF sketch reaches the SCAD tree only, so exporting one to a mesh needs
 `--via-openscad`.

@@ -1,14 +1,22 @@
 //! Import SVG files as 2D polygons, matching OpenSCAD's conventions:
 //! physical units (mm, cm, in, …) are honored, unitless coordinates are
-//! interpreted at 96 dpi, and the y-axis is flipped across the viewBox
+//! interpreted at 72 dpi, and the y-axis is flipped across the viewBox
 //! so the drawing keeps its visual orientation with y pointing up.
 
 use kurbo::PathEl;
 use usvg::tiny_skia_path::PathSegment;
 
-const PX_TO_MM: f64 = 25.4 / 96.0;
+/// How many unitless SVG coordinates go to the inch.
+///
+/// OpenSCAD's `import(dpi = …)` defaults to 72 rather than the 96 of CSS, and
+/// a drawing that comes out 4/3 too small is worse than an unfashionable
+/// constant. It is also what usvg resolves physical units against, so both
+/// directions of the conversion below agree.
+const DPI: f64 = 72.0;
 
-/// Curve flattening tolerance in px (≈ 13 µm after px→mm conversion).
+const PX_TO_MM: f64 = 25.4 / DPI;
+
+/// Curve flattening tolerance in px (≈ 18 µm after px→mm conversion).
 const TOLERANCE: f64 = 0.05;
 
 /// Parse an SVG file into closed contours in mm.
@@ -26,8 +34,12 @@ pub fn svg_to_polygons(file: &str) -> Result<Vec<Vec<[f32; 2]>>, String> {
 pub fn svg_bytes_to_polygons(
   data: &[u8],
 ) -> Result<Vec<Vec<[f32; 2]>>, String> {
-  let tree = usvg::Tree::from_data(data, &usvg::Options::default())
-    .map_err(|e| e.to_string())?;
+  let options = usvg::Options {
+    dpi: DPI as f32,
+    ..usvg::Options::default()
+  };
+  let tree =
+    usvg::Tree::from_data(data, &options).map_err(|e| e.to_string())?;
   let height_px = tree.size().height() as f64;
   let mut contours = Vec::new();
   collect_group(tree.root(), height_px, &mut contours);
@@ -167,12 +179,12 @@ mod tests {
   }
 
   #[test]
-  fn unitless_is_96_dpi() {
-    // 96 unitless px = 1 inch = 25.4 mm
+  fn unitless_is_72_dpi() {
+    // 72 unitless px = 1 inch = 25.4 mm, as OpenSCAD reads them.
     let contours = parse(
       r#"<svg xmlns="http://www.w3.org/2000/svg"
-           width="96" height="96" viewBox="0 0 96 96">
-           <path d="M 0,0 L 96,0 L 96,96 L 0,96 Z"/>
+           width="72" height="72" viewBox="0 0 72 72">
+           <path d="M 0,0 L 72,0 L 72,72 L 0,72 Z"/>
          </svg>"#,
     );
     let b = bbox(&contours);

@@ -160,8 +160,10 @@ fn import_reads_an_svg_as_a_2d_sketch() {
   let (volume, (min, max)) = mesh_of(&path);
   // (20² − 10²) × 2
   assert!((volume - 600.0).abs() < 0.01, "volume {volume}");
-  assert_eq!(min, [0.0, 0.0, 0.0]);
-  assert_eq!(max, [20.0, 20.0, 2.0]);
+  // The SVG states its size in mm, which the importer converts through px and
+  // back, so the corners land within a rounding error of the round numbers.
+  assert_close(min, [0.0, 0.0, 0.0]);
+  assert_close(max, [20.0, 20.0, 2.0]);
 
   // `center` moves the drawing onto the origin — for 2D formats only, which
   // is why the mesh import above is unaffected by it.
@@ -170,8 +172,14 @@ fn import_reads_an_svg_as_a_2d_sketch() {
     "linear_extrude(2) import(\"ring.svg\", center = true);\n",
   );
   let (_, (min, max)) = mesh_of(&path);
-  assert_eq!(min, [-10.0, -10.0, 0.0]);
-  assert_eq!(max, [10.0, 10.0, 2.0]);
+  assert_close(min, [-10.0, -10.0, 0.0]);
+  assert_close(max, [10.0, 10.0, 2.0]);
+}
+
+/// Compare a bounding-box corner up to the f32 rounding of a unit conversion.
+fn assert_close(got: [f32; 3], want: [f32; 3]) {
+  let off = (0..3).map(|i| (got[i] - want[i]).abs()).fold(0.0, f32::max);
+  assert!(off < 1e-4, "got {got:?}, expected about {want:?}");
 }
 
 #[test]

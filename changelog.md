@@ -115,6 +115,11 @@ any release.
   1.96, raised by the vendored path tracer behind `--raytrace`. The
   `luacad-manifold-sys` and `opencsg-sys` crates still build on 1.89.
 
+- `import()` of an SVG reads unitless coordinates at 72 dpi rather than 96,
+  the default OpenSCAD uses, so a drawing without physical units no longer
+  comes in 4/3 too small compared to the same file there. An SVG that states
+  its size in mm, cm or inches is unaffected.
+
 - `polygon()` in the SCAD tree carries optional contour index lists, resolved
   with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
   unchanged; this is what lets an imported `polygon(points, paths)` — and the
