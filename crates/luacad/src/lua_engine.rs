@@ -1137,6 +1137,7 @@ pub fn execute_lua_with_path(
 
       let scad = Some(ScadNode::Polygon {
         points: points.clone(),
+        paths: None,
       });
       Ok(CsgSketch {
         sketch: {

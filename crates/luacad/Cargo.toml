@@ -45,6 +45,12 @@ fontdb = "0.24"
 ttf-parser = "0.25"
 # AMF is plain XML, unlike the other mesh formats import() reads.
 roxmltree = "0.21"
+# The OpenSCAD language front end, for opening .scad files. Vendored from
+# OpenRSCAD and renamed back to the upstream crate names so the sources stay
+# diffable — see the crates' READMEs.
+openrscad-syntax = { package = "luacad-scad-syntax", version = "1.1.0", path = "../luacad-scad-syntax" }
+openrscad-ir = { package = "luacad-scad-ir", version = "1.1.0", path = "../luacad-scad-ir" }
+openrscad-eval = { package = "luacad-scad-eval", version = "1.1.0", path = "../luacad-scad-eval" }
 
 [dev-dependencies]
 insta = "1"

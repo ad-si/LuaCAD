@@ -9,6 +9,7 @@ pub mod mesh_import;
 pub mod raytrace;
 pub mod render;
 pub mod scad_export;
+pub mod scad_import;
 pub mod svg_import;
 pub mod text_render;
 pub mod version;

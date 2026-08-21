@@ -1,0 +1,10 @@
+[package]
+name = "luacad-scad-ir"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+edition = "2021"
+description = "CSG intermediate representation for the OpenSCAD language, vendored from OpenRSCAD"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]

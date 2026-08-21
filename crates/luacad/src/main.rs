@@ -22,7 +22,8 @@ const VIA_MANIFOLD_HELP: &str =
 
 fn after_help_text() -> String {
   format!(
-    "Supported formats: {}\n\
+    "Input is a LuaCAD script (.lua) or an OpenSCAD file (.scad).\n\
+     Supported output formats: {}\n\
      Images ({}) are written by `luacad render`, not by convert / watch.",
     FORMATS.join(", "),
     RENDER_FORMATS.join(", ")
@@ -58,14 +59,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-  /// Run a LuaCAD file
+  /// Run a LuaCAD or OpenSCAD file
   Run {
-    #[arg(value_name = "file.lua")]
+    #[arg(value_name = "file.lua|file.scad")]
     file: PathBuf,
   },
   /// Print geometry metadata
   Info {
-    #[arg(value_name = "file.lua")]
+    #[arg(value_name = "file.lua|file.scad")]
     file: PathBuf,
   },
   /// Lint Lua files with selene
@@ -77,7 +78,7 @@ enum Command {
   Convert(ConvertArgs),
   /// Render to a PNG image
   Render {
-    #[arg(value_name = "input.lua")]
+    #[arg(value_name = "input.lua|input.scad")]
     input: PathBuf,
     /// Output image (default: input with a .png extension)
     #[arg(value_name = "output.png")]
@@ -111,7 +112,7 @@ enum Command {
 /// Shared arguments for the convert and watch subcommands.
 #[derive(Args)]
 struct ConvertArgs {
-  #[arg(value_name = "input.lua")]
+  #[arg(value_name = "input.lua|input.scad")]
   input: PathBuf,
   #[arg(value_name = "output.stl")]
   output: PathBuf,
@@ -137,6 +138,31 @@ fn infer_format(path: &Path) -> Option<&'static str> {
     "scad" => Some("scad"),
     _ => None,
   }
+}
+
+/// Load a model from `input`, which is a LuaCAD script unless its extension
+/// says OpenSCAD.
+///
+/// Both languages end up as the same `ScadNode` trees, so everything past this
+/// point — export, render, info — is unaware of which one it came from. The
+/// OpenSCAD path prints `echo()` output and reports what it could not carry
+/// across exactly.
+fn load_model(
+  input: &Path,
+) -> Result<Vec<luacad::geometry::CsgGeometry>, String> {
+  if luacad::scad_import::is_scad_file(input) {
+    let program = luacad::scad_import::load_scad_file(input)?;
+    for line in &program.echoes {
+      println!("{line}");
+    }
+    for warning in &program.warnings {
+      eprintln!("Warning: {warning}");
+    }
+    return Ok(program.geometries);
+  }
+  let code = std::fs::read_to_string(input)
+    .map_err(|e| format!("Error reading {}: {e}", input.display()))?;
+  luacad::lua_engine::execute_lua_with_path(&code, Some(input))
 }
 
 fn export(
@@ -222,11 +248,7 @@ fn export_via_openscad(
 /// Run a single convert cycle: execute Lua, then export.
 /// Returns Ok(object_count) on success, Err(message) on failure.
 fn do_convert(args: &ConvertArgs, format: &str) -> Result<usize, String> {
-  let code = std::fs::read_to_string(&args.input)
-    .map_err(|e| format!("Error reading {}: {e}", args.input.display()))?;
-
-  let geometries =
-    luacad::lua_engine::execute_lua_with_path(&code, Some(&args.input))?;
+  let geometries = load_model(&args.input)?;
   let count = geometries.len();
 
   if args.via_manifold {
@@ -241,22 +263,13 @@ fn do_convert(args: &ConvertArgs, format: &str) -> Result<usize, String> {
 }
 
 fn cmd_info(input: &Path) -> ExitCode {
-  let code = match std::fs::read_to_string(input) {
-    Ok(c) => c,
+  let geometries = match load_model(input) {
+    Ok(g) => g,
     Err(e) => {
-      eprintln!("Error reading {}: {e}", input.display());
+      eprintln!("{e}");
       return ExitCode::FAILURE;
     }
   };
-
-  let geometries =
-    match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
-      Ok(g) => g,
-      Err(e) => {
-        eprintln!("{e}");
-        return ExitCode::FAILURE;
-      }
-    };
 
   if geometries.is_empty() {
     println!("File:       {}", input.display());
@@ -446,15 +459,7 @@ fn cmd_lint(paths: &[PathBuf]) -> ExitCode {
 }
 
 fn cmd_run(input: &Path) -> ExitCode {
-  let code = match std::fs::read_to_string(input) {
-    Ok(c) => c,
-    Err(e) => {
-      eprintln!("Error reading {}: {e}", input.display());
-      return ExitCode::FAILURE;
-    }
-  };
-
-  match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
+  match load_model(input) {
     Ok(geometries) => {
       if geometries.is_empty() {
         println!("OK");
@@ -535,22 +540,13 @@ fn cmd_render(
     .map(Path::to_path_buf)
     .unwrap_or_else(|| input.with_extension("png"));
 
-  let code = match std::fs::read_to_string(input) {
-    Ok(c) => c,
+  let geometries = match load_model(input) {
+    Ok(g) => g,
     Err(e) => {
-      eprintln!("Error reading {}: {e}", input.display());
+      eprintln!("{e}");
       return ExitCode::FAILURE;
     }
   };
-
-  let geometries =
-    match luacad::lua_engine::execute_lua_with_path(&code, Some(input)) {
-      Ok(g) => g,
-      Err(e) => {
-        eprintln!("{e}");
-        return ExitCode::FAILURE;
-      }
-    };
 
   let result = if raytrace {
     #[cfg(feature = "raytrace")]

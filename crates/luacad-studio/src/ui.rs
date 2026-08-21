@@ -455,7 +455,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           .on_hover_text(format!("Run code ({m} ↵)"))
           .clicked()
         {
-          app.execute_lua_code();
+          app.execute_source();
         }
         if ui
           .add_enabled(app.current_file.is_some(), egui::Button::new("Reload"))
@@ -856,6 +856,9 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
       .show(ui, |ui| {
         let lint_underlines = &lint_underlines;
         let search_matches = &search_matches;
+        // Read before the closure: it outlives the mutable borrow of the
+        // buffer that TextEdit takes.
+        let scad_syntax = app.is_scad();
         let mut layouter =
           |ui: &egui::Ui, string: &dyn egui::TextBuffer, wrap_width: f32| {
             let string = string.as_str();
@@ -870,7 +873,9 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
               ui.style(),
               &theme,
               string,
-              "lua",
+              // syntect has no OpenSCAD definition; C shares its comments,
+              // braces, numbers and strings, so it is the closest fit.
+              if scad_syntax { "c" } else { "lua" },
             );
             layout_job.wrap.max_width = wrap_width;
 
@@ -1170,7 +1175,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
       {
-        app.execute_lua_code();
+        app.execute_source();
       }
     });
 
@@ -1771,6 +1776,58 @@ mod tests {
     assert_eq!(h.selected_text(), "width_0");
   }
 
+  /// An open `.scad` file goes through the OpenSCAD front end instead of the
+  /// Lua one, and everything past that point is the same — the geometry lands
+  /// in the viewport exactly as a Lua model's does.
+  #[test]
+  fn an_open_scad_file_builds_through_the_openscad_front_end() {
+    let mut h = Harness::new("difference() { cube(10); sphere(6); }\n");
+    assert!(!h.app.is_scad(), "an unsaved buffer is Lua");
+    h.app.current_file = Some(std::path::PathBuf::from("model.scad"));
+    assert!(h.app.is_scad());
+
+    h.app.execute_source();
+    while h.app.is_lua_executing() {
+      h.app.poll_lua_job();
+      std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(h.app.lua_error, None);
+    assert_eq!(h.app.geometries.len(), 1);
+    assert!(!h.app.csg_groups.is_empty(), "nothing reached the viewport");
+
+    // The same source is not valid Lua, so the dispatch is what made it work.
+    h.app.current_file = Some(std::path::PathBuf::from("model.lua"));
+    h.app.execute_source();
+    while h.app.is_lua_executing() {
+      h.app.poll_lua_job();
+      std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(
+      h.app.lua_error.is_some(),
+      "Lua should reject OpenSCAD source"
+    );
+  }
+
+  /// selene only knows Lua, so an OpenSCAD buffer is left unlinted rather
+  /// than reported as one long syntax error.
+  #[test]
+  fn an_open_scad_file_is_not_linted_as_lua() {
+    // Valid OpenSCAD, but `{ … }` after a call is not a Lua block.
+    let mut h = Harness::new("difference() { cube(10); }\n");
+    h.app.update_lint();
+    assert!(
+      !h.app.lint_diagnostics.is_empty(),
+      "this is not valid Lua, so selene should complain"
+    );
+
+    h.app.current_file = Some(std::path::PathBuf::from("model.scad"));
+    h.app.update_lint();
+    assert!(
+      h.app.lint_diagnostics.is_empty(),
+      "OpenSCAD must not be linted"
+    );
+  }
+
   /// Hiding the editor panel hands its space to the 3D scene, so an external
   /// editor can be used next to a window that is all viewport.
   #[test]
@@ -1804,7 +1861,7 @@ mod tests {
   #[test]
   fn a_raytrace_ends_as_a_texture_with_a_matching_pose_snapshot() {
     let mut h = Harness::new("render(cube({size = {10, 10, 10}}))");
-    h.app.execute_lua_code();
+    h.app.execute_source();
     while h.app.is_lua_executing() {
       h.app.poll_lua_job();
       std::thread::sleep(std::time::Duration::from_millis(5));

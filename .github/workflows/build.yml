@@ -61,9 +61,9 @@ jobs:
             libxrandr-dev \
             libwayland-dev
 
-      # Only the two -sys crates still hold the workspace MSRV; the vendored
-      # path tracer needs 1.96 and that reaches every other crate through
-      # `luacad`.
+      # The two -sys crates and the three vendored OpenSCAD front-end crates
+      # still hold the workspace MSRV; the vendored path tracer needs 1.96 and
+      # that reaches every other crate through `luacad`.
       - name: Install the workspace MSRV toolchain
         uses: dtolnay/rust-toolchain@1.89.0
 
@@ -73,18 +73,22 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check luacad-manifold-sys and opencsg-sys at 1.89
+      - name: Check the crates that advertise 1.89 at 1.89
         run: |
           cargo +1.89.0 check \
             --package luacad-manifold-sys \
             --package opencsg-sys \
+            --package luacad-scad-syntax \
+            --package luacad-scad-ir \
+            --package luacad-scad-eval \
             --all-targets
 
       - name: Check the rest of the workspace at 1.96
         run: cargo +1.96.0 check --workspace --all-targets
 
-  # Publishing is four irreversible pushes to crates.io in dependency order, so
-  # a defective tarball has to surface here rather than halfway through.
+  # Publishing is a series of irreversible pushes to crates.io in dependency
+  # order, so a defective tarball has to surface here rather than halfway
+  # through. `make release` lists the order.
   package:
     runs-on: ubuntu-latest
     name: Package

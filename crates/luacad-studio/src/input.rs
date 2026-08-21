@@ -193,7 +193,9 @@ impl FrameInputGenerator {
     self.last_time = now;
 
     let frame_input = FrameInput {
-      events: self.events.drain(..).collect(),
+      // Hands over the buffer and leaves an empty one behind, exactly as
+      // draining did, but without reallocating for the copy.
+      events: std::mem::take(&mut self.events),
       accumulated_time: self.accumulated_time,
       viewport: self.viewport,
       device_pixel_ratio: self.device_pixel_ratio as f32,

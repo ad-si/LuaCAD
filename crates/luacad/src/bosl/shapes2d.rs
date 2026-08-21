@@ -679,6 +679,7 @@ pub fn apply_2d(m: &Mat4, path: &[V2]) -> Path {
 pub fn path_node(path: &[V2]) -> ScadNode {
   ScadNode::Polygon {
     points: path.iter().map(|p| [p[0] as f32, p[1] as f32]).collect(),
+    paths: None,
   }
 }
 

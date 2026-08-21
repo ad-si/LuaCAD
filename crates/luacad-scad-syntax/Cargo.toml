@@ -1,0 +1,13 @@
+[package]
+name = "luacad-scad-syntax"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+edition = "2021"
+description = "Lexer and parser for the OpenSCAD language, vendored from OpenRSCAD"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+logos = "0.15"
+thiserror = "2"
+serde_json = "1"

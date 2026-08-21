@@ -1,0 +1,32 @@
+[package]
+name = "luacad-scad-eval"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+edition = "2021"
+description = "Evaluator for the OpenSCAD language, vendored from OpenRSCAD"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+# Renamed so the vendored sources keep their upstream `openrscad_*` paths and
+# stay diffable against OpenRSCAD.
+openrscad-syntax = { package = "luacad-scad-syntax", version = "1.1.0", path = "../luacad-scad-syntax" }
+openrscad-ir = { package = "luacad-scad-ir", version = "1.1.0", path = "../luacad-scad-ir" }
+thiserror = "2"
+rustc-hash = "2"
+ttf-parser = "0.25"
+png = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Font lookup for text(). Unlike upstream, no Liberation family is bundled:
+# LuaCAD's own text() is system-font-only too, so both paths resolve fonts the
+# same way and the 4 MB of vendored TTFs stay out of the repository.
+fontdb = { version = "0.24", default-features = false, features = ["std"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+fontdb = { version = "0.24", default-features = false, features = [
+  "std",
+  "fs",
+  "memmap",
+  "fontconfig",
+] }

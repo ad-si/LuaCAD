@@ -5,6 +5,8 @@ Solid 3D CAD modeling with Lua.
 Write parametric 2D and 3D models in Lua
 and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD,
 or render them straight to a PNG.
+Existing OpenSCAD files open too — LuaCAD evaluates the `.scad` language
+itself, with no OpenSCAD installation involved.
 
 ![Screenshot of LuaCAD Studio previewing the MuSHR racecar model, a 43-part
 assembly of 490,802 triangles, beside the Lua script that builds
@@ -75,6 +77,14 @@ luacad render model.lua preview.png   # Render to a PNG image
 luacad info model.lua                 # Print triangle counts and bounding box
 luacad lint model.lua                 # Lint with selene (also takes directories)
 luacad run model.lua                  # Execute (side-effects only)
+```
+
+Every subcommand also takes a `.scad` file wherever it takes a `.lua` one:
+
+```sh
+luacad convert model.scad output.3mf  # Mesh an OpenSCAD file
+luacad render model.scad preview.png  # Render one to a PNG
+luacad info model.scad                # Its triangle count and bounding box
 ```
 
 `convert` and `watch` infer the format from the output extension;
@@ -323,6 +333,42 @@ render(import("logo.svg"):linear_extrude(2))
 Only geometry is read; colors, materials and texture coordinates are dropped.
 A DXF sketch reaches the SCAD tree only, so exporting one to a mesh needs
 `--via-openscad`.
+
+
+## Opening OpenSCAD Files
+
+A `.scad` file works anywhere a `.lua` one does — on the command line and in
+Studio, where it opens through File → Open or by dropping it on the window.
+LuaCAD parses and evaluates the OpenSCAD language itself, so nothing has to be
+installed and `--via-openscad` is not involved:
+
+```sh
+luacad convert bracket.scad bracket.3mf
+luacad render bracket.scad bracket.png
+```
+
+The language support is a vendored copy of [OpenRSCAD]'s front end, a
+clean-room reimplementation of OpenSCAD 2021.01 — modules, functions,
+`include`/`use`, `for`, list comprehensions, recursion, dynamically scoped
+`$` variables, the modifier characters, and the standard library. `include`
+and `use` resolve relative to the file, then against `OPENSCADPATH`.
+
+Both languages produce the same internal tree, so an opened `.scad` file
+reaches every export format, the PNG renderer, the path tracer and Studio's
+live preview unchanged. `luacad convert model.scad out.scad` round-trips it,
+with modules inlined and `$fn`/`$fa`/`$fs` resolved to facet counts.
+
+Three constructs cannot be carried across exactly and report a warning rather
+than quietly differing: `linear_extrude` with a non-uniform `scale`
+(LuaCAD scales both axes together), `resize(auto = …)`, and an `import()` in a
+format LuaCAD's own `import()` cannot read. Anything OpenSCAD itself does
+differently is listed in [OpenRSCAD's compatibility register][COMPAT].
+
+Editing is still Lua's job: Studio does not lint `.scad` buffers, and the
+browser playground remains Lua-only.
+
+[OpenRSCAD]: https://github.com/matthova/openrscad
+[COMPAT]: https://github.com/matthova/openrscad/blob/main/COMPAT.md
 
 
 ## Text
