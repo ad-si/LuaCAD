@@ -457,7 +457,10 @@ unsafe fn reset_leaf_material() {
 /// (each triangle's 3 vertices share the same face normal).
 fn compute_face_normals(verts: &[[f32; 3]]) -> Vec<[f32; 3]> {
   let mut normals = Vec::with_capacity(verts.len());
-  for tri in verts.chunks_exact(3) {
+  // `as_chunks` types the group as a fixed [_; 3], so the three indexes
+  // below are checked at compile time. A trailing partial triangle is
+  // dropped, just as `chunks_exact` dropped it.
+  for tri in verts.as_chunks::<3>().0 {
     let a = tri[0];
     let b = tri[1];
     let c = tri[2];
