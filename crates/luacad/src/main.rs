@@ -42,7 +42,7 @@ fn render_format_error(fmt: &str) -> String {
 #[derive(Parser)]
 #[command(
   name = "luacad",
-  version,
+  version = luacad::version::VERSION,
   about = "Execute LuaCAD code from the command line",
   after_help = after_help_text(),
   disable_version_flag = true,

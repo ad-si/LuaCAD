@@ -2,8 +2,9 @@
 name = "luacad-studio"
 version.workspace = true
 repository.workspace = true
-# Higher than the workspace default: the egui stack requires 1.95.
-rust-version = "1.95"
+# Higher than the workspace default: the egui stack requires 1.95 and the
+# `luacad` dependency 1.96.
+rust-version = "1.96"
 edition = "2024"
 description = "A 3D CAD studio with Lua scripting and live preview"
 license = "AGPL-3.0-or-later"
@@ -19,6 +20,7 @@ csgrs = ["dep:csgrs", "luacad/csgrs"]
 # `raytrace` is spelled out (it is also a default feature) because the
 # viewport's Raytrace button depends on it unconditionally.
 luacad = { version = "1.1.0", path = "../luacad", features = ["raytrace"] }
+clap = { version = "4", features = ["derive"] }
 egui = "0.36"
 egui_glow = "0.36"
 egui_extras = { version = "0.36", features = ["default", "syntect"] }

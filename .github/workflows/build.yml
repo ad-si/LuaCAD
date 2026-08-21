@@ -61,27 +61,30 @@ jobs:
             libxrandr-dev \
             libwayland-dev
 
-      # `luacad` and the two -sys crates share the workspace MSRV; Studio
-      # needs a newer one because of the egui stack.
-      - name: Install the luacad MSRV toolchain
+      # The two -sys crates and the three vendored OpenSCAD front-end crates
+      # still hold the workspace MSRV; the vendored path tracer needs 1.96 and
+      # that reaches every other crate through `luacad`.
+      - name: Install the workspace MSRV toolchain
         uses: dtolnay/rust-toolchain@1.89.0
 
-      - name: Install the luacad-studio MSRV toolchain
-        uses: dtolnay/rust-toolchain@1.95.0
+      - name: Install the luacad MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check luacad, luacad-manifold-sys and opencsg-sys at 1.89
+      - name: Check the crates that advertise 1.89 at 1.89
         run: |
           cargo +1.89.0 check \
-            --package luacad \
             --package luacad-manifold-sys \
             --package opencsg-sys \
+            --package luacad-scad-syntax \
+            --package luacad-scad-ir \
+            --package luacad-scad-eval \
             --all-targets
 
-      - name: Check luacad-studio at 1.95
-        run: cargo +1.95.0 check --package luacad-studio --all-targets
+      - name: Check the rest of the workspace at 1.96
+        run: cargo +1.96.0 check --workspace --all-targets
 
   # Publishing is a series of irreversible pushes to crates.io in dependency
   # order, so a defective tarball has to surface here rather than halfway
@@ -244,6 +247,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The version string embeds `git describe`, which needs the tags and
+          # the history between them; the default shallow clone has neither.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

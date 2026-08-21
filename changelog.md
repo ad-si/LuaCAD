@@ -39,13 +39,30 @@ any release.
 
   [OpenRSCAD]: https://github.com/matthova/openrscad
 
-### Changed
+- Studio: the selected projection is remembered across restarts
+  ([#18](https://github.com/ad-si/LuaCAD/issues/18)), so a perspective view
+  no longer falls back to orthogonal on every launch (`orthogonal_view` in
+  the state file, next to `hide_editor` and `auto_reload`). Resetting the
+  camera now also uses the distance that matches the current projection
+  instead of always the orthogonal one.
 
-- `polygon()` in the SCAD tree carries optional contour index lists, resolved
-  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
-  unchanged; this is what lets an imported `polygon(points, paths)` — and the
-  counters in an OpenSCAD `text()` — come through as holes rather than
-  filling in.
+- Studio: `-h` / `--help` and `-v` / `--version` print their information and
+  exit instead of starting the GUI
+  ([#15](https://github.com/ad-si/LuaCAD/issues/15)). The file to open is now
+  a declared argument (`luacad-studio [file.lua]`), so an unknown flag is
+  reported instead of being taken for a file name. The same version
+  information is in the GUI under Settings → About, reachable through the new
+  `ℹ About` button (which is also in the bottom bar while the code editor is
+  hidden), together with the target the binary was built for and a button
+  that copies it all for a bug report.
+
+- Both binaries append `git describe --always --dirty --tags` to their version
+  when they are built from a git checkout, e.g.
+  `luacad 1.1.0 (v1.1.0-3-g23a0ea2-dirty)`, so a locally built binary can be
+  traced back to its commit. Builds from crates.io (and from a clean release
+  tag) print the plain version. `LUACAD_GIT_DESCRIBE` overrides the suffix at
+  build time — set it to an empty value to drop it, e.g. for a reproducible
+  distro package.
 
 - Studio: the opened file is watched and reloaded automatically when another
   program changes it on disk
@@ -91,6 +108,18 @@ any release.
   another matte/plastic/metal material enables grain there too. The grain is
   anchored in world space, so a moved part is "cut from a different spot in
   the log".
+
+### Changed
+
+- The minimum supported Rust version of `luacad` and `luacad-studio` is now
+  1.96, raised by the vendored path tracer behind `--raytrace`. The
+  `luacad-manifold-sys` and `opencsg-sys` crates still build on 1.89.
+
+- `polygon()` in the SCAD tree carries optional contour index lists, resolved
+  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
+  unchanged; this is what lets an imported `polygon(points, paths)` — and the
+  counters in an OpenSCAD `text()` — come through as holes rather than
+  filling in.
 
 ### Fixed
 

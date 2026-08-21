@@ -6,7 +6,7 @@
 -- Everything here is positioned relative to the crossbar body, which is
 -- the origin the original model hangs the whole upper structure from.
 
-local colors = require("parts.palette")
+local palette = require("parts.palette")
 local crossbar = require("parts.crossbar")
 local support = require("parts.foundation_support")
 local servo_cage = require("parts.servo_cage")
@@ -89,8 +89,15 @@ local servo_z = servo_cage.z
 
 function M.parts()
   local out = {}
-  local function add(solid, color, name)
-    out[#out + 1] = { solid = solid, color = color, name = name }
+  -- `look` names a role in the palette, which supplies the colour and,
+  -- for some roles, a surface material.
+  local function add(solid, look, name)
+    out[#out + 1] = {
+      solid = solid,
+      color = palette.colors[look],
+      material = palette.materials[look],
+      name = name,
+    }
   end
 
   -- Spine, plus the two full-height feet that stand it off the chassis.
@@ -108,7 +115,7 @@ function M.parts()
         0,
         crossbar.bottom_z
       ),
-    colors.deck,
+    "deck",
     "crossbar"
   )
   add(
@@ -125,12 +132,12 @@ function M.parts()
       + support
         .lower_right_support(lower_right_height)
         :translate(lower_right_x, lower_right_y, lower_right_z),
-    colors.cover,
+    "cover",
     "foundation-supports"
   )
   add(
     servo_cage.servo_cage():translate(servo_cage.x, servo_cage.y, servo_cage.z),
-    colors.cover,
+    "cover",
     "servo-cage"
   )
 
@@ -141,7 +148,7 @@ function M.parts()
       back_foundation.y,
       back_foundation.z
     ),
-    colors.deck,
+    "deck",
     "tray-rear"
   )
   add(
@@ -150,7 +157,7 @@ function M.parts()
       front_foundation.y,
       front_foundation.z
     ),
-    colors.deck,
+    "deck",
     "tray-front"
   )
 
@@ -161,12 +168,12 @@ function M.parts()
 
   add(
     cover_origin(back_cover.left_side() + back_cover.right_side()),
-    colors.cover,
+    "cover",
     "cover-rear-sides"
   )
   add(
     cover_origin(back_cover.top():translate(0, 0, back_cover.z)),
-    colors.cover,
+    "cover",
     "cover-rear-top"
   )
 
@@ -179,29 +186,29 @@ function M.parts()
     )
   end
 
-  add(front_origin(front_cover.center()), colors.cover, "cover-front-center")
+  add(front_origin(front_cover.center()), "cover", "cover-front-center")
   add(
     front_origin(front_cover.front_left_side() + front_cover.front_right_side()),
-    colors.cover,
+    "cover",
     "cover-front-sides"
   )
   add(
     front_origin(front_cover.back_left_side() + front_cover.back_right_side()),
-    colors.cover,
+    "cover",
     "cover-front-rear-sides"
   )
-  add(front_origin(front_cover.camera_plate()), colors.cover, "camera-plate")
+  add(front_origin(front_cover.camera_plate()), "cover", "camera-plate")
 
   -- Payload
   add(
     electronics.servo_body():translate(servo_x, servo_y, servo_z),
-    colors.servo,
+    "servo",
     "servo"
   )
   add(
     (electronics.servo_arm() + electronics.servo_arm_link())
       :translate(servo_x, servo_y, servo_z),
-    colors.link,
+    "link",
     "servo-linkage"
   )
 
@@ -212,49 +219,49 @@ function M.parts()
       M.chassis_y + electronics.battery_width / 2 + 5.0,
       M.chassis_z + 2.54 / 2 + electronics.battery_height / 2
     ),
-    colors.battery,
+    "battery",
     "battery-drive"
   )
   add(
     battery:translate(battery_bay_x, battery_bay_y, battery_bay_z)
       + battery:translate(battery_bay_x, -battery_bay_y, battery_bay_z),
-    colors.battery,
+    "battery",
     "battery-logic"
   )
 
   -- Mounted upside down under the cover.
   add(
     electronics.jetson_nano():rotate(180, 0, 0):translate(jetson_x, 0, jetson_z),
-    colors.board,
+    "board",
     "jetson-nano"
   )
 
   add(
     (electronics.lidar_mount() + electronics.lidar_motor())
       :translate(lidar_x, lidar_y, lidar_z),
-    colors.electronics,
+    "electronics",
     "lidar-mount"
   )
   add(
     electronics.lidar_top():translate(lidar_x, lidar_y, lidar_z),
-    colors.lidar,
+    "lidar",
     "lidar-scanner"
   )
 
   -- The two RealSense cameras looking out of the front bay.
   add(
     electronics.d435():translate(d435_x, d435_y, d435_z),
-    colors.electronics,
+    "electronics",
     "camera-d435"
   )
   add(
     electronics.d435_screen():translate(d435_x, d435_y, d435_z),
-    colors.camera,
+    "camera",
     "camera-d435-lens"
   )
   add(
     electronics.t265():translate(t265_x, d435_y, t265_z),
-    colors.camera,
+    "camera",
     "camera-t265"
   )
 

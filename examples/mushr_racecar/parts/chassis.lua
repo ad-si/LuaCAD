@@ -7,7 +7,7 @@
 -- solid, so the export keeps them as distinct objects.
 
 local u = require("parts.utils")
-local colors = require("parts.palette")
+local palette = require("parts.palette")
 local platform = require("parts.platform")
 local gearbox = require("parts.gearbox")
 local wheel = require("parts.wheel")
@@ -109,40 +109,48 @@ local shock_z = M.gearbox_z
 -- Assembly
 --------------------------------------------------------------------------
 
--- Each entry describes one exported object. Keeping the colour and name
--- alongside the solid -- rather than baking them in -- lets callers filter
--- the list, which is what the OpenSCAD comparison harness does.
+-- Each entry describes one exported object. Keeping the colour, material
+-- and name alongside the solid -- rather than baking them in -- lets
+-- callers filter the list, which is what the OpenSCAD comparison harness
+-- does.
 function M.parts()
   local out = {}
-  local function add(solid, color, name)
-    out[#out + 1] = { solid = solid, color = color, name = name }
+  -- `look` names a role in the palette, which supplies the colour and,
+  -- for some roles, a surface material.
+  local function add(solid, look, name)
+    out[#out + 1] = {
+      solid = solid,
+      color = palette.colors[look],
+      material = palette.materials[look],
+      name = name,
+    }
   end
 
-  add(platform.platform(), colors.deck, "platform")
+  add(platform.platform(), "deck", "platform")
 
   -- Gearboxes. The front one is the same moulding turned around, with the
   -- steering rack bolted on.
   add(
     gearbox.gearbox():translate(M.back_gearbox_x, 0, M.gearbox_z),
-    colors.gearbox,
+    "gearbox",
     "gearbox-rear"
   )
   add(
     gearbox.motor_cover():translate(M.back_gearbox_x, 0, M.gearbox_z),
-    colors.cover,
+    "cover",
     "motor-cover"
   )
   add(
     (gearbox.gearbox() + gearbox.front_steering())
       :rotate(0, 0, 180)
       :translate(M.front_gearbox_x, 0, M.gearbox_z),
-    colors.gearbox,
+    "gearbox",
     "gearbox-front"
   )
 
   add(
     back_bumper.back_bumper():translate(M.back_gearbox_x, 0, M.gearbox_z),
-    colors.bumper,
+    "bumper",
     "bumper-rear"
   )
   add(
@@ -150,7 +158,7 @@ function M.parts()
       .bumper_absorber(gearbox.base_width)
       :scale(1.2, 1.0, 1.0)
       :translate(absorber_x, 0, absorber_z),
-    colors.bumper,
+    "bumper",
     "bumper-absorber"
   )
 
@@ -176,17 +184,17 @@ function M.parts()
 
     add(
       tire:rotate(0, 0, yaw):translate(c.x, c.y, M.wheel_z),
-      colors.tire,
+      "tire",
       "tire-" .. i
     )
     add(
       hub:rotate(0, 0, yaw):translate(c.x, c.y, M.wheel_z),
-      colors.hub,
+      "hub",
       "hub-" .. i
     )
     add(
       axle:rotate(0, 0, yaw):translate(c.x, c.y, M.wheel_z),
-      colors.link,
+      "link",
       "upright-" .. i
     )
   end
@@ -243,8 +251,8 @@ function M.parts()
     end
   end
 
-  add(linkage, colors.link, "suspension-linkage")
-  add(shafts, colors.shaft, "drive-shafts")
+  add(linkage, "link", "suspension-linkage")
+  add(shafts, "shaft", "drive-shafts")
 
   -- Shock absorbers: four coil-overs leaning in towards the centre line.
   local dampers, springs = nil, nil
@@ -270,8 +278,8 @@ function M.parts()
     springs = springs and (springs + s) or s
   end
 
-  add(dampers, colors.damper, "shock-bodies")
-  add(springs, colors.spring, "shock-springs")
+  add(dampers, "damper", "shock-bodies")
+  add(springs, "spring", "shock-springs")
 
   return out
 end

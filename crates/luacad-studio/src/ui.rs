@@ -3,6 +3,7 @@ use egui_extras::syntax_highlighting;
 use luacad::export::ExportFormat;
 use luacad::export::ManifoldFormat;
 use luacad::linter::LintSeverity;
+use luacad::version;
 
 use crate::app::{
   AppState, EditorClick, EditorPosition, FileAction, SearchState,
@@ -12,6 +13,9 @@ use crate::editor::{
   find_matches, triple_click_range,
 };
 use crate::theme::ThemeMode;
+
+/// Index of the "About" tab in the settings dialog.
+const ABOUT_TAB: usize = 2;
 
 /// Fill color of the Save button while there are unsaved changes.
 const UNSAVED_ORANGE: egui::Color32 = egui::Color32::from_rgb(230, 140, 40);
@@ -171,6 +175,39 @@ fn render_settings_general(ui: &mut egui::Ui, app: &mut AppState) {
   }
 }
 
+/// One line of Studio's About tab: a bold label and a selectable value.
+fn about_row(ui: &mut egui::Ui, label: &str, value: &str) {
+  ui.horizontal(|ui| {
+    ui.label(egui::RichText::new(label).strong());
+    // Selectable so the value can be pasted into a bug report.
+    ui.add(egui::Label::new(value).selectable(true));
+  });
+}
+
+/// Render the "About" settings tab content: which binary is running.
+fn render_settings_about(ui: &mut egui::Ui) {
+  ui.label(egui::RichText::new("LuaCAD Studio").strong().size(16.0));
+  ui.add_space(6.0);
+  about_row(ui, "Version", version::CRATE_VERSION);
+  if !version::GIT_DESCRIBE.is_empty() {
+    about_row(ui, "Commit", version::GIT_DESCRIBE);
+  }
+  about_row(ui, "Target", version::BUILD_TARGET);
+  ui.add_space(8.0);
+  ui.hyperlink_to("github.com/ad-si/LuaCAD", "https://github.com/ad-si/LuaCAD")
+    .on_hover_cursor(egui::CursorIcon::PointingHand);
+  ui.add_space(8.0);
+  if ui
+    .button("Copy version info")
+    .on_hover_text("Same text as `luacad-studio --version`")
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
+    .clicked()
+  {
+    ui.ctx()
+      .copy_text(format!("luacad-studio {}", version::VERSION));
+  }
+}
+
 /// Render the "Shortcuts" settings tab content.
 fn render_settings_shortcuts(ui: &mut egui::Ui) {
   let m = modifier_label();
@@ -266,24 +303,19 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
       ui.label("Projection:");
-      let ratio = 1.0 / (22.5_f32).to_radians().tan();
       if ui
         .selectable_label(app.orthogonal_view, "Orthogonal")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
-        && !app.orthogonal_view
       {
-        app.camera_distance /= ratio;
-        app.orthogonal_view = true;
+        app.set_orthogonal_view(true);
       }
       if ui
         .selectable_label(!app.orthogonal_view, "Perspective")
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
-        && app.orthogonal_view
       {
-        app.camera_distance *= ratio;
-        app.orthogonal_view = false;
+        app.set_orthogonal_view(false);
       }
 
       ui.separator();
@@ -432,6 +464,17 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
           .clicked()
         {
           app.pending_file_action = Some(FileAction::Reload);
+        }
+        // The About button lives in the editor panel, so version information
+        // needs a way in here as well.
+        if ui
+          .button("ℹ About")
+          .on_hover_cursor(egui::CursorIcon::PointingHand)
+          .on_hover_text(format!("LuaCAD Studio {}", version::VERSION))
+          .clicked()
+        {
+          app.show_settings = true;
+          app.settings_tab = ABOUT_TAB;
         }
       }
     });
@@ -1217,6 +1260,16 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         .clicked()
       {
         app.show_settings = true;
+        app.settings_tab = 0;
+      }
+      if ui
+        .button("ℹ About")
+        .on_hover_text(format!("LuaCAD Studio {}", version::VERSION))
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+      {
+        app.show_settings = true;
+        app.settings_tab = ABOUT_TAB;
       }
     });
 
@@ -1306,7 +1359,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
       .show(gui_context, |ui| {
         // Tab bar
         ui.horizontal(|ui| {
-          let tabs = ["General", "Shortcuts"];
+          let tabs = ["General", "Shortcuts", "About"];
           for (i, label) in tabs.iter().enumerate() {
             if ui
               .selectable_label(app.settings_tab == i, *label)
@@ -1322,6 +1375,7 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         match app.settings_tab {
           0 => render_settings_general(ui, app),
           1 => render_settings_shortcuts(ui),
+          ABOUT_TAB => render_settings_about(ui),
           _ => {}
         }
       });
@@ -1579,6 +1633,21 @@ mod tests {
     time: f64,
     /// Scene rect returned by the most recent `render_ui` pass
     scene_rect: egui::Rect,
+    /// Text painted by the most recent `render_ui` pass
+    painted_text: Vec<String>,
+  }
+
+  /// Collect the text of every glyph run in a shape tree.
+  fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+    match shape {
+      egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+      egui::Shape::Vec(shapes) => {
+        for shape in shapes {
+          collect_text(shape, out);
+        }
+      }
+      _ => {}
+    }
   }
 
   impl Harness {
@@ -1595,6 +1664,7 @@ mod tests {
         app,
         time: 0.0,
         scene_rect: egui::Rect::NOTHING,
+        painted_text: vec![],
       }
     }
 
@@ -1620,6 +1690,10 @@ mod tests {
       let mut output = self.ctx.run_ui(input, |ui| {
         *scene_rect = render_ui(ui, app).scene_rect;
       });
+      self.painted_text.clear();
+      for clipped in &output.shapes {
+        collect_text(&clipped.shape, &mut self.painted_text);
+      }
       // Nothing paints in these tests, and epaint asserts that a
       // `TexturesDelta` is not dropped with deltas still pending.
       output.textures_delta.clear();
@@ -1644,6 +1718,11 @@ mod tests {
 
     fn release(&mut self, dt: f64, pos: egui::Pos2) {
       self.pass(dt, vec![Self::click_event(pos, false)]);
+    }
+
+    /// Whether the last pass painted a label containing `needle`.
+    fn painted(&self, needle: &str) -> bool {
+      self.painted_text.iter().any(|t| t.contains(needle))
     }
 
     fn selected_text(&self) -> String {
@@ -2063,5 +2142,36 @@ mod tests {
     h.release(0.05, IN_WORD);
     h.pass(0.016, vec![]);
     assert_eq!(h.app.editor_selection_len, 0);
+  }
+
+  /// Settings → About is the only place in the GUI that names the running
+  /// binary, so it has to show the version.
+  #[test]
+  fn about_tab_shows_the_version() {
+    let mut h = Harness::new("local width = 10\n");
+    h.app.show_settings = true;
+    h.app.settings_tab = ABOUT_TAB;
+    // Two passes: egui gives an `Area` its size on the first one.
+    h.pass(0.016, vec![]);
+    h.pass(0.016, vec![]);
+    assert!(
+      h.painted(version::CRATE_VERSION),
+      "About tab painted: {:?}",
+      h.painted_text
+    );
+  }
+
+  /// The About button in the bottom bar keeps the version reachable while
+  /// the editor panel (which holds the other one) is hidden.
+  #[test]
+  fn about_button_is_reachable_without_the_editor() {
+    let mut h = Harness::new("local width = 10\n");
+    h.app.editor_visible = false;
+    h.pass(0.016, vec![]);
+    assert!(
+      h.painted("About"),
+      "bottom bar painted: {:?}",
+      h.painted_text
+    );
   }
 }
