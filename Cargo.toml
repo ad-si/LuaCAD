@@ -20,6 +20,36 @@ repository = "https://github.com/ad-si/LuaCAD"
 # carries through `luacad` to `luacad-studio` and `luacad-wasm`.
 rust-version = "1.89"
 
+# Every crate of the workspace depends on its siblings through this block, so
+# a release bumps the versions here and in `workspace.package` and nowhere
+# else. The `version` next to a `path` is what the published tarball resolves
+# against — a stale one left behind in a member manifest would make a crate on
+# crates.io pull the *previous* release of its own sibling, which builds
+# locally and fails only after publishing.
+[workspace.dependencies]
+# `default-features = false` because `luacad-wasm` has to build without the
+# `raytrace` default (prime-core's rand/getrandom does not compile for
+# wasm32). Members that want it name it: `features = ["raytrace"]`.
+luacad = { version = "1.1.0", path = "crates/luacad", default-features = false }
+opencsg-sys = { version = "1.1.0", path = "crates/opencsg-sys" }
+# Published as `luacad-manifold-sys`; the plain `manifold-sys` name on
+# crates.io belongs to an unrelated crate. Renamed back here so the FFI paths
+# read as `manifold_sys::` throughout.
+manifold-sys = { package = "luacad-manifold-sys", version = "1.1.0", path = "crates/luacad-manifold-sys" }
+# The vendored path tracer, renamed for the same reason as manifold-sys.
+prime-core = { package = "luacad-prime-core", version = "1.1.0", path = "crates/luacad-prime-core" }
+# The OpenSCAD language front end, vendored from OpenRSCAD and renamed back to
+# the upstream crate names so its sources stay diffable — see the crates'
+# READMEs.
+openrscad-syntax = { package = "luacad-scad-syntax", version = "1.1.0", path = "crates/luacad-scad-syntax" }
+openrscad-ir = { package = "luacad-scad-ir", version = "1.1.0", path = "crates/luacad-scad-ir" }
+openrscad-eval = { package = "luacad-scad-eval", version = "1.1.0", path = "crates/luacad-scad-eval" }
+
+# Third-party crates that more than one member uses. The vendored crates keep
+# their own dependency lines, so their manifests stay diffable against
+# upstream.
+clap = { version = "4", features = ["derive"] }
+
 # An unoptimized path tracer makes `luacad render --raytrace` painfully slow
 # in dev builds; upstream Prime sets opt-level 2 for its whole workspace.
 [profile.dev.package.luacad-prime-core]

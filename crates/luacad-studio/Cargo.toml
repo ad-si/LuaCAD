@@ -17,16 +17,16 @@ default = []
 csgrs = ["dep:csgrs", "luacad/csgrs"]
 
 [dependencies]
-# `raytrace` is spelled out (it is also a default feature) because the
-# viewport's Raytrace button depends on it unconditionally.
-luacad = { version = "1.1.0", path = "../luacad", features = ["raytrace"] }
-clap = { version = "4", features = ["derive"] }
+# `raytrace` is spelled out (it is also `luacad`'s default feature) because
+# the viewport's Raytrace button depends on it unconditionally.
+luacad = { workspace = true, features = ["raytrace"] }
+clap = { workspace = true }
 egui = "0.36"
 egui_glow = "0.36"
 egui_extras = { version = "0.36", features = ["default", "syntect"] }
 cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
-opencsg-sys = { version = "1.1.0", path = "../opencsg-sys" }
+opencsg-sys = { workspace = true }
 arboard = "3"
 rfd = "0.17"
 winit = "0.30"

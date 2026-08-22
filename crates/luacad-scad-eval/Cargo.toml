@@ -10,8 +10,8 @@ license = "Apache-2.0 OR MIT"
 [dependencies]
 # Renamed so the vendored sources keep their upstream `openrscad_*` paths and
 # stay diffable against OpenRSCAD.
-openrscad-syntax = { package = "luacad-scad-syntax", version = "1.1.0", path = "../luacad-scad-syntax" }
-openrscad-ir = { package = "luacad-scad-ir", version = "1.1.0", path = "../luacad-scad-ir" }
+openrscad-syntax = { workspace = true }
+openrscad-ir = { workspace = true }
 thiserror = "2"
 rustc-hash = "2"
 ttf-parser = "0.25"

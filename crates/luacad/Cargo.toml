@@ -13,13 +13,16 @@ categories = ["graphics", "command-line-utilities"]
 
 [features]
 # `raytrace` is on by default for the CLI; `luacad-wasm` opts out because
-# prime-core's rand/getrandom dependency does not build on wasm32.
+# prime-core's rand/getrandom dependency does not build on wasm32. The
+# workspace dependency turns the defaults off for that reason, so the other
+# members name the features they want — anything added to `default` here has
+# to be added to their `features` lists as well.
 default = ["raytrace"]
 csgrs = ["dep:csgrs"]
 raytrace = ["dep:prime-core"]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true }
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 csgrs = { version = "0.20", default-features = false, features = ["f32", "delaunay", "ply-io", "stl-io", "obj-io", "chull-io", "offset"], optional = true }
 # Held at 0.33 to match csgrs — a newer nalgebra puts two incompatible copies
@@ -30,13 +33,9 @@ selene-lib = { version = "0.31", default-features = false, features = ["lua54"] 
 full_moon = { version = "2", features = ["lua54"] }
 toml = "1.1"
 serde_yaml = "0.9"
-# Published as `luacad-manifold-sys`; the plain `manifold-sys` name on
-# crates.io belongs to an unrelated crate. Renamed back here so the FFI paths
-# read as `manifold_sys::` throughout.
-manifold-sys = { package = "luacad-manifold-sys", version = "1.1.0", path = "../luacad-manifold-sys" }
-# Vendored path tracer for `luacad render --raytrace`; renamed for the same
-# reason as manifold-sys (upstream's name is taken on crates.io).
-prime-core = { package = "luacad-prime-core", version = "1.1.0", path = "../luacad-prime-core", optional = true }
+manifold-sys = { workspace = true }
+# The path tracer behind `luacad render --raytrace`.
+prime-core = { workspace = true, optional = true }
 png = "0.18"
 usvg = { version = "0.48", default-features = false }
 kurbo = "0.13"
@@ -45,12 +44,10 @@ fontdb = "0.24"
 ttf-parser = "0.25"
 # AMF is plain XML, unlike the other mesh formats import() reads.
 roxmltree = "0.21"
-# The OpenSCAD language front end, for opening .scad files. Vendored from
-# OpenRSCAD and renamed back to the upstream crate names so the sources stay
-# diffable — see the crates' READMEs.
-openrscad-syntax = { package = "luacad-scad-syntax", version = "1.1.0", path = "../luacad-scad-syntax" }
-openrscad-ir = { package = "luacad-scad-ir", version = "1.1.0", path = "../luacad-scad-ir" }
-openrscad-eval = { package = "luacad-scad-eval", version = "1.1.0", path = "../luacad-scad-eval" }
+# The OpenSCAD language front end, for opening .scad files.
+openrscad-syntax = { workspace = true }
+openrscad-ir = { workspace = true }
+openrscad-eval = { workspace = true }
 
 [dev-dependencies]
 insta = "1"
