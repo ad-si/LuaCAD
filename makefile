@@ -53,6 +53,19 @@ example-images:
 	done
 
 
+# Regenerates website/examples.html — every example's source, the OpenSCAD it
+# exports to and a preview — from the examples themselves. The page is checked
+# in because GitHub Pages deploys `website/` as it stands, so it has to be
+# rebuilt whenever an example changes.
+.PHONY: website-examples
+website-examples:
+	@command -v lua > /dev/null \
+		|| (echo "No lua interpreter on this shell" && exit 1)
+	cargo build --package luacad --release
+	cd website-src \
+		&& LUACAD=../target/release/luacad lua build_examples.lua
+
+
 # The browser build behind https://luacad.ad-si.com/playground.
 #
 # Needs Emscripten on the shell: `nix develop` provides it, as does sourcing
@@ -112,13 +125,23 @@ package:
 
 .PHONY: release
 release:
-	@echo '1. `cai changelog <first-commit-hash>`'
-	@echo '2. `git add ./changelog.md && git commit -m "Update changelog"`'
-	@echo '3. Check CI is green on main — the `package` job verifies every'
+	@echo '1. `cai changelog <first-commit-hash>`, then give the'
+	@echo '   `## Unreleased` heading its version and date, as in'
+	@echo '   `## 2026-08-22 - 1.2.0`.'
+	@echo '2. Bump the version in the root `Cargo.toml`: `workspace.package`'
+	@echo '   and every entry of `workspace.dependencies`. No member manifest'
+	@echo '   names a version, so those are all of them. A `cargo check`'
+	@echo '   writes the new versions into `Cargo.lock`.'
+	@echo '3. Regenerate what is derived from the sources, in case a change'
+	@echo '   since the last release did not:'
+	@echo '     make example-images    # the images next to every example'
+	@echo '     make website-examples  # website/examples.html'
+	@echo '4. `git add -u && git commit -m "Release <version>"`'
+	@echo '5. Check CI is green on main — the `package` job verifies every'
 	@echo '   crate builds from its tarball. `make package` does the same'
 	@echo '   locally, but reuses cached builds of the local registry and can'
 	@echo '   pass or fail against stale artifacts; trust CI over it.'
-	@echo '4. Publish in dependency order — each must be live on crates.io'
+	@echo '6. Publish in dependency order — each must be live on crates.io'
 	@echo '   before the next one can resolve it:'
 	@echo '     cargo publish -p luacad-manifold-sys'
 	@echo '     cargo publish -p luacad-prime-core'
@@ -128,12 +151,17 @@ release:
 	@echo '     cargo publish -p opencsg-sys'
 	@echo '     cargo publish -p luacad'
 	@echo '     cargo publish -p luacad-studio'
-	@echo '5. Push a `v*` tag, or create the release at' \
+	@echo '7. Push a `v*` tag, or create the release at' \
 		'https://github.com/ad-si/LuaCAD/releases/new'
 	@echo '   The `release` job attaches the binaries of every platform and'
 	@echo '   their checksums; a bare tag gets a draft release to publish.'
+	@echo '8. Point the Homebrew tap at the new release:'
+	@echo '   https://github.com/ad-si/homebrew-tap'
+	@echo '   `brew install ad-si/tap/luacad` hands out the prebuilt binaries'
+	@echo '   attached in step 7, so the formula needs their new URLs and the'
+	@echo '   checksums from the `SHA256SUMS.txt` next to them.'
 	@echo -e \
-		"6. Announce release on \n" \
+		"9. Announce release on \n" \
 		"   - https://x.com \n" \
 		"   - https://bsky.app \n" \
 		"   - https://this-week-in-rust.org \n" \
