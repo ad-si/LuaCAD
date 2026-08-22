@@ -1451,6 +1451,18 @@ impl Interp<'_> {
         // specified as parameter" and does the same). Accepting `h` here would
         // silently disagree with OpenSCAD, e.g. BOSL2-style `linear_extrude(h=x)`.
         let height = m.get("height").and_then(Value::as_number).unwrap_or(100.0);
+        // OpenSCAD extrudes nothing for a height of zero or less and says so
+        // only by leaving the object empty. LuaCAD warns instead: a height
+        // computed from parameters is easy to get wrong, and a part that
+        // silently disappears is hard to trace back to the call that dropped
+        // it.
+        if height <= 0.0 || height.is_nan() {
+            self.warn(format!(
+                "linear_extrude(height = {}): only a positive height \
+                 extrudes anything",
+                format_number(height)
+            ));
+        }
         let center = m.get("center").map(Value::truthy).unwrap_or(false);
         let twist = m.get("twist").and_then(Value::as_number).unwrap_or(0.0);
         let scale = match m.get("scale") {
@@ -3772,6 +3784,25 @@ mod tests {
 
     fn warnings_of(src: &str) -> Vec<String> {
         eval(src).warnings.into_iter().map(|w| w.message).collect()
+    }
+
+    #[test]
+    fn non_positive_extrude_height_warns() {
+        // OpenSCAD leaves the object empty without a word; a height that came
+        // out of a parameter is easy to get wrong, so LuaCAD says so.
+        assert_eq!(
+            warnings_of("linear_extrude(height = -1) square(1);"),
+            vec!["linear_extrude(height = -1): only a positive height extrudes anything"]
+        );
+        assert_eq!(
+            warnings_of("linear_extrude(0) square(1);"),
+            vec!["linear_extrude(height = 0): only a positive height extrudes anything"]
+        );
+        // A positive height, the default, and a non-numeric height that falls
+        // back to the default of 100 all stay quiet.
+        assert!(warnings_of("linear_extrude(height = 1) square(1);").is_empty());
+        assert!(warnings_of("linear_extrude() square(1);").is_empty());
+        assert!(warnings_of("linear_extrude(h = 4) square(1);").is_empty());
     }
 
     #[test]

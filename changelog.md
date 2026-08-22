@@ -158,6 +158,12 @@ any release.
   Manifold afterwards, which would force its deferred evaluation and shift the
   triangulation of models that are perfectly fine.
 
+- `linear_extrude()` in a `.scad` file warns when its height is zero,
+  negative or not a number, rather than silently producing nothing. OpenSCAD
+  leaves the object empty without a word; a height that came out of a
+  parameter is easy to get wrong, and a part that quietly disappears is hard
+  to trace back to the call that dropped it.
+
 - `render --raytrace` drew the triangulation of large flat faces into the
   image as thin dark lines, most visible where the light grazes the face —
   a fan of them across the side of a big brick, a seam down a baseplate.
