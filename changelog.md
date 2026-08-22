@@ -131,6 +131,12 @@ any release.
   comes in 4/3 too small compared to the same file there. An SVG that states
   its size in mm, cm or inches is unaffected.
 
+- The `legacy_lua/` directory — the pure Lua implementation the project was
+  rewritten from in February 2026 — is no longer part of the repository. It
+  had not been touched since the rewrite; it can be read at the `v1.1.0` tag
+  and lives on at
+  [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
+
 - `polygon()` in the SCAD tree carries optional contour index lists, resolved
   with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
   unchanged; this is what lets an imported `polygon(points, paths)` — and the
@@ -368,6 +374,7 @@ First release of the Rust rewrite, published as the `luacad` and
 LuaCAD began in 2015 as a pure Lua implementation by Michael Lutz at
 [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD), which
 generated OpenSCAD code for external rendering. That implementation was
-developed until February 2026, when the project was rewritten in Rust; it is
-kept in `legacy_lua/` for reference. It was never published as a versioned
-release, so it has no entries above.
+developed until February 2026, when the project was rewritten in Rust. It was
+kept in `legacy_lua/` until 1.2.0 and can still be read there at the `v1.1.0`
+tag. It was never published as a versioned release, so it has no entries
+above.
