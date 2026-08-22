@@ -30,6 +30,9 @@
         Write parametric 2D and 3D models in Lua
         and export them to 3MF, STL, OBJ, PLY, OFF, AMF, or SCAD,
         or render them straight to a PNG.
+        Existing OpenSCAD files open too &mdash; LuaCAD evaluates the
+        <code>.scad</code> language itself, with no OpenSCAD installation
+        involved.
       </p>
 
       <p>
@@ -44,13 +47,6 @@
         or generates <a href="https://www.openscad.org/">OpenSCAD</a>
         code for external rendering.
       </p>
-
-      <img
-        class="screenshot"
-        src="images/luacad-studio-screenshot.png"
-        alt="LuaCAD Studio previewing the MuSHR racecar model, a 43-part assembly
-          of 490,802 triangles, beside the Lua script that builds it"
-      >
 
       <h2>Why Lua?</h2>
       <ul class="feature-list">
@@ -105,6 +101,12 @@ union() {
       </div>
 
       <h2>Getting Started</h2>
+      <p>Homebrew installs the prebuilt <code>luacad</code> and
+        <code>luacad-studio</code> binaries, so nothing has to be compiled:
+      </p>
+      <pre><code class="language-bash">brew install ad-si/tap/luacad</code></pre>
+
+      <p>Or from crates.io:</p>
       <pre><code class="language-bash">cargo install luacad         # CLI for running and converting LuaCAD scripts
 cargo install luacad-studio  # GUI desktop app with live 3D preview</code></pre>
 
@@ -138,6 +140,68 @@ luacad run model.lua                  # Execute (side-effects only)</code></pre>
         output extension; <code>--format &lt;fmt&gt;</code> overrides it, and
         <code>--via-openscad</code> hands the export to an installed OpenSCAD
         binary instead of building the mesh with Manifold.
+      </p>
+      <p>Every subcommand takes a <code>.scad</code> file wherever it takes a
+        <code>.lua</code> one &mdash; see
+        <a href="#opening-openscad-files">Opening OpenSCAD Files</a> below.
+      </p>
+
+      <h2>Studio</h2>
+      <p><code>luacad-studio</code> is a desktop app with a code editor and a
+        3D viewport: edit the script on the right, watch the model update on
+        the left. The viewport draws the CSG tree itself through
+        <a href="http://www.opencsg.org/">OpenCSG</a>, so a boolean shows up as
+        soon as the script runs, without waiting for a mesh to be built for it.
+        A file changed by another program is picked up automatically, and the
+        Raytrace button path-traces whatever the viewport is currently showing.
+      </p>
+
+      <img
+        class="screenshot"
+        src="images/luacad-studio-screenshot.png"
+        alt="LuaCAD Studio previewing the MuSHR racecar model, a 43-part assembly
+          of 490,802 triangles, beside the Lua script that builds it"
+      >
+
+      <h2 id="rendering">Rendering</h2>
+      <p><code>luacad render</code> rasterizes a model to a PNG, shading flat
+        so the tessellation stays visible (<code>--smooth</code> turns that
+        off). <code>--raytrace</code> hands the same scene to a path tracer
+        instead &mdash; soft shadows and ambient occlusion, at a few seconds
+        per image:
+      </p>
+      <pre><code class="language-bash">luacad render --raytrace model.lua model.png
+luacad render --raytrace --samples 512 model.lua   # less noise, longer render
+luacad render --camera 45,20 model.lua             # azimuth,elevation in degrees</code></pre>
+      <p>Surfaces answer to <code>material()</code>, which the path tracer
+        reads for reflection, refraction and light emission:
+      </p>
+      <pre><code class="language-lua">sphere({ r = 10 }):material("gold")
+cube({ size = 20 }):material("glass", { ior = 1.5, roughness = 0.1 })</code></pre>
+      <p>The kinds are <code>matte</code>, <code>plastic</code>,
+        <code>metal</code>, <code>glass</code> and <code>emissive</code>;
+        <code>steel</code>, <code>chrome</code>, <code>gold</code>,
+        <code>copper</code>, <code>brass</code>, <code>rubber</code>,
+        <code>wood</code> and <code>ivory</code> are presets that bring their
+        own color.
+      </p>
+
+      <h2 id="opening-openscad-files">Opening OpenSCAD Files</h2>
+      <p>A <code>.scad</code> file works anywhere a <code>.lua</code> one does,
+        on the command line and in Studio. LuaCAD parses and evaluates the
+        OpenSCAD language itself, so nothing has to be installed and
+        <code>--via-openscad</code> is not involved:
+      </p>
+      <pre><code class="language-bash">luacad convert bracket.scad bracket.3mf
+luacad render bracket.scad bracket.png
+luacad-studio bracket.scad</code></pre>
+      <p>Both languages produce the same internal tree, so an opened
+        <code>.scad</code> file reaches every export format, the renderer, the
+        path tracer and Studio's live preview unchanged, and
+        <code>luacad convert model.scad out.scad</code> round-trips it with
+        modules inlined and <code>$fn</code>/<code>$fa</code>/<code>$fs</code>
+        resolved to facet counts. The
+        <a href="examples.html#chess">chess example</a> is written this way.
       </p>
 
       <h2>BOSL2</h2>
