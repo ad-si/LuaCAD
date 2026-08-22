@@ -122,6 +122,13 @@ any release.
 
 ### Changed
 
+- `--via-openscad` runs the binary named by the `OPENSCAD` environment
+  variable when it is set, and `openscad` from `PATH` otherwise — so a
+  development snapshot can be used without displacing a distribution's
+  release. The differential tests against BOSL2 take the same variable, and
+  now skip themselves against OpenSCAD 2021.01 rather than measuring LuaCAD
+  against a reference five years behind the behavior it tracks.
+
 - The minimum supported Rust version of `luacad` and `luacad-studio` is now
   1.96, raised by the vendored path tracer behind `--raytrace`. The
   `luacad-manifold-sys` and `opencsg-sys` crates still build on 1.89.

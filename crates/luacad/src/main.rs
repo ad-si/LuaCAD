@@ -226,7 +226,7 @@ fn export_via_openscad(
   std::fs::write(&tmp_scad, &scad_source)
     .map_err(|e| format!("Failed to write temp SCAD file: {e}"))?;
 
-  let result = std::process::Command::new("openscad")
+  let result = std::process::Command::new(luacad::openscad_binary())
     .arg("-o")
     .arg(output)
     .arg(&tmp_scad)
@@ -234,7 +234,10 @@ fn export_via_openscad(
   let _ = std::fs::remove_dir_all(&tmp_dir);
 
   let result = result.map_err(|e| {
-    format!("Failed to run OpenSCAD: {e}. Is OpenSCAD installed and in PATH?")
+    format!(
+      "Failed to run {}: {e}. Is OpenSCAD installed and in PATH?",
+      luacad::openscad_binary().to_string_lossy()
+    )
   })?;
 
   if result.status.success() {

@@ -90,7 +90,9 @@ luacad info model.scad                # Its triangle count and bounding box
 `convert` and `watch` infer the format from the output extension;
 `--format <fmt>` overrides it.
 `--via-openscad` hands the export to an installed OpenSCAD binary instead of
-building the mesh with Manifold.
+building the mesh with Manifold;
+set `OPENSCAD` to run one that is not the `openscad` on `PATH`, e.g.
+a development snapshot alongside a distribution's release.
 `render` shades flat by default, so the tessellation stays visible;
 `--smooth` turns that off.
 `--raytrace` renders with a path tracer instead of the rasterizer:

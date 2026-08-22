@@ -8,8 +8,20 @@
 //! or an anchor resolved to the wrong corner survives every unit test that
 //! only checks a shape against itself.
 //!
-//! The tests skip themselves when OpenSCAD or BOSL2 is not installed, so CI
-//! without them still passes; run them locally to check fidelity.
+//! The reference has to be a current OpenSCAD **development snapshot**, not
+//! the 2021.01 release that most distributions still ship: five years of
+//! fixes separate them, and a shape measured against the old one proves
+//! nothing about the behaviour LuaCAD tracks. `$OPENSCAD` names the binary to
+//! use, e.g.
+//!
+//! ```sh
+//! OPENSCAD=/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD \
+//!   cargo test --package luacad --test bosl_vs_openscad
+//! ```
+//!
+//! The tests skip themselves when OpenSCAD or BOSL2 is not installed, or when
+//! the OpenSCAD found is too old to compare against, so CI without them still
+//! passes; run them locally to check fidelity.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,11 +38,28 @@ const VOLUME_TOLERANCE: f64 = 0.005;
 /// depends on where its vertices land.
 const BBOX_TOLERANCE: f64 = 0.25;
 
-fn openscad_available() -> bool {
-  Command::new("openscad")
+/// The last OpenSCAD release, and the version a `PATH` lookup usually finds.
+/// Everything since is a dated development snapshot, which is what a
+/// comparison has to run against.
+const STALE_RELEASE: &str = "2021.01";
+
+/// What `$OPENSCAD` — or `openscad` on `PATH` — reports for `--version`, e.g.
+/// `2026.03.01`. `None` when it cannot be run at all.
+///
+/// OpenSCAD prints its version on stderr, and some builds exit non-zero doing
+/// it, so the output is what decides rather than the status.
+fn openscad_version() -> Option<String> {
+  let out = Command::new(luacad::openscad_binary())
     .arg("--version")
     .output()
-    .is_ok_and(|o| o.status.success() || !o.stderr.is_empty())
+    .ok()?;
+  let text = format!(
+    "{}{}",
+    String::from_utf8_lossy(&out.stderr),
+    String::from_utf8_lossy(&out.stdout)
+  );
+  let version = text.split_whitespace().last()?.trim().to_string();
+  (!version.is_empty()).then_some(version)
 }
 
 /// Whether OpenSCAD can resolve `include <BOSL2/std.scad>`.
@@ -40,7 +69,7 @@ fn bosl2_available() -> bool {
   let stl = dir.join("probe.stl");
   std::fs::write(&scad, "include <BOSL2/std.scad>\ncuboid([1,1,1]);\n")
     .expect("the temp directory is writable");
-  let ok = Command::new("openscad")
+  let ok = Command::new(luacad::openscad_binary())
     .arg("-o")
     .arg(&stl)
     .arg(&scad)
@@ -128,7 +157,13 @@ fn convert(
   let mut cmd = Command::new(luacad_bin());
   cmd.arg("convert").arg(&lua).arg(&stl);
   if via_openscad {
-    cmd.arg("--via-openscad");
+    // The reference mesh comes out of the `luacad` binary rather than out of
+    // OpenSCAD directly, so it is handed the same OpenSCAD the checks above
+    // ran — passed on rather than inherited, so that the binary being
+    // compared against is the one this test decided on.
+    cmd
+      .arg("--via-openscad")
+      .env("OPENSCAD", luacad::openscad_binary());
   }
   let out = cmd.output().expect("the luacad binary runs");
   assert!(
@@ -178,14 +213,27 @@ fn assert_matches_bosl2(name: &str, call: &str) {
 
 /// Every case, so one run reports all the mismatches rather than the first.
 fn check_all(cases: &[(&str, &str)]) {
-  if !openscad_available() {
-    eprintln!("skipping: OpenSCAD is not installed");
+  let binary = luacad::openscad_binary();
+  let binary = binary.to_string_lossy();
+  let Some(version) = openscad_version() else {
+    eprintln!("skipping: {binary} could not be run");
+    return;
+  };
+  // A dated snapshot sorts after the release it followed, so comparing the
+  // strings is enough to tell one from the other.
+  if version.as_str() <= STALE_RELEASE {
+    eprintln!(
+      "skipping: {binary} is OpenSCAD {version}, too old to compare against. \
+       Point $OPENSCAD at a development snapshot \
+       (https://openscad.org/downloads.html#snapshots)."
+    );
     return;
   }
   if !bosl2_available() {
     eprintln!("skipping: the BOSL2 library is not installed for OpenSCAD");
     return;
   }
+  eprintln!("comparing against OpenSCAD {version} ({binary})");
 
   let mut failures = Vec::new();
   for (name, call) in cases {
