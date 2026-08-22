@@ -263,6 +263,36 @@ fn a_missing_file_is_an_error_not_a_panic() {
   assert!(err.contains("nope.scad"), "{err}");
 }
 
+/// A part that cannot be built — an extrusion of non-positive height, a
+/// primitive with a zero measurement — contributes nothing and says so, but
+/// must leave the rest of the model standing. Manifold reports such a solid
+/// as an error rather than as empty, and an error spreads through every
+/// boolean it reaches, so this whole model used to come out empty.
+#[test]
+fn a_degenerate_part_does_not_take_the_model_with_it() {
+  let dir = Scratch::new("degenerate");
+  let path = dir.write(
+    "model.scad",
+    "cube(2);\n\
+     linear_extrude(height = -1) square(1);\n\
+     sphere(r = 0);\n\
+     cylinder(h = 0, r = 1);\n",
+  );
+
+  let program = load_scad_file(&path).expect("loads");
+  assert!(
+    program
+      .warnings
+      .iter()
+      .any(|w| w.contains("linear_extrude(height = -1)")),
+    "{:?}",
+    program.warnings
+  );
+
+  let (volume, _) = mesh_of(&path);
+  assert!((volume - 8.0).abs() < 1e-6, "volume {volume}");
+}
+
 #[test]
 fn only_a_scad_extension_takes_the_openscad_path() {
   assert!(is_scad_file("a.scad"));

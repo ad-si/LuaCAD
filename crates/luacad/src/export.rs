@@ -698,6 +698,34 @@ impl Manifold {
     unsafe { manifold_sys::manifold_is_empty(self.0) != 0 }
   }
 
+  /// Build a solid with `make`, unless one of `sizes` is a measurement
+  /// Manifold refuses to build from — then return an empty solid instead.
+  ///
+  /// Manifold rejects a primitive whose size is not finite and positive:
+  /// `cube(0)`, `sphere(r = 0)`, `cylinder(h = 0)`, `linear_extrude(-1)`.
+  /// What it hands back for one is not an empty solid but a solid carrying an
+  /// error status, and *every boolean an error solid takes part in inherits
+  /// that status*. Left alone, a single degenerate part therefore empties
+  /// everything it is combined with, up to and including the whole model:
+  /// `union() { cube(2); sphere(r = 0); }` came out empty. An empty solid has
+  /// no such effect — the degenerate part contributes nothing and its
+  /// siblings survive, which is what OpenSCAD does with the same input.
+  ///
+  /// The sizes are checked here rather than by reading Manifold's status
+  /// afterwards, because reading the status of a solid forces it to be built
+  /// on the spot. Manifold otherwise defers that, and evaluating early
+  /// changes how its tolerances accumulate, which shifts the triangulation of
+  /// models that have nothing wrong with them.
+  fn from_sizes(
+    sizes: impl IntoIterator<Item = f32>,
+    make: impl FnOnce() -> *mut manifold_sys::ManifoldManifold,
+  ) -> Self {
+    if sizes.into_iter().any(|s| !(s.is_finite() && s > 0.0)) {
+      return Self::empty();
+    }
+    Self(make())
+  }
+
   /// Return the axis-aligned bounding box as (min, max) in [x, y, z].
   pub fn bounding_box(&self) -> ([f32; 3], [f32; 3]) {
     unsafe {
@@ -1236,6 +1264,10 @@ fn manifold_from_triangles(verts: &mut [f32], tris: &mut [u32]) -> Manifold {
 /// Recursively evaluate a ScadNode tree into a Manifold object.
 /// All boolean operations, transforms, and primitives are performed
 /// directly by the Manifold library — no csgrs involved.
+///
+/// A primitive with a degenerate size yields an empty solid rather than one
+/// Manifold has flagged as an error, which a boolean would spread to the rest
+/// of the model — see [`Manifold::from_sizes`].
 pub fn materialize_scad_manifold(
   node: &crate::scad_export::ScadNode,
 ) -> Manifold {
@@ -1244,27 +1276,31 @@ pub fn materialize_scad_manifold(
 
   match node {
     // --- Leaf 3D primitives ---
-    ScadNode::Cube { w, d, h, center } => Manifold(unsafe {
-      manifold_cube(
-        Manifold::alloc(),
-        *w as f64,
-        *d as f64,
-        *h as f64,
-        *center as i32,
-      )
-    }),
+    ScadNode::Cube { w, d, h, center } => {
+      Manifold::from_sizes([*w, *d, *h], || unsafe {
+        manifold_cube(
+          Manifold::alloc(),
+          *w as f64,
+          *d as f64,
+          *h as f64,
+          *center as i32,
+        )
+      })
+    }
 
-    ScadNode::Sphere { r, segments } => Manifold(unsafe {
+    ScadNode::Sphere { r, segments } => Manifold::from_sizes([*r], || unsafe {
       manifold_sphere(Manifold::alloc(), *r as f64, *segments as i32)
     }),
 
+    // A cone is a cylinder with one radius at zero, so only the larger of the
+    // two has to be positive.
     ScadNode::Cylinder {
       r1,
       r2,
       h,
       segments,
       center,
-    } => Manifold(unsafe {
+    } => Manifold::from_sizes([*h, r1.max(*r2)], || unsafe {
       manifold_cylinder(
         Manifold::alloc(),
         *h as f64,
@@ -1544,7 +1580,7 @@ pub fn materialize_scad_manifold(
         0
       };
       let polygons = cs.to_polygons();
-      let m = Manifold(unsafe {
+      let m = Manifold::from_sizes([*height], || unsafe {
         manifold_extrude(
           Manifold::alloc(),
           polygons.ptr(),
@@ -4022,6 +4058,70 @@ mod cross_section_tests {
     let (min, max) = m.bounding_box();
     assert_eq!(min, [0.0, 0.0, 0.0]);
     assert_eq!(max, [10.0, 4.0, 3.0]);
+  }
+
+  /// Manifold refuses to build a solid with a non-positive dimension and
+  /// hands back an error solid, which every boolean it takes part in used to
+  /// inherit — so a single degenerate part emptied the model around it. Each
+  /// of these unions must keep the cube it is unioned with, as OpenSCAD does.
+  #[test]
+  fn a_degenerate_solid_does_not_empty_its_siblings() {
+    let cube = ScadNode::Cube {
+      w: 2.0,
+      d: 2.0,
+      h: 2.0,
+      center: false,
+    };
+    let degenerate = [
+      ("linear_extrude(0)", extrude(square(1.0, 1.0, false), 0.0)),
+      ("linear_extrude(-1)", extrude(square(1.0, 1.0, false), -1.0)),
+      (
+        "cube(0)",
+        ScadNode::Cube {
+          w: 0.0,
+          d: 0.0,
+          h: 0.0,
+          center: false,
+        },
+      ),
+      (
+        "sphere(r = 0)",
+        ScadNode::Sphere {
+          r: 0.0,
+          segments: 16,
+        },
+      ),
+    ];
+
+    for (what, node) in degenerate {
+      let empty = materialize_scad_manifold(&node);
+      assert_eq!(empty.num_tri(), 0, "{what} alone should be empty");
+
+      let union = materialize_scad_manifold(&ScadNode::Union(vec![
+        cube.clone(),
+        node.clone(),
+      ]));
+      assert_close(union.volume(), 8.0, 1e-6, &format!("union with {what}"));
+
+      // The same solid on the left of the union, and as the subtrahend of a
+      // difference, which is where an error solid used to erase everything.
+      let union = materialize_scad_manifold(&ScadNode::Union(vec![
+        node.clone(),
+        cube.clone(),
+      ]));
+      assert_close(union.volume(), 8.0, 1e-6, &format!("{what} unioned first"));
+
+      let difference = materialize_scad_manifold(&ScadNode::Difference(vec![
+        cube.clone(),
+        node,
+      ]));
+      assert_close(
+        difference.volume(),
+        8.0,
+        1e-6,
+        &format!("cube minus {what}"),
+      );
+    }
   }
 
   #[test]

@@ -145,6 +145,19 @@ any release.
 
 ### Fixed
 
+- A part that cannot be built — `linear_extrude()` with a height of zero or
+  less, `cube(0)`, `sphere(r = 0)`, `cylinder(h = 0)` — emptied everything it
+  was combined with instead of just contributing nothing, in both languages:
+  `union() { cube(2); sphere(r = 0); }` came out empty, and a single such part
+  anywhere in a `.scad` file could leave the whole model blank. Manifold
+  refuses to build a solid from a non-positive measurement and reports the
+  result as an error rather than as empty, and every boolean an error solid
+  reaches inherits it. Such a part is now dropped before it gets that far, as
+  OpenSCAD does with the same input. Anything that builds keeps its exact
+  geometry — the measurements are checked directly rather than by asking
+  Manifold afterwards, which would force its deferred evaluation and shift the
+  triangulation of models that are perfectly fine.
+
 - `render --raytrace` drew the triangulation of large flat faces into the
   image as thin dark lines, most visible where the light grazes the face —
   a fan of them across the side of a big brick, a seam down a baseplate.
