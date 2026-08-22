@@ -1,20 +1,23 @@
-<div class="example-card">
+<div class="example-card" id="EXAMPLE_FILENAME">
   <div class="example-header">EXAMPLE_DISPLAY_NAME</div>
   <div class="example-content">
     <div class="code-column">
-      <div class="code-title">LuaCAD</div>
+      <div class="code-title">SOURCE_TITLE</div>
       <div class="code-container">
-        <pre><code class="language-lua">EXAMPLE_CODE</code></pre>
+        <pre><code class="language-SOURCE_LANGUAGE">EXAMPLE_CODE</code></pre>
       </div>
     </div>
     <div class="code-column">
-      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-title">EXPORT_TITLE</div>
       <div class="code-container">
         <pre><code class="language-openscad">OPENSCAD_CODE</code></pre>
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/EXAMPLE_FILENAME.png" alt="EXAMPLE_DISPLAY_NAME" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>

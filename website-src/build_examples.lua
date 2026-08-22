@@ -1,8 +1,10 @@
 #!/usr/bin/env lua
 
 -- build_examples.lua
--- Builds examples.html: each example's Lua source, the OpenSCAD it exports to,
--- and a rendered preview, side by side.
+-- Builds examples.html: each example's source, the OpenSCAD it exports to,
+-- and a rendered preview, side by side. An example written in OpenSCAD rather
+-- than Lua gets the same three columns; only the label and the highlighting of
+-- the first one change.
 --
 -- Everything goes through the `luacad` CLI, so no OpenSCAD installation is
 -- needed. Set LUACAD to point at a specific binary, e.g. when testing a build
@@ -156,15 +158,16 @@ local function run(cmd)
   return ok == true or ok == 0
 end
 
--- Every example: the plain `*.lua` files, plus one entry point per
--- subdirectory for the examples that are split across several files.
+-- Every example: the plain `*.lua` and `*.scad` files, plus one entry point
+-- per subdirectory for the examples that are split across several files.
 local function find_examples()
   local examples = {}
 
-  local files = io.popen("ls " .. EXAMPLES_DIR .. "/*.lua 2>/dev/null")
+  local files = io.popen("ls " .. EXAMPLES_DIR .. "/*.lua " .. EXAMPLES_DIR
+    .. "/*.scad 2>/dev/null")
   for path in files:read("*a"):gmatch("[^\n]+") do
     examples[#examples + 1] = {
-      name = path:match("([^/]+)%.lua$"),
+      name = path:match("([^/]+)%.%w+$"),
       path = path,
     }
   end
@@ -173,9 +176,10 @@ local function find_examples()
   local dirs = io.popen("ls -d " .. EXAMPLES_DIR .. "/*/ 2>/dev/null")
   for dir in dirs:read("*a"):gmatch("[^\n]+") do
     local name = dir:match("([^/]+)/$")
-    -- The entry point is the single .lua directly inside the directory;
-    -- anything deeper is a module it requires.
-    local entries = io.popen("ls " .. dir .. "*.lua 2>/dev/null")
+    -- The entry point is the single .lua or .scad directly inside the
+    -- directory; anything deeper is a module it includes or requires.
+    local entries =
+      io.popen("ls " .. dir .. "*.lua " .. dir .. "*.scad 2>/dev/null")
     local entry = entries:read("*a"):match("[^\n]+")
     entries:close()
     if entry then
@@ -208,13 +212,32 @@ local function process_example(example)
   template = replace_placeholder(template, "EXAMPLE_DISPLAY_NAME", display_name)
   template = replace_placeholder(template, "EXAMPLE_FILENAME", example.name)
 
-  local lua_content, lua_err = read_file(example.path)
-  if not lua_content then
-    print("Error reading Lua file: " .. lua_err)
+  -- An OpenSCAD example is its own first column, so the second one holds what
+  -- `convert` makes of it rather than a translation into another language.
+  local is_scad = example.path:match("%.scad$") ~= nil
+  template = replace_placeholder(
+    template,
+    "SOURCE_TITLE",
+    is_scad and "OpenSCAD" or "LuaCAD"
+  )
+  template = replace_placeholder(
+    template,
+    "SOURCE_LANGUAGE",
+    is_scad and "openscad" or "lua"
+  )
+  template = replace_placeholder(
+    template,
+    "EXPORT_TITLE",
+    is_scad and "Flattened OpenSCAD" or "Generated OpenSCAD"
+  )
+
+  local source_content, source_err = read_file(example.path)
+  if not source_content then
+    print("Error reading source file: " .. source_err)
     return false
   end
   template =
-    replace_placeholder(template, "EXAMPLE_CODE", prepare_code(lua_content))
+    replace_placeholder(template, "EXAMPLE_CODE", prepare_code(source_content))
 
   -- Export the SCAD the script produces, for the second column.
   local scad_file = SCAD_DIR .. "/" .. example.name .. ".scad"

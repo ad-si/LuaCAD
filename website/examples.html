@@ -28,7 +28,7 @@
 
 
   <div class="example-container">
-<div class="example-card">
+<div class="example-card" id="bosl_demo">
   <div class="example-header">BOSL2 Demo</div>
   <div class="example-content">
     <div class="code-column">
@@ -89,12 +89,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/bosl_demo.png" alt="BOSL2 Demo" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="bosl_shapes_demo">
   <div class="example-header">BOSL2 Shapes</div>
   <div class="example-content">
     <div class="code-column">
@@ -186,12 +189,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/bosl_shapes_demo.png" alt="BOSL2 Shapes" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="box">
   <div class="example-header">Box</div>
   <div class="example-content">
     <div class="code-column">
@@ -224,12 +230,252 @@ difference() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/box.png" alt="Box" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="chess">
+  <div class="example-header">Chess</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">// A chess game in progress, set up from a FEN string.
+//
+// The position is the Immortal Game — Anderssen vs Kieseritzky, London 1851 —
+// after Black's 22...Nxf6. White has given up a bishop, both rooks and the
+// queen, and mates next move with 23.Be7#. Black's queen sits on a1 and his
+// bishop on g1, on the squares the rooks came from.
+//
+//   luacad render --raytrace chess.scad chess_raytraced.png
+//   luacad render            chess.scad chess.png
+//   luacad convert           chess.scad chess.3mf
+//
+// Drop any other FEN in POSITION below to set up a different game. Only the
+// piece-placement field is read; the side to move and the castling, en
+// passant and clock fields are ignored, so either form works.
+
+use &lt;parts/pieces.scad&gt;
+include &lt;parts/board.scad&gt;
+
+POSITION = &quot;r1bk3r/p2p1pNp/n2B1n2/1p1NP2P/6P1/3P4/P1P1K3/q5b1 w - - 0 23&quot;;
+
+SEGMENTS = 64;           // facets around each lathed piece
+CUTOUTS = 6;             // crenellations on a rook
+
+WHITE = &quot;#f2e8d5&quot;;       // bone
+BLACK = &quot;#2b2724&quot;;       // ebony
+
+
+// ---------------------------------------------------------------------------
+// Reading FEN
+//
+// The placement field lists ranks 8 down to 1, separated by &quot;/&quot;. A letter is
+// a piece — uppercase White, lowercase Black — and a digit is that many empty
+// squares. Everything after the first space is the game state, not the board.
+// ---------------------------------------------------------------------------
+
+function is_digit(c) = len(search(c, &quot;12345678&quot;)) &gt; 0;
+function digit(c) = search(c, &quot;0123456789&quot;)[0];
+function is_white(c) = len(search(c, &quot;PNBRQK&quot;)) &gt; 0;
+
+// Fold the two cases together: index 6-11 wraps back onto 0-5.
+function kind(c) =
+  [&quot;p&quot;, &quot;n&quot;, &quot;b&quot;, &quot;r&quot;, &quot;q&quot;, &quot;k&quot;][search(c, &quot;pnbrqkPNBRQK&quot;)[0] % 6];
+
+// Walk the placement field one character at a time, emitting
+// [file, rank, letter] for each piece. `f` counts files a-h left to right,
+// `r` counts ranks down from 7 (rank 8) as each &quot;/&quot; is crossed.
+function placement(fen, i = 0, f = 0, r = 7) =
+    i &gt;= len(fen) || fen[i] == &quot; &quot; ? []
+  : fen[i] == &quot;/&quot;                  ? placement(fen, i + 1, 0, r - 1)
+  : is_digit(fen[i])               ? placement(fen, i + 1, f + digit(fen[i]), r)
+  : concat([[f, r, fen[i]]], placement(fen, i + 1, f + 1, r));
+
+// Algebraic name of a square — echoed on load, so the parse can be read back
+// against the diagram in README.md.
+function square_name(f, r) = str(&quot;abcdefgh&quot;[f], r + 1);
+
+for (p = placement(POSITION))
+  echo(str(p[2], square_name(p[0], p[1])));
+
+
+// ---------------------------------------------------------------------------
+// Building the position
+// ---------------------------------------------------------------------------
+
+module piece(letter) {
+  k = kind(letter);
+
+  if (k == &quot;p&quot;) pawn(1, SEGMENTS);
+  else if (k == &quot;r&quot;) rook(1, SEGMENTS, CUTOUTS);
+  else if (k == &quot;n&quot;) knight(1, SEGMENTS);
+  else if (k == &quot;b&quot;) bishop(1, SEGMENTS);
+  else if (k == &quot;q&quot;) queen(1, SEGMENTS);
+  else if (k == &quot;k&quot;) king(1, SEGMENTS);
+}
+
+module position(fen) {
+  for (p = placement(fen)) {
+    f = p[0];
+    r = p[1];
+    letter = p[2];
+    white = is_white(letter);
+
+    color(white ? WHITE : BLACK)
+      translate([square_x(f), square_y(r), 0])
+        // Black's men turn to face down the board, so the two knights and
+        // the two bishops look at each other rather than the same way.
+        rotate([0, 0, white ? 0 : 180])
+          piece(letter);
+  }
+}
+
+board();
+position(POSITION);</code></pre>
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Flattened OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">// Generated by LuaCAD
+
+union() {
+  union() {
+    union() {
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-128, -128, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-128, -96, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-128, -64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-128, -32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-128, 0, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-128, 32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-128, 64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-128, 96, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-96, -128, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-96, -96, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-96, -64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-96, -32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-96, 0, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-96, 32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-96, 64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-96, 96, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-64, -128, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-64, -96, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-64, -64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-64, -32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-64, 0, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.890196, 0.811765, 0.643137]) {
+        translate([-64, 32, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+      color([0.427451, 0.290196, 0.2]) {
+        translate([-64, 64, -4]) {
+          cube([32, 32, 4]);
+        }
+      }
+
+// … 91850 more lines. Run `luacad convert examples/chess/chess.scad chess.scad` for all of it.</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
+      <img src="images/chess.png" alt="Chess" class="preview-image"
+        loading="lazy" decoding="async"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card" id="csg">
   <div class="example-header">CSG</div>
   <div class="example-content">
     <div class="code-column">
@@ -284,12 +530,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/csg.png" alt="CSG" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="csg_modules">
   <div class="example-header">CSG Modules</div>
   <div class="example-content">
     <div class="code-column">
@@ -484,12 +733,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/csg_modules.png" alt="CSG Modules" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="customizer">
   <div class="example-header">Customizer</div>
   <div class="example-content">
     <div class="code-column">
@@ -529,12 +781,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/customizer.png" alt="Customizer" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="difference">
   <div class="example-header">Difference</div>
   <div class="example-content">
     <div class="code-column">
@@ -559,12 +814,15 @@ difference() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/difference.png" alt="Difference" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="gear">
   <div class="example-header">Gear</div>
   <div class="example-content">
     <div class="code-column">
@@ -655,12 +913,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/gear.png" alt="Gear" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="literal_openscad">
   <div class="example-header">Literal OpenSCAD</div>
   <div class="example-content">
     <div class="code-column">
@@ -712,12 +973,150 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/literal_openscad.png" alt="Literal OpenSCAD" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="materials">
+  <div class="example-header">Materials</div>
+  <div class="example-content">
+    <div class="code-column">
+      <div class="code-title">LuaCAD</div>
+      <div class="code-container">
+        <pre><code class="language-lua">-- Surface materials: how each kind scatters light.
+-- Best viewed with `luacad render --raytrace`, where metals reflect,
+-- glass refracts, and emissive shapes cast light of their own.
+
+local fn = 72 -- High segment count for smooth surfaces
+
+local function ball(x, y)
+  return sphere{r = 5, fn = fn}:translate(x, y, 5)
+end
+
+local floor = cube{70, 50, 2}
+  :translate(-35, -25, -2)
+  :color(&quot;#d9d9e0&quot;)
+  :material(&quot;matte&quot;)
+
+-- A 3 x 4 grid of spheres, one per material
+
+-- Base kinds, front row (with the default color)
+local matte = ball(-21, -14):material(&quot;matte&quot;)
+local plastic = ball(-7, -14):material(&quot;plastic&quot;)
+local metal = ball(7, -14):material(&quot;metal&quot;)
+local glass = ball(21, -14):material(&quot;glass&quot;, {ior = 1.5})
+
+-- Middle row: the light source and the first colored presets
+local glow = ball(-21, 0)
+  :color(&quot;#ffd66b&quot;)
+  :material(&quot;emissive&quot;, {strength = 4})
+local gold = ball(-7, 0):material(&quot;gold&quot;)
+local copper = ball(7, 0):material(&quot;copper&quot;)
+local steel = ball(21, 0):material(&quot;steel&quot;)
+
+-- Back row: the remaining presets with built-in colors
+local chrome = ball(-21, 14):material(&quot;chrome&quot;)
+local rubber = ball(-7, 14):material(&quot;rubber&quot;)
+local wood = ball(7, 14):material(&quot;wood&quot;)
+local ivory = ball(21, 14):material(&quot;ivory&quot;)
+
+-- The floor goes last: a union inherits its base color from the first
+-- operand, and the uncolored balls should keep the default blue.
+render(
+  matte + plastic + metal + glass + glow
+    + gold + copper + steel + chrome + rubber + wood + ivory
+    + floor
+)</code></pre>
+      </div>
+    </div>
+    <div class="code-column">
+      <div class="code-title">Generated OpenSCAD</div>
+      <div class="code-container">
+        <pre><code class="language-openscad">// Generated by LuaCAD
+
+union() {
+  union() {
+    union() {
+      union() {
+        union() {
+          union() {
+            union() {
+              union() {
+                union() {
+                  union() {
+                    union() {
+                      union() {
+                        translate([-21, -14, 5]) {
+                          sphere(r = 5, $fn = 72);
+                        }
+                        translate([-7, -14, 5]) {
+                          sphere(r = 5, $fn = 72);
+                        }
+                      }
+                      translate([7, -14, 5]) {
+                        sphere(r = 5, $fn = 72);
+                      }
+                    }
+                    translate([21, -14, 5]) {
+                      sphere(r = 5, $fn = 72);
+                    }
+                  }
+                  color([1, 0.839216, 0.419608]) {
+                    translate([-21, 0, 5]) {
+                      sphere(r = 5, $fn = 72);
+                    }
+                  }
+                }
+                translate([-7, 0, 5]) {
+                  sphere(r = 5, $fn = 72);
+                }
+              }
+              translate([7, 0, 5]) {
+                sphere(r = 5, $fn = 72);
+              }
+            }
+            translate([21, 0, 5]) {
+              sphere(r = 5, $fn = 72);
+            }
+          }
+          translate([-21, 14, 5]) {
+            sphere(r = 5, $fn = 72);
+          }
+        }
+        translate([-7, 14, 5]) {
+          sphere(r = 5, $fn = 72);
+        }
+      }
+      translate([7, 14, 5]) {
+        sphere(r = 5, $fn = 72);
+      }
+    }
+    translate([21, 14, 5]) {
+      sphere(r = 5, $fn = 72);
+    }
+  }
+  color([0.85098, 0.85098, 0.878431]) {
+    translate([-35, -25, -2]) {
+      cube([70, 50, 2]);
+    }
+  }
+}</code></pre>
+      </div>
+    </div>
+    <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
+      <img src="images/materials.png" alt="Materials" class="preview-image"
+        loading="lazy" decoding="async"
+        onerror="this.src='images/placeholder.svg'; this.onerror=null;">
+    </div>
+  </div>
+</div>
+<div class="example-card" id="modifiers">
   <div class="example-header">Modifiers</div>
   <div class="example-content">
     <div class="code-column">
@@ -776,12 +1175,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/modifiers.png" alt="Modifiers" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="mushr_racecar">
   <div class="example-header">MuSHR Racecar</div>
   <div class="example-content">
     <div class="code-column">
@@ -795,24 +1197,28 @@ union() {
 --   luacad render  racecar.lua racecar.png
 --
 -- Every part is its own coloured object, so the 3MF opens as an assembly
--- rather than one welded lump. See parts/palette.lua for the colours.
+-- rather than one welded lump. See parts/palette.lua for the colours and
+-- the surface materials (rubber tires, metal linkage -- best seen with
+-- `luacad render --raytrace`).
 
 package.path = &quot;./?.lua;&quot; .. package.path
 
 local body = require(&quot;parts.body&quot;)
 local chassis = require(&quot;parts.chassis&quot;)
 
+local function finish(part)
+  local solid = part.solid:color(part.color):name(part.name)
+  return part.material and solid:material(part.material) or solid
+end
+
 -- The body is modelled around the crossbar; the chassis hangs below it.
 for _, part in ipairs(body.parts()) do
-  render(part.solid:color(part.color):name(part.name))
+  render(finish(part))
 end
 
 for _, part in ipairs(chassis.parts()) do
   render(
-    part.solid
-      :translate(body.chassis_x, body.chassis_y, body.chassis_z)
-      :color(part.color)
-      :name(part.name)
+    finish(part):translate(body.chassis_x, body.chassis_y, body.chassis_z)
   )
 end</code></pre>
       </div>
@@ -945,12 +1351,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/mushr_racecar.png" alt="MuSHR Racecar" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="rounded_rectangle">
   <div class="example-header">Rounded Rectangle</div>
   <div class="example-content">
     <div class="code-column">
@@ -1001,12 +1410,15 @@ linear_extrude(height = 5) {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/rounded_rectangle.png" alt="Rounded Rectangle" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="simple">
   <div class="example-header">Simple</div>
   <div class="example-content">
     <div class="code-column">
@@ -1037,12 +1449,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/simple.png" alt="Simple" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="simple_car">
   <div class="example-header">Simple Car</div>
   <div class="example-content">
     <div class="code-column">
@@ -1128,12 +1543,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/simple_car.png" alt="Simple Car" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="text">
   <div class="example-header">Text</div>
   <div class="example-content">
     <div class="code-column">
@@ -1203,12 +1621,15 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/text.png" alt="Text" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
 </div>
-<div class="example-card">
+<div class="example-card" id="tostring_demo">
   <div class="example-header">Tostring Demo</div>
   <div class="example-content">
     <div class="code-column">
@@ -1261,7 +1682,10 @@ union() {
       </div>
     </div>
     <div class="preview-column">
+      <!-- The previews are full-size renders; a page of 18 of them is several
+        megabytes, so they load as they are scrolled to. -->
       <img src="images/tostring_demo.png" alt="Tostring Demo" class="preview-image"
+        loading="lazy" decoding="async"
         onerror="this.src='images/placeholder.svg'; this.onerror=null;">
     </div>
   </div>
