@@ -481,7 +481,7 @@ fn vnf_polyhedron(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   let vnf = read_vnf(a, "vnf")?;
   // The VNF convention here matches `polyhedron()`, so the faces go through
   // unchanged rather than being flipped as the internal builder's are.
-  let node = ScadNode::Polyhedron {
+  let mut node = ScadNode::Polyhedron {
     points: vnf
       .points
       .iter()
@@ -489,6 +489,16 @@ fn vnf_polyhedron(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
       .collect(),
     faces: vnf.faces.clone(),
   };
+  // A caller-declared depth complexity bounds the OpenCSG preview's
+  // layer peeling, like it does for `polyhedron()` in OpenSCAD.
+  if let Some(convexity) = a.int("convexity")
+    && convexity > 1
+  {
+    node = ScadNode::Render {
+      convexity: convexity as u32,
+      child: Box::new(node),
+    };
+  }
   let scad = crate::bosl::bosl_node_with_children(
     "std.scad",
     "vnf_polyhedron",

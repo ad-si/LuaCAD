@@ -235,6 +235,11 @@ struct Ctx {
   /// presets like "gold" keep their look inside an uncolored union.
   base_color: Option<[f32; 3]>,
   material: MaterialSpec,
+  /// Depth complexity promised by an enclosing `Render` node: how many
+  /// front-facing surfaces a ray may cross. OpenCSG's depth pass peels
+  /// only this many layers, so a subtracted concave primitive (e.g. a
+  /// thread) previewed with too small a value loses its deeper surfaces.
+  convexity: u32,
 }
 
 impl Ctx {
@@ -261,6 +266,7 @@ fn flatten_node(
     color: None,
     base_color,
     material,
+    convexity: 1,
   };
   flatten_inner(node, &ctx, INTERSECTION, sink)
 }
@@ -297,8 +303,25 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     | ScadNode::Multmatrix { child, .. }
     | ScadNode::Resize { child, .. }
     | ScadNode::Color { child, .. }
-    | ScadNode::Material { child, .. }
-    | ScadNode::Render { child, .. } => fits_in_product(child, op),
+    | ScadNode::Material { child, .. } => fits_in_product(child, op),
+
+    // A declared depth complexity above 1 marks a deeply concave shape
+    // (a thread, an imported mesh). OpenCSG's layered Goldfeather pass
+    // garbles those on the GL stacks the studio runs on — surface layers
+    // drop out in facet-aligned stripes — so the product is computed by
+    // Manifold instead. This also matches OpenSCAD, where `render()`
+    // materializes its subtree at preview time.
+    ScadNode::Render { convexity, child } => {
+      *convexity <= 1 && fits_in_product(child, op)
+    }
+    ScadNode::Import { convexity, .. } => *convexity <= 1,
+
+    // A native BOSL shape previews as its expansion, so whether it fits
+    // is the expansion's call — a threaded rod hides a Render marker.
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => fits_in_product(native, op),
 
     ScadNode::Modifier { kind, child } => match kind {
       // Dropped from the CSG entirely, so they never widen the product.
@@ -487,7 +510,15 @@ fn flatten_inner(
       };
       flatten_inner(child, &child_ctx, op, sink)
     }
-    ScadNode::Render { child, .. } => flatten_inner(child, ctx, op, sink),
+    // `render(convexity = n)`: carry the promised depth complexity down to
+    // the leaves, keeping the largest bound seen along the path.
+    ScadNode::Render { convexity, child } => {
+      let child_ctx = Ctx {
+        convexity: ctx.convexity.max(*convexity),
+        ..*ctx
+      };
+      flatten_inner(child, &child_ctx, op, sink)
+    }
 
     // --- OpenSCAD modifier characters ---
     ScadNode::Modifier { kind, child } => match kind {
@@ -754,7 +785,9 @@ fn make_leaf_group(
       vertices: cad_to_gl_vertices(vertices),
       transform: ctx.transform,
       operation: op,
-      convexity,
+      // The call site's value is the shape's own floor; an enclosing
+      // `render(convexity = n)` can only raise it.
+      convexity: convexity.max(ctx.convexity),
       color: ctx.resolved_color(),
       material: ctx.material,
     }],
@@ -1432,6 +1465,39 @@ mod product_tests {
       !prims[0].vertices.is_empty(),
       "{what}: leaf must have geometry"
     );
+  }
+
+  #[test]
+  fn render_node_materializes_the_product() {
+    // `render(convexity = n)` with n > 1 declares a shape too deep for
+    // OpenCSG's layered pass; the whole product drops to Manifold, like
+    // OpenSCAD materializing a `render()` subtree at preview time.
+    let scene = flatten_lua(
+      "render(cube({ 20, 20, 20 })
+        - cylinder({ r = 4, h = 30 }):render_node(7))",
+    );
+    assert_single_mesh(&scene, "X - render(convexity = 7)");
+  }
+
+  #[test]
+  fn subtracted_thread_is_materialized() {
+    // A threaded rod is deeply concave: a ray along the axis crosses one
+    // crest per pitch. Previewed as a subtracted OpenCSG primitive, its
+    // deeper surface layers came out garbled, leaving brick-shaped holes
+    // across the bore wall — so the thread's own convexity declaration
+    // must drop the whole product to Manifold.
+    let scene = flatten_lua(
+      r#"
+      render(
+        cylinder({ r = 9, h = 29 }):translate(0, 0, -14.5)
+        - bosl.trapezoidal_threaded_rod({
+          d = 10, l = 31, pitch = 3, thread_angle = 90,
+          thread_depth = 1.2, internal = true, slop = 0.4,
+        })
+      )
+      "#,
+    );
+    assert_single_mesh(&scene, "X - threaded_rod");
   }
 
   #[test]
