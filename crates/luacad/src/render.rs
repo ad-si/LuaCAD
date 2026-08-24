@@ -440,6 +440,66 @@ pub(crate) fn collect_smooth_triangles(
   all_triangles
 }
 
+/// One colored piece of a model, materialized into a solid: the boolean
+/// result of a subtree that shares a color and a material.
+pub struct DisplaySolid {
+  /// Triangle vertices in CAD space, three per triangle.
+  pub vertices: Vec<[f32; 3]>,
+  /// Color (already resolved against the material's default color).
+  pub color: [f32; 3],
+  /// Surface material (the implicit default when none was set).
+  pub material: MaterialSpec,
+}
+
+/// Materialize every colored subtree of `geometries` into its own solid.
+///
+/// Unlike a CSG preview, which draws the *inputs* of the booleans and lets
+/// the graphics card work out what is visible from the front, these are the
+/// real surfaces of the result — including the ones inside a part, such as
+/// the wall of a bore or of an enclosed cavity. Splitting per color is what
+/// keeps a union of differently colored parts from collapsing into one color.
+///
+/// This is the same decomposition the rasterizer and the path tracer use, so
+/// a viewer drawing these shows the same surfaces as `luacad render`.
+pub fn display_solids(geometries: &[CsgGeometry]) -> Vec<DisplaySolid> {
+  let mut solids = Vec::new();
+
+  for geom in geometries {
+    let shade = ShadeCtx {
+      color: None,
+      base_color: geom.color,
+      material: geom.material.unwrap_or_default(),
+    };
+    let Some(scad) = geom.scad.as_ref() else {
+      continue;
+    };
+
+    let mut leaves: Vec<([f32; 3], MaterialSpec, ScadNode)> = Vec::new();
+    collect_colored_leaves(scad, shade, &[], &mut leaves);
+
+    for (color, material, leaf) in &leaves {
+      // Dimension-aware: an outline tessellates flat rather than not at all.
+      let mesh = materialize_scad_display_mesh(leaf);
+      if mesh.triangles.is_empty() {
+        continue;
+      }
+      let mut vertices = Vec::with_capacity(mesh.triangles.len() * 3);
+      for tri in &mesh.triangles {
+        vertices.push(mesh.vertices[tri[0] as usize]);
+        vertices.push(mesh.vertices[tri[1] as usize]);
+        vertices.push(mesh.vertices[tri[2] as usize]);
+      }
+      solids.push(DisplaySolid {
+        vertices,
+        color: *color,
+        material: *material,
+      });
+    }
+  }
+
+  solids
+}
+
 /// Shading state inherited down the tree during leaf collection.
 #[derive(Clone, Copy)]
 struct ShadeCtx {

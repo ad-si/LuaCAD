@@ -126,6 +126,24 @@ fn load_orthogonal_view() -> bool {
     .unwrap_or(true)
 }
 
+/// Persist whether the 3D view draws every object see-through.
+fn save_transparent_view(transparent: bool) {
+  update_state(|state| {
+    state.insert(
+      "transparent_view".to_string(),
+      serde_json::json!(transparent),
+    );
+  });
+}
+
+/// Whether the 3D view was see-through when the app last ran (default: off).
+fn load_transparent_view() -> bool {
+  load_state()
+    .get("transparent_view")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+}
+
 /// Normalize source code for saving: strip trailing whitespace from each
 /// line and end a non-empty file with exactly one newline (POSIX).
 fn normalize_source(text: &str) -> String {
@@ -244,6 +262,7 @@ struct SceneSignature {
   view: [f32; 16],
   background: (f32, f32, f32),
   scene_revision: u64,
+  transparent: bool,
 }
 
 /// Everything that exists once the window and its GL context are up.
@@ -299,6 +318,7 @@ impl winit::application::ApplicationHandler for StudioApp {
     // Moves the camera to the distance the restored projection needs, so a
     // scene without geometry to fit to still starts at the default zoom.
     app.set_orthogonal_view(load_orthogonal_view());
+    app.transparent_view = load_transparent_view();
 
     // Persist the initial file if it was loaded successfully
     if let Some(ref path) = app.current_file {
@@ -384,6 +404,7 @@ impl Studio {
       let editor_was_visible = app.editor_visible;
       let auto_reload_was_enabled = app.auto_reload;
       let was_orthogonal_view = app.orthogonal_view;
+      let was_transparent_view = app.transparent_view;
 
       // Update window title to reflect the current file
       let window_title = match &app.current_file {
@@ -758,6 +779,11 @@ impl Studio {
       // Persist the projection when it was switched this frame
       if app.orthogonal_view != was_orthogonal_view {
         save_orthogonal_view(app.orthogonal_view);
+      }
+
+      // Persist the transparent view mode when it was toggled this frame
+      if app.transparent_view != was_transparent_view {
+        save_transparent_view(app.transparent_view);
       }
 
       // Watch the opened file and pick up external changes (issue #14),
@@ -1182,6 +1208,7 @@ impl Studio {
         view,
         background: app.theme_colors.bg,
         scene_revision: app.scene_revision,
+        transparent: app.transparent_view,
       };
 
       // Redraw the 3D scene only when it would actually differ from what the
@@ -1197,8 +1224,10 @@ impl Studio {
         render_opencsg_scene(
           &app.csg_groups,
           &app.overlay_meshes,
+          &app.solid_meshes,
           &proj,
           &view,
+          app.transparent_view,
         );
         render_axes();
 

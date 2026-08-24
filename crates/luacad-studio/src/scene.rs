@@ -2,9 +2,8 @@ use crate::camera::*;
 use cgmath::InnerSpace;
 
 use crate::app::AppState;
-use crate::csg_tree::{CsgGroup, CsgLeaf, OverlayMesh};
-use luacad::geometry::CsgGeometry;
-use luacad::material::MaterialKind;
+use crate::csg_tree::{CsgGroup, OverlayMesh, SolidMesh};
+use luacad::material::{MaterialKind, MaterialSpec};
 use opencsg_sys::OcsgPrimitive;
 use std::ffi::c_void;
 
@@ -41,17 +40,36 @@ unsafe extern "C" fn render_leaf_callback(user_data: *mut c_void) {
   }
 }
 
+/// Opacity of an object in the transparent view mode.
+const TRANSPARENT_ALPHA: f32 = 0.4;
+
+/// Model transform of a mesh whose transforms are already baked into its
+/// vertices, as the materialized solids are.
+const IDENTITY_TRANSFORM: [f32; 16] = [
+  1.0, 0.0, 0.0, 0.0, //
+  0.0, 1.0, 0.0, 0.0, //
+  0.0, 0.0, 1.0, 0.0, //
+  0.0, 0.0, 0.0, 1.0, //
+];
+
 /// Render the full CSG scene using OpenCSG.
 ///
 /// This performs OpenCSG's z-buffer CSG for each group, then a shading pass
 /// with fixed-function lighting and `GL_EQUAL` depth test. Translucent
 /// modifier overlays (`#` and `%`) are blended on top at the end.
+///
+/// With `transparent` set, the CSG groups give way to the materialized
+/// `solids`, drawn see-through (see [`render_transparent_solids`]). A scene
+/// that materialized to nothing stays opaque rather than disappearing.
 pub fn render_opencsg_scene(
   groups: &[CsgGroup],
   overlays: &[OverlayMesh],
+  solids: &[SolidMesh],
   projection: &[f32; 16],
   view: &[f32; 16],
+  transparent: bool,
 ) {
+  let transparent = transparent && !solids.is_empty();
   unsafe {
     // Ensure we're using the fixed-function pipeline (no shader program active).
     // egui_glow leaves a shader program bound after rendering which would
@@ -127,8 +145,12 @@ pub fn render_opencsg_scene(
     gl_Disable(GL_LIGHTING);
   }
 
-  for group in groups {
-    render_csg_group(group, projection, view);
+  if transparent {
+    render_transparent_solids(solids, projection, view);
+  } else {
+    for group in groups {
+      render_csg_group(group, projection, view);
+    }
   }
 
   render_overlay_meshes(overlays, projection, view);
@@ -142,6 +164,141 @@ pub fn render_opencsg_scene(
     gl_Disable(GL_NORMALIZE);
     gl_Disable(GL_COLOR_MATERIAL);
   }
+}
+
+/// Draw the materialized solids see-through.
+///
+/// The preview's CSG pass can only produce the surfaces facing the camera, so
+/// the transparent mode draws the materialized boolean results instead: every
+/// surface of the real model, including the ones inside it — the wall of a
+/// bore, an enclosed cavity, a part sitting in a housing.
+///
+/// Each solid is drawn twice, back faces first, so its far side is composited
+/// under its near side; nothing writes depth, so the paint order alone decides
+/// what shows through what, and the solids are painted from the back.
+fn render_transparent_solids(
+  solids: &[SolidMesh],
+  projection: &[f32; 16],
+  view: &[f32; 16],
+) {
+  unsafe {
+    gl_UseProgram(0);
+    gl_MatrixMode(GL_PROJECTION);
+    gl_LoadMatrixf(projection.as_ptr());
+    gl_MatrixMode(GL_MODELVIEW);
+    gl_LoadMatrixf(view.as_ptr());
+
+    gl_Enable(GL_LIGHTING);
+    gl_Enable(GL_LIGHT0);
+    gl_Enable(GL_LIGHT1);
+    gl_Enable(GL_LIGHT2);
+    gl_Enable(GL_NORMALIZE);
+    gl_Enable(GL_COLOR_MATERIAL);
+    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    gl_ShadeModel(GL_SMOOTH);
+
+    gl_Enable(GL_BLEND);
+    gl_BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    gl_DepthMask(0);
+    gl_Enable(GL_CULL_FACE);
+
+    for solid in depth_sorted_solids(solids, view) {
+      let normals = compute_face_normals(&solid.vertices);
+
+      let mut vbos = [0u32; 2];
+      gl_GenBuffers(2, vbos.as_mut_ptr());
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (solid.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        solid.vertices.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
+      gl_BufferData(
+        GL_ARRAY_BUFFER,
+        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
+        normals.as_ptr() as *const c_void,
+        GL_STATIC_DRAW,
+      );
+      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
+
+      apply_material(solid.color, &solid.material, TRANSPARENT_ALPHA);
+
+      let data = LeafRenderData {
+        vertex_count: solid.vertices.len(),
+        transform: IDENTITY_TRANSFORM,
+        vbo_vertices: vbos[0],
+        vbo_normals: vbos[1],
+      };
+      // Two-sided lighting (set up in `render_opencsg_scene`) shades the far
+      // side with its normal flipped towards the camera, so the inside of a
+      // cavity is lit rather than black.
+      gl_CullFace(GL_FRONT);
+      draw_leaf(&data);
+      gl_CullFace(GL_BACK);
+      draw_leaf(&data);
+
+      gl_DeleteBuffers(2, vbos.as_ptr());
+    }
+
+    gl_Disable(GL_CULL_FACE);
+    gl_Disable(GL_BLEND);
+    gl_DepthMask(1);
+    reset_leaf_material();
+    gl_Disable(GL_LIGHTING);
+  }
+}
+
+/// Order the solids from the farthest to the nearest, which is the order the
+/// blended transparent pass has to paint them in.
+fn depth_sorted_solids<'a>(
+  solids: &'a [SolidMesh],
+  view: &[f32; 16],
+) -> Vec<&'a SolidMesh> {
+  let mut sorted: Vec<(f32, &SolidMesh)> = solids
+    .iter()
+    .map(|solid| (solid_view_depth(solid, view), solid))
+    .collect();
+  // The camera looks down -z in view space, so the most negative depth is
+  // the farthest solid and has to be painted first.
+  sorted.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+  sorted.into_iter().map(|(_, solid)| solid).collect()
+}
+
+/// View-space z of the center of a solid's bounding box, used to sort the
+/// transparent solids back to front.
+fn solid_view_depth(solid: &SolidMesh, view: &[f32; 16]) -> f32 {
+  let mut min = [f32::INFINITY; 3];
+  let mut max = [f32::NEG_INFINITY; 3];
+
+  for vertex in &solid.vertices {
+    for axis in 0..3 {
+      min[axis] = min[axis].min(vertex[axis]);
+      max[axis] = max[axis].max(vertex[axis]);
+    }
+  }
+
+  if min[0] > max[0] {
+    // Nothing to place: sort it as if it sat at the origin.
+    return transform_point(view, [0.0; 3])[2];
+  }
+
+  let center = [
+    (min[0] + max[0]) * 0.5,
+    (min[1] + max[1]) * 0.5,
+    (min[2] + max[2]) * 0.5,
+  ];
+  transform_point(view, center)[2]
+}
+
+/// Apply a column-major affine 4x4 matrix to a point.
+fn transform_point(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
+  [
+    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+  ]
 }
 
 /// Draw translucent modifier meshes (`#` highlight, `%` background) over the
@@ -351,31 +508,11 @@ fn render_csg_group(
     gl_ShadeModel(GL_SMOOTH);
 
     for (i, leaf) in active_leaves.iter().enumerate() {
-      apply_leaf_material(leaf);
-
-      let data = &render_datas[i];
-
-      gl_PushMatrix();
-      gl_MultMatrixf(data.transform.as_ptr());
+      apply_material(leaf.color, &leaf.material, 1.0);
 
       // Use VBOs for the shading pass (must match the OpenCSG depth pass
       // to produce identical depth values for GL_EQUAL to work).
-      gl_EnableClientState(GL_VERTEX_ARRAY);
-      gl_EnableClientState(GL_NORMAL_ARRAY);
-
-      gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
-      gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
-
-      gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_normals);
-      gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
-
-      gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
-
-      gl_DisableClientState(GL_NORMAL_ARRAY);
-      gl_DisableClientState(GL_VERTEX_ARRAY);
-      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-
-      gl_PopMatrix();
+      draw_leaf(&render_datas[i]);
     }
 
     // Restore the default material state so the last leaf's specular/
@@ -401,30 +538,60 @@ fn render_csg_group(
   }
 }
 
-/// Set the fixed-function color/specular/shininess/emission for one leaf from
-/// its material's Blinn-Phong approximation (the same mapping the software
-/// rasterizer uses, so the preview matches `luacad render`).
-unsafe fn apply_leaf_material(leaf: &CsgLeaf) {
-  let [r, g, b] = leaf.color;
+/// Draw one leaf's triangles from its VBOs, under its model transform and
+/// with its per-vertex normals bound.
+unsafe fn draw_leaf(data: &LeafRenderData) {
+  unsafe {
+    gl_PushMatrix();
+    gl_MultMatrixf(data.transform.as_ptr());
 
-  if leaf.material.kind == MaterialKind::Emissive {
+    gl_EnableClientState(GL_VERTEX_ARRAY);
+    gl_EnableClientState(GL_NORMAL_ARRAY);
+
+    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
+    gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
+
+    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_normals);
+    gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
+
+    gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
+
+    gl_DisableClientState(GL_NORMAL_ARRAY);
+    gl_DisableClientState(GL_VERTEX_ARRAY);
+    gl_BindBuffer(GL_ARRAY_BUFFER, 0);
+
+    gl_PopMatrix();
+  }
+}
+
+/// Set the fixed-function color/specular/shininess/emission for one surface
+/// from its material's Blinn-Phong approximation (the same mapping the
+/// software rasterizer uses, so the preview matches `luacad render`).
+///
+/// `alpha` is the opacity the surface is drawn with: 1 in the opaque path,
+/// less in the transparent view mode. `GL_COLOR_MATERIAL` tracks the current
+/// color into the diffuse term, whose alpha is what the blend uses.
+unsafe fn apply_material(color: [f32; 3], material: &MaterialSpec, alpha: f32) {
+  let [r, g, b] = color;
+
+  if material.kind == MaterialKind::Emissive {
     // Unlit: all radiance comes from the emission term. Overbright values
     // are normalized by the largest channel rather than clamped per channel,
     // which would wash saturated colors out to white.
-    let s = leaf.material.strength;
+    let s = material.strength;
     let max = (r.max(g).max(b) * s).max(1.0);
     let n = s / max;
     let emission = [r * n, g * n, b * n, 1.0];
     let no_spec: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
     unsafe {
-      gl_Color3f(0.0, 0.0, 0.0);
+      gl_Color4f(0.0, 0.0, 0.0, alpha);
       gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, emission.as_ptr());
       gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, no_spec.as_ptr());
     }
     return;
   }
 
-  let params = leaf.material.blinn_phong();
+  let params = material.blinn_phong();
   let d = params.diffuse_scale;
   let s = params.specular_strength;
   let spec: [f32; 4] = if params.tinted_specular {
@@ -434,7 +601,7 @@ unsafe fn apply_leaf_material(leaf: &CsgLeaf) {
   };
   let no_emission: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
   unsafe {
-    gl_Color3f(r * d, g * d, b * d);
+    gl_Color4f(r * d, g * d, b * d, alpha);
     gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, spec.as_ptr());
     // Fixed-function GL clamps shininess to 128.
     gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, params.shininess.min(128.0));
@@ -554,30 +721,17 @@ fn cad_to_gl_transform(m: &[f32; 16]) -> [f32; 16] {
   out
 }
 
-/// Radius of the smallest origin-centered sphere containing all geometries,
-/// in GL coordinates. Materializes every geometry's mesh, which for complex
-/// CSG trees is expensive — run this on the background execution thread, not
-/// in the render loop.
-pub fn compute_scene_extent(geometries: &[CsgGeometry]) -> Option<f32> {
+/// Radius of the smallest origin-centered sphere containing the materialized
+/// scene, in GL coordinates.
+///
+/// Takes the solids rather than the geometries so that fitting the view and
+/// the transparent pass share one materialization — the Manifold booleans
+/// behind them are far too slow to run twice, let alone in the render loop.
+pub fn compute_scene_extent(solids: &[SolidMesh]) -> Option<f32> {
   let mut max_extent: f32 = 0.0;
-  for geom in geometries {
-    let scad = match geom.scad.as_ref() {
-      Some(s) => s,
-      None => continue,
-    };
-    let mesh = luacad::export::materialize_scad_display_mesh(scad);
-    if mesh.triangles.is_empty() {
-      continue;
-    }
-    let (bb_min, bb_max) = mesh.bounding_box();
-    // Check all 8 corners, converting CAD (x,y,z) → GL (y,z,x)
-    for &cx in &[bb_min[0], bb_max[0]] {
-      for &cy in &[bb_min[1], bb_max[1]] {
-        for &cz in &[bb_min[2], bb_max[2]] {
-          let gl = vec3(cy, cz, cx);
-          max_extent = max_extent.max(gl.magnitude());
-        }
-      }
+  for solid in solids {
+    for &[x, y, z] in &solid.vertices {
+      max_extent = max_extent.max(vec3(x, y, z).magnitude());
     }
   }
 
@@ -1268,6 +1422,7 @@ const GL_BLEND: u32 = 0x0BE2;
 const GL_SRC_ALPHA: u32 = 0x0302;
 const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
 const GL_CULL_FACE: u32 = 0x0B44;
+const GL_FRONT: u32 = 0x0404;
 const GL_BACK: u32 = 0x0405;
 const GL_ARRAY_BUFFER: u32 = 0x8892;
 const GL_STATIC_DRAW: u32 = 0x88E4;
@@ -1470,5 +1625,59 @@ pub fn gl_clear_screen(r: f32, g: f32, b: f32) {
 pub fn gl_set_viewport(x: i32, y: i32, w: i32, h: i32) {
   unsafe {
     gl_Viewport(x, y, w, h);
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use luacad::material::MaterialSpec;
+
+  const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, //
+    0.0, 1.0, 0.0, 0.0, //
+    0.0, 0.0, 1.0, 0.0, //
+    0.0, 0.0, 0.0, 1.0, //
+  ];
+
+  /// A camera at the origin looking down -z, with the world pushed 10 units
+  /// away from it.
+  fn view_matrix() -> [f32; 16] {
+    let mut view = IDENTITY;
+    view[14] = -10.0;
+    view
+  }
+
+  /// One triangle in the z plane.
+  fn solid_at_z(z: f32) -> SolidMesh {
+    SolidMesh {
+      vertices: vec![[0.0, 0.0, z], [1.0, 0.0, z], [0.0, 1.0, z]],
+      color: [1.0, 1.0, 1.0],
+      material: MaterialSpec::default(),
+    }
+  }
+
+  /// Blending has no depth test to fall back on, so the far solid has to be
+  /// painted before the near one no matter which order the scene lists them.
+  #[test]
+  fn transparent_solids_are_painted_from_the_back() {
+    let solids = vec![solid_at_z(1.0), solid_at_z(-1.0)];
+
+    let sorted = depth_sorted_solids(&solids, &view_matrix());
+    assert_eq!(
+      sorted[0].vertices[0][2], -1.0,
+      "the near solid was painted first"
+    );
+  }
+
+  /// Fit-to-view measures the materialized solids, so it has to reach the
+  /// farthest vertex of any of them.
+  #[test]
+  fn the_scene_extent_covers_every_solid() {
+    let mut far = solid_at_z(0.0);
+    far.vertices.push([0.0, 3.0, 4.0]); // 5 units from the origin
+
+    assert_eq!(compute_scene_extent(&[solid_at_z(1.0), far]), Some(5.0));
+    assert_eq!(compute_scene_extent(&[]), None, "an empty scene has no fit");
   }
 }

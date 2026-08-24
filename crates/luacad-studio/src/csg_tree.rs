@@ -47,6 +47,20 @@ pub struct OverlayMesh {
   pub color: [f32; 4],
 }
 
+/// The materialized surface of one colored part of the model: the boolean
+/// result rather than the CSG inputs, so it carries the surfaces inside a
+/// part (bore walls, enclosed cavities) that the preview's front-most-surface
+/// CSG never produces. Used by the transparent view mode.
+pub struct SolidMesh {
+  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up), with
+  /// every transform already applied.
+  pub vertices: Vec<[f32; 3]>,
+  /// Color (RGB, 0..1).
+  pub color: [f32; 3],
+  /// Surface material (approximated by fixed-function GL).
+  pub material: MaterialSpec,
+}
+
 /// Everything needed to draw the preview: opaque CSG groups plus
 /// translucent modifier overlays.
 #[derive(Default)]
@@ -118,6 +132,22 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
       overlays: sink.overlays,
     },
   }
+}
+
+/// Materialize the geometries into solid meshes for the transparent view.
+///
+/// Expensive (a Manifold boolean per colored part), so this belongs on the
+/// background execution thread next to [`flatten_geometries`], never in the
+/// render loop.
+pub fn solid_meshes(geometries: &[CsgGeometry]) -> Vec<SolidMesh> {
+  luacad::render::display_solids(geometries)
+    .into_iter()
+    .map(|solid| SolidMesh {
+      vertices: cad_to_gl_vertices(solid.vertices),
+      color: solid.color,
+      material: solid.material,
+    })
+    .collect()
 }
 
 // --- Matrix helpers ---

@@ -409,6 +409,20 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         app.pending_raytrace = true;
       }
       ui.separator();
+      if ui
+        .selectable_label(app.transparent_view, "Transparent")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(
+          "Draw every object see-through, so geometry hidden inside or \
+           behind other geometry stays visible",
+        )
+        .clicked()
+      {
+        app.transparent_view = !app.transparent_view;
+        // The still covers the viewport, so it would hide the change.
+        app.clear_raytrace();
+      }
+      ui.separator();
       ui.label("Theme:");
       if ui
         .selectable_label(app.theme_mode == ThemeMode::System, "Auto")
@@ -2167,6 +2181,9 @@ mod tests {
   fn about_button_is_reachable_without_the_editor() {
     let mut h = Harness::new("local width = 10\n");
     h.app.editor_visible = false;
+    // Two passes: at this width the extra buttons wrap onto a second line,
+    // and the panel only grows to fit it on the pass after the wrap.
+    h.pass(0.016, vec![]);
     h.pass(0.016, vec![]);
     assert!(
       h.painted("About"),

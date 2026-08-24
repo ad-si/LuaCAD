@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::SystemTime;
 
-use crate::csg_tree::{CsgGroup, CsgScene, OverlayMesh, flatten_geometries};
+use crate::csg_tree::{
+  CsgGroup, CsgScene, OverlayMesh, SolidMesh, flatten_geometries, solid_meshes,
+};
 use crate::editor::EditorAction;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 
@@ -99,8 +101,10 @@ struct LuaJobResult {
   geometries: Vec<CsgGeometry>,
   lua_error: Option<String>,
   scene: CsgScene,
-  /// Scene bounding radius for fit-to-view, precomputed here because it
-  /// requires materializing the meshes — too slow for the render loop
+  /// The same model materialized into solids, for the transparent view mode
+  solids: Vec<SolidMesh>,
+  /// Scene bounding radius for fit-to-view, measured off the solids because
+  /// materializing them is far too slow for the render loop
   fit_extent: Option<f32>,
 }
 
@@ -139,6 +143,9 @@ pub struct AppState {
   /// World-space point the camera orbits around (moved by panning)
   pub camera_target: [f32; 3],
   pub orthogonal_view: bool,
+  /// Draw every object see-through, so geometry hidden inside or behind
+  /// other geometry stays visible
+  pub transparent_view: bool,
   pub scene_dirty: bool,
   pub theme_mode: ThemeMode,
   pub theme_colors: ThemeColors,
@@ -195,6 +202,9 @@ pub struct AppState {
   pub csg_groups: Vec<CsgGroup>,
   /// Translucent modifier overlays (`#` highlight, `%` background)
   pub overlay_meshes: Vec<OverlayMesh>,
+  /// The model materialized into solid meshes, drawn by the transparent view
+  /// mode in place of the CSG groups
+  pub solid_meshes: Vec<SolidMesh>,
   /// Bumped whenever `csg_groups` or `overlay_meshes` change, so the renderer
   /// can tell a cached 3D image from a stale one
   pub scene_revision: u64,
@@ -256,6 +266,7 @@ impl AppState {
       camera_distance: DEFAULT_CAMERA_DISTANCE,
       camera_target: [0.0; 3],
       orthogonal_view: true,
+      transparent_view: false,
       scene_dirty: true,
       theme_mode: ThemeMode::System,
       theme_colors: if is_dark {
@@ -289,6 +300,7 @@ impl AppState {
       clipboard_is_line: false,
       csg_groups: vec![],
       overlay_meshes: vec![],
+      solid_meshes: vec![],
       scene_revision: 0,
       lua_job: None,
       raytrace_job: None,
@@ -355,6 +367,7 @@ impl AppState {
     self.geometries.clear();
     self.csg_groups.clear();
     self.overlay_meshes.clear();
+    self.solid_meshes.clear();
     self.scene_fit_extent = None;
     self.scene_revision += 1;
     self.reset_camera();
@@ -452,11 +465,13 @@ impl AppState {
         Err(e) => (vec![], Some(e)),
       };
       let scene = flatten_geometries(&geometries);
-      let fit_extent = crate::scene::compute_scene_extent(&geometries);
+      let solids = solid_meshes(&geometries);
+      let fit_extent = crate::scene::compute_scene_extent(&solids);
       let _ = tx.send(LuaJobResult {
         geometries,
         lua_error,
         scene,
+        solids,
         fit_extent,
       });
     });
@@ -481,6 +496,7 @@ impl AppState {
         self.lua_error = result.lua_error;
         self.csg_groups = result.scene.groups;
         self.overlay_meshes = result.scene.overlays;
+        self.solid_meshes = result.solids;
         self.scene_fit_extent = result.fit_extent;
         self.scene_revision += 1;
         self.scene_dirty = true;

@@ -50,6 +50,20 @@ any release.
 
   [scad-chess]: https://github.com/quaternionmedia/scad-chess
 
+- Studio: the new `Transparent` button in the bottom bar draws every object
+  see-through, so geometry hidden inside or behind other geometry stays
+  visible without editing the model — an enclosed cavity, the wall of a bore,
+  a part sitting in a housing. The mode swaps the preview's CSG pass, which
+  can only produce the surfaces facing the camera, for the materialized
+  boolean results (the same ones `luacad render` draws, split per color), so
+  what shows up inside a part is its real surface rather than the cutting
+  tool that made it. The choice is remembered across restarts
+  (`transparent_view` in the state file).
+
+  Fitting the view to the model now measures that same materialization
+  instead of running its own, which also makes loading a heavy model faster
+  (`examples/mushr_racecar/` went from 3.6 s to 1.3 s of meshing per run).
+
 - Studio: the selected projection is remembered across restarts
   ([#18](https://github.com/ad-si/LuaCAD/issues/18)), so a perspective view
   no longer falls back to orthogonal on every launch (`orthogonal_view` in
