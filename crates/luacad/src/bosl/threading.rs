@@ -116,6 +116,27 @@ fn read_profile(a: &Args) -> Option<Vec<[f64; 2]>> {
 // Building a thread
 // ---------------------------------------------------------------------------
 
+/// How a lead-in ramps the thread depth up from nothing.
+#[derive(Clone, Copy)]
+enum LeadInShape {
+  /// Fast at first, easing off — BOSL2's default.
+  Sqrt,
+  Linear,
+  /// A smoothstep, level at both ends of the ramp.
+  Smooth,
+}
+
+impl LeadInShape {
+  fn eval(self, t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    match self {
+      LeadInShape::Sqrt => t.sqrt(),
+      LeadInShape::Linear => t,
+      LeadInShape::Smooth => t * t * (3.0 - 2.0 * t),
+    }
+  }
+}
+
 struct Thread {
   /// Outer radius of the thread, before any internal allowance.
   r: f64,
@@ -126,6 +147,10 @@ struct Thread {
   profile: Vec<[f64; 2]>,
   bevel1: bool,
   bevel2: bool,
+  /// Length over which the thread fades in at each end; 0 is off.
+  lead_in1: f64,
+  lead_in2: f64,
+  lead_in_shape: LeadInShape,
 }
 
 /// Sweep the profile along the helix and close the ends off.
@@ -152,6 +177,20 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
           phase + 360.0 * turns * u * if t.left_handed { -1.0 } else { 1.0 };
         let z = -t.length / 2.0 + t.length * u;
         let (s, c) = ang.to_radians().sin_cos();
+        // A lead-in caps how far this row may rise above the root, so
+        // the thread's height ramps up along the helix instead of the
+        // profile ending in a blunt wall at the trim plane. Fully
+        // faded rows fall to the root and the bury below swallows
+        // them into the core.
+        let mut rise = 1.0f64;
+        if t.lead_in1 > 0.0 {
+          rise = rise.min(t.lead_in_shape.eval(t.length * u / t.lead_in1));
+        }
+        if t.lead_in2 > 0.0 {
+          rise =
+            rise.min(t.lead_in_shape.eval(t.length * (1.0 - u) / t.lead_in2));
+        }
+        let cap = root + rise * depth;
         // The profile is walked against the sweep so the flanks face
         // outward; a left-handed thread sweeps the other way, so it walks
         // the profile the other way too.
@@ -163,7 +202,16 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
         ordered
           .iter()
           .map(|p| {
-            let radius = t.r + p[1] * t.pitch;
+            let mut radius = (t.r + p[1] * t.pitch).min(cap);
+            // Bury the profile's root inside the core cylinder. At the
+            // shared radius the band's facets rotate with the helix while
+            // the core's stand still, so the two surfaces weave through
+            // each other, and the union keeps slivers of void along the
+            // crossings — a difference leaves them standing as thin fins
+            // across the grooves. Buried, the core alone forms the root.
+            if radius <= root + 1e-6 {
+              radius = (root - 1.0).max(root * 0.5);
+            }
             let along = z + p[0] * t.pitch * t.starts as f64;
             [radius * c, radius * s, along]
           })
@@ -329,11 +377,41 @@ fn read_thread(a: &Args, profile: Vec<[f64; 2]>) -> LuaResult<Thread> {
   } else {
     0.0
   };
+  let starts = a.int("starts").unwrap_or(1).max(1) as usize;
+  // A blunt start fades the thread in over a lead-in instead of ending
+  // it in a blunt wall; a given lead-in length implies it. One full
+  // turn if no length is given. Unlike BOSL2, off by default, so
+  // existing models keep their geometry.
+  let lead_in_shape = match a
+    .string("lead_in_shape")
+    .unwrap_or_else(|| "sqrt".to_string())
+    .as_str()
+  {
+    "sqrt" => LeadInShape::Sqrt,
+    "linear" => LeadInShape::Linear,
+    "smooth" => LeadInShape::Smooth,
+    other => {
+      return a.err(format!(
+        "the lead_in_shape '{other}' is not one of sqrt, linear, smooth"
+      ));
+    }
+  };
+  let blunt = a.bool("blunt_start");
+  let lead = a.num("lead_in");
+  let lead_end =
+    |every_end: Option<f64>, blunt_end: Option<bool>, this_end: Option<f64>| {
+      let wanted = this_end.or(every_end);
+      if wanted.is_some() || blunt_end.or(blunt).unwrap_or(false) {
+        wanted.unwrap_or(pitch * starts as f64).max(0.0)
+      } else {
+        0.0
+      }
+    };
   Ok(Thread {
     r: d / 2.0 + slop,
     length,
     pitch,
-    starts: a.int("starts").unwrap_or(1).max(1) as usize,
+    starts,
     left_handed: a.bool_or("left_handed", false),
     profile,
     bevel1: a
@@ -344,6 +422,9 @@ fn read_thread(a: &Args, profile: Vec<[f64; 2]>) -> LuaResult<Thread> {
       .bool("bevel2")
       .or_else(|| a.bool("bevel"))
       .unwrap_or(false),
+    lead_in1: lead_end(lead, a.bool("blunt_start1"), a.num("lead_in1")),
+    lead_in2: lead_end(lead, a.bool("blunt_start2"), a.num("lead_in2")),
+    lead_in_shape,
   })
 }
 
@@ -404,6 +485,9 @@ fn threaded_nut_from(
     profile,
     bevel1: false,
     bevel2: false,
+    lead_in1: 0.0,
+    lead_in2: 0.0,
+    lead_in_shape: LeadInShape::Sqrt,
   };
   let node = ScadNode::Difference(vec![body, build_thread(&bore, facets)]);
   let attachable = Attachable::new(Geom::Conoid {
@@ -518,6 +602,9 @@ pub fn build_thread_for(
       profile: profile.to_vec(),
       bevel1: false,
       bevel2: false,
+      lead_in1: 0.0,
+      lead_in2: 0.0,
+      lead_in_shape: LeadInShape::Sqrt,
     },
     facets,
   )
@@ -975,6 +1062,13 @@ const ROD_PARAMS: &[&str] = &[
   "bevel",
   "bevel1",
   "bevel2",
+  "blunt_start",
+  "blunt_start1",
+  "blunt_start2",
+  "lead_in",
+  "lead_in1",
+  "lead_in2",
+  "lead_in_shape",
   "starts",
   "internal",
   "d1",
@@ -1189,6 +1283,61 @@ mod tests {
       "render(bosl.acme_threaded_rod({d = 10, l = 20, pitch = 2, starts = 2}))",
     );
     assert!(two > one, "{two} vs {one}");
+  }
+
+  #[test]
+  fn a_lead_in_fades_the_thread_without_shortening_the_rod() {
+    let plain = "render(bosl.trapezoidal_threaded_rod({d = 10, l = 20,
+      pitch = 3, thread_angle = 90, thread_depth = 1.2}))";
+    let faded = "render(bosl.trapezoidal_threaded_rod({d = 10, l = 20,
+      pitch = 3, thread_angle = 90, thread_depth = 1.2, lead_in = 3}))";
+    let (v_plain, (lo_p, hi_p)) = measure(plain);
+    let (v_faded, (lo_f, hi_f)) = measure(faded);
+    // The taper only takes material off, and only at the ends.
+    assert!(v_faded < v_plain, "{v_faded} vs {v_plain}");
+    assert!(
+      (hi_f[2] - hi_p[2]).abs() < 1e-3 && (lo_f[2] - lo_p[2]).abs() < 1e-3
+    );
+    // One end alone takes off half as much.
+    let (v_one, _) = measure(
+      "render(bosl.trapezoidal_threaded_rod({d = 10, l = 20,
+        pitch = 3, thread_angle = 90, thread_depth = 1.2, lead_in1 = 3}))",
+    );
+    assert!(
+      v_faded < v_one && v_one < v_plain,
+      "{v_faded} {v_one} {v_plain}"
+    );
+  }
+
+  #[test]
+  fn a_blunt_start_defaults_its_lead_in_to_one_turn() {
+    let (blunt, _) = measure(
+      "render(bosl.threaded_rod({d = 10, l = 20, pitch = 2,
+        blunt_start = true}))",
+    );
+    let (explicit, _) = measure(
+      "render(bosl.threaded_rod({d = 10, l = 20, pitch = 2,
+        lead_in = 2}))",
+    );
+    assert!(
+      (blunt - explicit).abs() / explicit < 1e-6,
+      "{blunt} vs {explicit}"
+    );
+  }
+
+  #[test]
+  fn an_unknown_lead_in_shape_is_reported() {
+    let lua = Lua::new();
+    register_bosl(&lua).unwrap();
+    let err = lua
+      .load(
+        "return bosl.threaded_rod({d = 10, l = 20, pitch = 2,
+          lead_in = 2, lead_in_shape = 'bogus'})",
+      )
+      .eval::<mlua::Value>()
+      .unwrap_err()
+      .to_string();
+    assert!(err.contains("sqrt, linear, smooth"), "{err}");
   }
 
   #[test]
