@@ -290,7 +290,7 @@ fn bake_reflection(
   for v in &mut vertices {
     *v = mat4_apply_point(transform, *v);
   }
-  for tri in vertices.chunks_exact_mut(3) {
+  for tri in vertices.as_chunks_mut::<3>().0 {
     tri.swap(1, 2);
   }
   (vertices, IDENTITY)
@@ -1459,7 +1459,9 @@ mod reflection_tests {
 
   fn signed_volume(vertices: &[[f32; 3]]) -> f32 {
     vertices
-      .chunks_exact(3)
+      .as_chunks::<3>()
+      .0
+      .iter()
       .map(|t| {
         let (a, b, c) = (t[0], t[1], t[2]);
         (a[0] * (b[1] * c[2] - b[2] * c[1])
