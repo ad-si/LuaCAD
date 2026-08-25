@@ -252,6 +252,50 @@ fn mat4_mirror(nx: f32, ny: f32, nz: f32) -> [f32; 16] {
   ]
 }
 
+/// Determinant of the upper-left 3x3 of a column-major 4x4: negative
+/// exactly when the transform reflects (an odd number of mirrors or
+/// negative scale axes).
+fn mat4_det3(m: &[f32; 16]) -> f32 {
+  m[0] * (m[5] * m[10] - m[6] * m[9])
+    + m[1] * (m[6] * m[8] - m[4] * m[10])
+    + m[2] * (m[4] * m[9] - m[5] * m[8])
+}
+
+/// Apply a column-major 4x4 to a point.
+fn mat4_apply_point(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
+  let [x, y, z] = p;
+  [
+    m[0] * x + m[4] * y + m[8] * z + m[12],
+    m[1] * x + m[5] * y + m[9] * z + m[13],
+    m[2] * x + m[6] * y + m[10] * z + m[14],
+  ]
+}
+
+/// A reflecting transform turns the triangles it maps inside out: the
+/// winding flips, so back-face culling drops the surfaces and the part
+/// shows up only in transparent mode (the export and raytrace paths
+/// re-orient their meshes and were never affected). The face normals
+/// are computed from the vertex order in leaf space, so flipping GL's
+/// front-face state alone would light the surfaces from the inside -
+/// instead the transform is baked into the vertices and every triangle
+/// reversed, which restores the winding and the outward normals in
+/// one go.
+fn bake_reflection(
+  mut vertices: Vec<[f32; 3]>,
+  transform: &[f32; 16],
+) -> (Vec<[f32; 3]>, [f32; 16]) {
+  if mat4_det3(transform) >= 0.0 {
+    return (vertices, *transform);
+  }
+  for v in &mut vertices {
+    *v = mat4_apply_point(transform, *v);
+  }
+  for tri in vertices.chunks_exact_mut(3) {
+    tri.swap(1, 2);
+  }
+  (vertices, IDENTITY)
+}
+
 // --- Tree flattening ---
 
 /// Context passed down while recursing through the ScadNode tree.
@@ -810,10 +854,11 @@ fn make_leaf_group(
   if vertices.is_empty() {
     return vec![];
   }
+  let (vertices, transform) = bake_reflection(vertices, &ctx.transform);
   vec![CsgGroup {
     primitives: vec![CsgLeaf {
       vertices: cad_to_gl_vertices(vertices),
-      transform: ctx.transform,
+      transform,
       operation: op,
       // The call site's value is the shape's own floor; an enclosing
       // `render(convexity = n)` can only raise it.
@@ -1052,9 +1097,10 @@ fn overlay_mesh(
     verts.push(mesh.vertices[tri[1] as usize]);
     verts.push(mesh.vertices[tri[2] as usize]);
   }
+  let (verts, transform) = bake_reflection(verts, &ctx.transform);
   Some(OverlayMesh {
     vertices: cad_to_gl_vertices(verts),
-    transform: ctx.transform,
+    transform,
     color,
   })
 }
@@ -1405,6 +1451,56 @@ fn mesh_to_triangles(mesh: &csgrs::mesh::Mesh<()>) -> Vec<[f32; 3]> {
     }
   }
   verts
+}
+
+#[cfg(test)]
+mod reflection_tests {
+  use super::*;
+
+  fn signed_volume(vertices: &[[f32; 3]]) -> f32 {
+    vertices
+      .chunks_exact(3)
+      .map(|t| {
+        let (a, b, c) = (t[0], t[1], t[2]);
+        (a[0] * (b[1] * c[2] - b[2] * c[1])
+          - a[1] * (b[0] * c[2] - b[2] * c[0])
+          + a[2] * (b[0] * c[1] - b[1] * c[0]))
+          / 6.0
+      })
+      .sum()
+  }
+
+  /// A lone mirror must not leave the leaf inside out: the reflection
+  /// is baked into the vertices with every triangle reversed, so the
+  /// mesh keeps a positive orientation and back-face culling keeps the
+  /// part visible in the shaded preview.
+  #[test]
+  fn lone_mirror_keeps_leaf_right_side_out() {
+    let geoms =
+      luacad::lua_engine::execute_lua("render(cube(10):mirror(1, 0, 0))")
+        .unwrap();
+    let scene = flatten_geometries(&geoms);
+    let leaf = &scene.groups[0].primitives[0];
+    assert_eq!(leaf.transform, IDENTITY, "the reflection must be baked in");
+    assert!(
+      signed_volume(&leaf.vertices) > 0.0,
+      "mirrored leaf must keep a positive orientation"
+    );
+  }
+
+  /// An even mirror count is a plain rotation: the transform reflects
+  /// nothing, stays on the leaf, and the vertices are left alone.
+  #[test]
+  fn double_mirror_stays_on_the_leaf() {
+    let geoms = luacad::lua_engine::execute_lua(
+      "render(cube(10):mirror(1, 0, 0):mirror(0, 1, 0))",
+    )
+    .unwrap();
+    let scene = flatten_geometries(&geoms);
+    let leaf = &scene.groups[0].primitives[0];
+    assert!(mat4_det3(&leaf.transform) > 0.0);
+    assert!(signed_volume(&leaf.vertices) > 0.0);
+  }
 }
 
 #[cfg(test)]

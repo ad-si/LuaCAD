@@ -166,6 +166,17 @@ any release.
 
 ### Fixed
 
+- A part whose transform chain ends in an odd number of `mirror()` calls (or
+  reflects through negative scale axes) was invisible in Studio's shaded
+  preview and only appeared in transparent mode. The preview keeps each CSG
+  leaf as untransformed triangles plus its accumulated matrix, and a
+  reflecting matrix flips the drawn winding, so back-face culling dropped the
+  whole surface — while the export, `render`, and raytrace paths re-orient
+  their meshes and were never affected. A boolean anywhere after the mirror
+  hid the bug, which is why only lone-mirrored parts vanished. Such a
+  transform is now baked into the leaf's vertices with every triangle
+  reversed, restoring both the winding and the outward face normals.
+
 - A part that cannot be built — `linear_extrude()` with a height of zero or
   less, `cube(0)`, `sphere(r = 0)`, `cylinder(h = 0)` — emptied everything it
   was combined with instead of just contributing nothing, in both languages:
