@@ -856,6 +856,8 @@ unsafe extern "C" {
   fn gl_BlendFunc(sfactor: u32, dfactor: u32);
   #[link_name = "glDepthMask"]
   fn gl_DepthMask(flag: u8);
+  #[link_name = "glColorMask"]
+  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
   #[link_name = "glCullFace"]
   fn gl_CullFace(mode: u32);
   #[link_name = "glLineWidth"]
@@ -1008,6 +1010,8 @@ unsafe extern "C" {
   fn gl_BlendFunc(sfactor: u32, dfactor: u32);
   #[link_name = "glDepthMask"]
   fn gl_DepthMask(flag: u8);
+  #[link_name = "glColorMask"]
+  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
   #[link_name = "glCullFace"]
   fn gl_CullFace(mode: u32);
   #[link_name = "glUseProgram"]
@@ -1141,6 +1145,8 @@ unsafe extern "C" {
   fn gl_BlendFunc(sfactor: u32, dfactor: u32);
   #[link_name = "glDepthMask"]
   fn gl_DepthMask(flag: u8);
+  #[link_name = "glColorMask"]
+  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
   #[link_name = "glCullFace"]
   fn gl_CullFace(mode: u32);
   #[link_name = "glVertexPointer"]
@@ -1618,6 +1624,29 @@ pub fn gl_clear_screen(r: f32, g: f32, b: f32) {
     gl_Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     gl_Enable(GL_DEPTH_TEST);
     gl_DepthFunc(GL_LESS);
+  }
+}
+
+/// Force every pixel of the framebuffer to full alpha, leaving the colours
+/// untouched.
+///
+/// The window's pixel format has an alpha channel, and the compositor honours
+/// it: wherever alpha ends up below 1 the window is see-through there, and
+/// those pixels take their brightness from whatever sits behind the window
+/// rather than from what was drawn. Alpha blending writes exactly that —
+/// `GL_SRC_ALPHA`/`GL_ONE_MINUS_SRC_ALPHA` leaves `dst_a = src_a² +
+/// (1 - src_a)·dst_a`, which is below 1 for any see-through fragment. So the
+/// transparent view, whose whole point is to blend, punches the model's own
+/// silhouette out of the window.
+///
+/// Colours are already composited by the time this runs; only the alpha the
+/// compositor reads has to be repaired, hence the write mask.
+pub fn gl_make_framebuffer_opaque() {
+  unsafe {
+    gl_ColorMask(0, 0, 0, 1);
+    gl_ClearColor(0.0, 0.0, 0.0, 1.0);
+    gl_Clear(GL_COLOR_BUFFER_BIT);
+    gl_ColorMask(1, 1, 1, 1);
   }
 }
 

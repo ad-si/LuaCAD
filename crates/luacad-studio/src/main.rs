@@ -27,7 +27,8 @@ use luacad::scad_export;
 use scene::{
   SSAA_FACTOR, SceneFbo, build_camera, camera_projection_matrix,
   camera_view_matrix, compute_camera_vectors, fit_distance_for_extent,
-  gl_clear_screen, gl_set_viewport, render_axes, render_opencsg_scene,
+  gl_clear_screen, gl_make_framebuffer_opaque, gl_set_viewport, render_axes,
+  render_opencsg_scene,
 };
 use theme::ThemeMode;
 use ui::{PanelLayout, render_ui};
@@ -1300,6 +1301,10 @@ impl Studio {
           }
         }
       }
+
+      // Hand the compositor a fully opaque frame. Everything above is done
+      // drawing, and the blended passes have left see-through alpha behind.
+      gl_make_framebuffer_opaque();
 
       winit_window.set_cursor(egui_to_winit_cursor(egui_cursor));
       gl.swap_buffers();
