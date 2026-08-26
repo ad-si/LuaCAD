@@ -1288,7 +1288,12 @@ impl Studio {
           full.width,
           full.height,
         ) {
-          Some(capture) => app.screenshot.capture = Some(capture),
+          Some(capture) => {
+            // Recorded here, with the shot: the toggles it describes stay
+            // reachable while the mark-up dialog is open.
+            app.screenshot.settings = screenshot::describe_settings(app);
+            app.screenshot.capture = Some(capture);
+          }
           None => {
             app.export_status =
               Some(("Screenshot failed: empty selection".to_string(), true))

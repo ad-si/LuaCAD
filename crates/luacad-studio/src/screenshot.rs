@@ -9,7 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::app::{AppState, projection_distance_ratio};
 use crate::pdf;
+use crate::theme::ThemeMode;
 
 /// The mark-up tools of the screenshot dialog.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,6 +69,11 @@ pub struct Capture {
   pub rgb: Vec<u8>,
 }
 
+/// What the studio looked like when the shot was taken, as the `key: value`
+/// pairs printed under the image. Recorded at capture time, because the
+/// settings can be changed again while the dialog is open.
+pub type Settings = Vec<(String, String)>;
+
 pub struct ScreenshotState {
   /// True while the user drags the area out over the window
   pub selecting: bool,
@@ -77,6 +84,8 @@ pub struct ScreenshotState {
   /// The captured pixels; kept while the dialog is open because the PDF
   /// export reads them again
   pub capture: Option<Capture>,
+  /// The settings the capture was taken under, printed under the image
+  pub settings: Settings,
   texture: Option<egui::TextureHandle>,
   pub marks: Vec<Mark>,
   /// The mark currently being dragged out
@@ -99,6 +108,7 @@ impl Default for ScreenshotState {
       drag_start: None,
       pending_capture: None,
       capture: None,
+      settings: vec![],
       texture: None,
       marks: vec![],
       drawing: None,
@@ -132,6 +142,94 @@ impl ScreenshotState {
       ..Self::default()
     };
   }
+}
+
+/// The state the window was in when the shot was taken, limited to what the
+/// image cannot tell you by itself, so that a marked-up screenshot can be
+/// read months later without guessing which toggles were on. Where the panels
+/// sat is left out: it says nothing about the picture.
+///
+/// Called at capture time rather than at save time — the toggles are still
+/// reachable while the dialog is open.
+pub fn describe_settings(app: &AppState) -> Settings {
+  let resolved = if app.theme_colors.egui_dark {
+    "dark"
+  } else {
+    "light"
+  };
+  let theme = match app.theme_mode {
+    ThemeMode::System => format!("auto ({resolved})"),
+    ThemeMode::Light => "light".to_string(),
+    ThemeMode::Dark => "dark".to_string(),
+  };
+  let file = match app.current_file.as_deref().and_then(Path::file_name) {
+    Some(name) => name.to_string_lossy().into_owned(),
+    None => "unsaved document".to_string(),
+  };
+
+  // A raytraced still covers the viewport, so everything below describes the
+  // still rather than the preview underneath it. The live preview is the
+  // normal case and goes unmentioned.
+  let still = app.raytrace_texture.is_some() || app.raytrace_image.is_some();
+
+  // The path tracer is perspective-only: it renders an orthographic view as
+  // the equivalent perspective, at the matching distance. Reporting the
+  // viewport's own projection would describe a picture that is not on the
+  // page.
+  let orthogonal = app.orthogonal_view && !still;
+  let distance = if app.orthogonal_view && still {
+    app.camera_distance * projection_distance_ratio()
+  } else {
+    app.camera_distance
+  };
+
+  let mut settings = vec![
+    ("Taken", local_timestamp()),
+    ("File", file),
+    ("Theme", theme),
+    ("Transparent", on_off(app.transparent_view)),
+  ];
+  if still {
+    settings.push(("Viewport", "raytraced still".to_string()));
+  }
+  settings.push((
+    "Projection",
+    if orthogonal {
+      "orthogonal"
+    } else {
+      "perspective"
+    }
+    .to_string(),
+  ));
+  settings.push((
+    "Camera",
+    format!(
+      "azimuth {:.0}\u{b0}, elevation {:.0}\u{b0}, distance {distance:.2}",
+      app.camera_azimuth, app.camera_elevation
+    ),
+  ));
+  settings.push(("Version", luacad::version::CRATE_VERSION.to_string()));
+
+  settings
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value))
+    .collect()
+}
+
+fn on_off(value: bool) -> String {
+  if value { "on" } else { "off" }.to_string()
+}
+
+/// The local wall clock, to the minute — the same resolution the file name
+/// carries.
+fn local_timestamp() -> String {
+  let now = time::OffsetDateTime::now_local()
+    .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+  let format = time::format_description::parse_borrowed::<2>(
+    "[year]-[month]-[day] [hour]:[minute]",
+  )
+  .expect("valid format description");
+  now.format(&format).unwrap_or_default()
 }
 
 /// Flip an image's rows, converting between OpenGL's bottom-up read-back and
@@ -426,6 +524,25 @@ pub fn render_dialog(
       }
 
       ui.add_space(8.0);
+      if !state.settings.is_empty() {
+        let pairs: Vec<String> = state
+          .settings
+          .iter()
+          .map(|(key, value)| format!("{key}: {value}"))
+          .collect();
+        ui.add(
+          egui::Label::new(
+            egui::RichText::new(pairs.join("  \u{b7}  ")).weak().small(),
+          )
+          .truncate(),
+        )
+        .on_hover_text(format!(
+          "The settings this shot was taken under, printed under the \
+           image:\n{}",
+          pairs.join("\n")
+        ));
+        ui.add_space(6.0);
+      }
       ui.add(
         egui::TextEdit::multiline(&mut state.note)
           .desired_rows(3)
@@ -668,25 +785,71 @@ const PAGE_HEIGHT: f32 = 841.89;
 const MARGIN: f32 = 40.0;
 const NOTE_SIZE: f32 = 11.0;
 const NOTE_LEADING: f32 = 15.0;
-/// Space between the image and the note
+/// Space between the image and whatever follows it
 const NOTE_GAP: f32 = 20.0;
+/// The `key: value` block sits between the image and the note, set smaller
+/// and greyer, in two columns.
+const SETTINGS_SIZE: f32 = 9.0;
+const SETTINGS_LEADING: f32 = 12.0;
+const SETTINGS_COLOR: [u8; 3] = [95, 95, 95];
+const SETTINGS_COLUMNS: usize = 2;
 
-/// Lay the screenshot, its marks and the note out on A4 pages and write them
-/// to `path`.
+/// Lay the screenshot, its marks, the settings it was taken under and the
+/// note out on A4 pages and write them to `path`.
 pub fn save_pdf(state: &ScreenshotState, path: &Path) -> Result<(), String> {
   let capture = state
     .capture
     .as_ref()
     .ok_or_else(|| "no screenshot to save".to_string())?;
-  let document = build_document(capture, &state.marks, &state.note);
+  let document =
+    build_document(capture, &state.marks, &state.settings, &state.note);
   pdf::write(&document, path).map_err(|e| e.to_string())
 }
 
-/// Build the PDF: the image with its marks on the first page, the note below
-/// it, and any note that does not fit on further pages.
+/// Lines laid out downwards, starting a new page when they reach the bottom
+/// margin, so that nothing is silently dropped.
+struct Flow {
+  pages: Vec<pdf::Page>,
+  /// Top edge of the next line, rather than its baseline, so that blocks set
+  /// in different sizes can follow one another without arithmetic at the
+  /// call site
+  cursor: f32,
+}
+
+impl Flow {
+  /// One line, optionally split over several columns that share a baseline.
+  fn row(
+    &mut self,
+    size: f32,
+    leading: f32,
+    color: [u8; 3],
+    columns: &[(f32, String)],
+  ) {
+    if self.cursor - size < MARGIN {
+      self.pages.push(pdf::Page::default());
+      self.cursor = PAGE_HEIGHT - MARGIN;
+    }
+    let baseline = self.cursor - size;
+    let page = self.pages.last_mut().expect("at least one page");
+    for (x, text) in columns {
+      page.text.push(pdf::Text {
+        x: *x,
+        y: baseline,
+        size,
+        color,
+        text: text.clone(),
+      });
+    }
+    self.cursor -= leading;
+  }
+}
+
+/// Build the PDF: the image with its marks on the first page, the settings
+/// and the note below it, and any note that does not fit on further pages.
 fn build_document(
   capture: &Capture,
   marks: &[Mark],
+  settings: &Settings,
   note: &str,
 ) -> pdf::Document {
   let content_width = PAGE_WIDTH - 2.0 * MARGIN;
@@ -699,14 +862,21 @@ fn build_document(
     pdf::wrap(note, NOTE_SIZE, content_width)
   };
 
-  // Leave room for the note, but never shrink the image below 40 % of the
-  // page — a long note continues on the next page instead.
+  // Leave room for the settings and the note, but never shrink the image
+  // below 40 % of the page — a long note continues on the next page instead.
+  let settings_rows = settings.len().div_ceil(SETTINGS_COLUMNS);
+  let settings_height = if settings.is_empty() {
+    0.0
+  } else {
+    NOTE_GAP + settings_rows as f32 * SETTINGS_LEADING
+  };
   let note_height = if lines.is_empty() {
     0.0
   } else {
     NOTE_GAP + lines.len() as f32 * NOTE_LEADING
   };
-  let image_budget = (content_height - note_height).max(content_height * 0.4);
+  let image_budget =
+    (content_height - settings_height - note_height).max(content_height * 0.4);
   let scale = (content_width / capture.width as f32)
     .min(image_budget / capture.height as f32);
   let image_width = capture.width as f32 * scale;
@@ -714,38 +884,49 @@ fn build_document(
   let image_x = MARGIN + (content_width - image_width) / 2.0;
   let image_y = PAGE_HEIGHT - MARGIN - image_height;
 
-  let mut pages = vec![pdf::Page {
-    image: Some((image_x, image_y, image_width, image_height)),
-    marks: marks
-      .iter()
-      .flat_map(|mark| {
-        pdf_marks(mark, image_x, image_y, image_width, image_height, scale)
-      })
-      .collect(),
-    text: vec![],
-  }];
+  let mut flow = Flow {
+    pages: vec![pdf::Page {
+      image: Some((image_x, image_y, image_width, image_height)),
+      marks: marks
+        .iter()
+        .flat_map(|mark| {
+          pdf_marks(mark, image_x, image_y, image_width, image_height, scale)
+        })
+        .collect(),
+      text: vec![],
+    }],
+    cursor: image_y - NOTE_GAP,
+  };
 
-  // The note starts under the image and runs on to further pages if it has
-  // to, so that nothing is silently dropped.
-  let mut baseline = image_y - NOTE_GAP - NOTE_SIZE;
-  for line in lines {
-    if baseline < MARGIN {
-      pages.push(pdf::Page::default());
-      baseline = PAGE_HEIGHT - MARGIN - NOTE_SIZE;
-    }
-    pages
-      .last_mut()
-      .expect("at least one page")
-      .text
-      .push(pdf::Text {
-        x: MARGIN,
-        y: baseline,
-        size: NOTE_SIZE,
-        color: [20, 20, 20],
-        text: line,
-      });
-    baseline -= NOTE_LEADING;
+  // The settings go directly under the image, column by column: the first
+  // half of the list fills the left column, the rest the right one.
+  let column_width = content_width / SETTINGS_COLUMNS as f32;
+  for row in 0..settings_rows {
+    let columns: Vec<(f32, String)> = (0..SETTINGS_COLUMNS)
+      .filter_map(|column| {
+        let (key, value) = settings.get(column * settings_rows + row)?;
+        Some((
+          MARGIN + column as f32 * column_width,
+          // Wrapping a lone pair would break the columns, so an overlong
+          // value (a very long file name) is cut short instead
+          ellipsize(
+            &format!("{key}: {value}"),
+            SETTINGS_SIZE,
+            column_width - 12.0,
+          ),
+        ))
+      })
+      .collect();
+    flow.row(SETTINGS_SIZE, SETTINGS_LEADING, SETTINGS_COLOR, &columns);
   }
+
+  if !settings.is_empty() && !lines.is_empty() {
+    flow.cursor -= NOTE_GAP;
+  }
+  for line in lines {
+    flow.row(NOTE_SIZE, NOTE_LEADING, [20, 20, 20], &[(MARGIN, line)]);
+  }
+  let pages = flow.pages;
 
   pdf::Document {
     page_width: PAGE_WIDTH,
@@ -758,6 +939,21 @@ fn build_document(
     pages,
     producer: format!("LuaCAD Studio {}", luacad::version::CRATE_VERSION),
   }
+}
+
+/// Cut `text` down to `max_width`, marking the cut with an ellipsis.
+fn ellipsize(text: &str, size: f32, max_width: f32) -> String {
+  if pdf::text_width(text, size) <= max_width {
+    return text.to_string();
+  }
+  let mut kept = String::new();
+  for c in text.chars() {
+    if pdf::text_width(&format!("{kept}{c}\u{2026}"), size) > max_width {
+      break;
+    }
+    kept.push(c);
+  }
+  format!("{kept}\u{2026}")
 }
 
 /// Convert one mark from image-relative coordinates into PDF page space.
@@ -850,7 +1046,8 @@ mod tests {
 
   #[test]
   fn the_image_fills_the_page_width_and_keeps_its_aspect() {
-    let document = build_document(&capture(1600, 900), &[], "");
+    let document =
+      build_document(&capture(1600, 900), &[], &Settings::new(), "");
     let (x, _, width, height) =
       document.pages[0].image.expect("the image is placed");
     assert_eq!(document.pages.len(), 1);
@@ -862,7 +1059,8 @@ mod tests {
   /// A portrait screenshot is limited by the page height, not its width.
   #[test]
   fn a_tall_image_is_bounded_by_the_page_height() {
-    let document = build_document(&capture(400, 2000), &[], "");
+    let document =
+      build_document(&capture(400, 2000), &[], &Settings::new(), "");
     let (_, y, _, height) =
       document.pages[0].image.expect("the image is placed");
     assert!(height <= PAGE_HEIGHT - 2.0 * MARGIN + 0.01);
@@ -871,7 +1069,12 @@ mod tests {
 
   #[test]
   fn the_note_goes_under_the_image() {
-    let document = build_document(&capture(800, 600), &[], "Check this edge");
+    let document = build_document(
+      &capture(800, 600),
+      &[],
+      &Settings::new(),
+      "Check this edge",
+    );
     let (_, image_y, _, _) = document.pages[0].image.expect("image");
     let text = &document.pages[0].text;
     assert_eq!(text.len(), 1);
@@ -880,12 +1083,96 @@ mod tests {
     assert!(text[0].y >= MARGIN);
   }
 
+  fn settings(count: usize) -> Settings {
+    (0..count)
+      .map(|i| (format!("Key{i}"), format!("value {i}")))
+      .collect()
+  }
+
+  #[test]
+  fn the_settings_sit_between_the_image_and_the_note() {
+    let recorded: Settings = [("Transparent", "on"), ("Theme", "dark")]
+      .into_iter()
+      .map(|(key, value)| (key.to_string(), value.to_string()))
+      .collect();
+    let document =
+      build_document(&capture(800, 600), &[], &recorded, "Check this edge");
+    let (_, image_y, _, _) = document.pages[0].image.expect("image");
+    let text = &document.pages[0].text;
+
+    let printed: Vec<&str> = text.iter().map(|t| t.text.as_str()).collect();
+    assert_eq!(
+      printed,
+      ["Transparent: on", "Theme: dark", "Check this edge"]
+    );
+    for line in text {
+      assert!(line.y < image_y, "a line overlaps the image");
+      assert!(line.y >= MARGIN);
+    }
+    // The settings are set smaller than the note and above it
+    assert!(text[0].size < text[2].size);
+    assert!(text[1].y > text[2].y);
+  }
+
+  /// Two columns, filled top to bottom, so that a full set of settings costs
+  /// half the page height it would as a single list.
+  #[test]
+  fn the_settings_are_laid_out_in_two_columns() {
+    let document = build_document(&capture(800, 600), &[], &settings(9), "");
+    let text = &document.pages[0].text;
+    assert_eq!(text.len(), 9);
+
+    let rows: Vec<f32> = {
+      let mut rows: Vec<f32> = text.iter().map(|t| t.y).collect();
+      rows.dedup();
+      rows
+    };
+    assert_eq!(rows.len(), 5, "nine settings should fill five rows");
+    // The first five go down the left column, the rest down the right one,
+    // so the first row holds the first and the sixth setting
+    assert_eq!(text[0].text, "Key0: value 0");
+    assert_eq!(text[1].text, "Key5: value 5");
+    assert!((text[0].x - MARGIN).abs() < 0.01);
+    assert!(text[1].x > text[0].x);
+    assert!((text[0].y - text[1].y).abs() < 0.01, "not the same row");
+    // The odd one out ends the left column, with no partner beside it
+    assert_eq!(text[8].text, "Key4: value 4");
+  }
+
+  /// The image has to give up the room the settings take, rather than being
+  /// overlapped by them.
+  #[test]
+  fn the_image_makes_room_for_the_settings() {
+    let tall = capture(400, 2000);
+    let without = build_document(&tall, &[], &Settings::new(), "");
+    let with = build_document(&tall, &[], &settings(9), "");
+    let (_, plain_y, _, plain_height) = without.pages[0].image.expect("image");
+    let (_, y, _, height) = with.pages[0].image.expect("image");
+    assert!(height < plain_height);
+    assert!(y > plain_y);
+    for line in &with.pages[0].text {
+      assert!(line.y < y, "a setting overlaps the image");
+      assert!(line.y >= MARGIN, "a setting fell off the page");
+    }
+  }
+
+  #[test]
+  fn a_setting_too_wide_for_its_column_is_cut_short() {
+    let column = (PAGE_WIDTH - 2.0 * MARGIN) / 2.0;
+    let long = ("File".to_string(), "x".repeat(300));
+    let document = build_document(&capture(800, 600), &[], &vec![long], "");
+    let line = &document.pages[0].text[0];
+    assert!(line.text.ends_with('\u{2026}'));
+    assert!(pdf::text_width(&line.text, line.size) <= column);
+  }
+
   /// A note too long for the first page continues on the next one rather
   /// than being cut off.
   #[test]
   fn a_long_note_continues_on_further_pages() {
     let note = "word ".repeat(2000);
-    let document = build_document(&capture(800, 600), &[], &note);
+    let document =
+      build_document(&capture(800, 600), &[], &Settings::new(), &note);
     assert!(document.pages.len() > 1, "the note was truncated");
     assert!(document.pages[0].image.is_some());
     assert!(document.pages[1].image.is_none());
@@ -912,7 +1199,8 @@ mod tests {
       color: [255, 0, 0],
       width: 4.0,
     };
-    let document = build_document(&capture(800, 600), &[mark], "");
+    let document =
+      build_document(&capture(800, 600), &[mark], &Settings::new(), "");
     let (image_x, image_y, image_width, image_height) =
       document.pages[0].image.expect("image");
     let pdf::Mark::Rect {
@@ -940,7 +1228,8 @@ mod tests {
       color: [0, 0, 0],
       width: 4.0,
     };
-    let document = build_document(&capture(800, 600), &[mark], "");
+    let document =
+      build_document(&capture(800, 600), &[mark], &Settings::new(), "");
     assert_eq!(document.pages[0].marks.len(), 3);
   }
 
@@ -962,6 +1251,7 @@ mod tests {
     let model = directory.join("bracket.lua");
     let state = ScreenshotState {
       capture: Some(capture(120, 80)),
+      settings: settings(9),
       note: "Off by 0.2 mm".to_string(),
       ..Default::default()
     };
@@ -975,11 +1265,90 @@ mod tests {
   }
 
   #[test]
+  fn the_settings_describe_the_state_the_shot_was_taken_in() {
+    let mut app = AppState::new(None);
+    app.transparent_view = true;
+    app.theme_mode = ThemeMode::Dark;
+    let recorded = describe_settings(&app);
+    let value = |key: &str| {
+      recorded
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| panic!("no {key} setting"))
+    };
+    assert_eq!(value("Transparent"), "on");
+    assert_eq!(value("Theme"), "dark");
+    assert_eq!(value("File"), "unsaved document");
+    assert_eq!(value("Projection"), "orthogonal");
+    assert_eq!(value("Taken").len(), "2026-08-26 17:42".len());
+    // The panel layout says nothing about the picture
+    assert!(recorded.iter().all(|(key, _)| key != "Editor"));
+
+    app.transparent_view = false;
+    app.theme_mode = ThemeMode::System;
+    app.set_orthogonal_view(false);
+    let recorded = describe_settings(&app);
+    let value = |key: &str| {
+      recorded
+        .iter()
+        .find(|(k, _)| k == key)
+        .expect("setting")
+        .1
+        .clone()
+    };
+    assert_eq!(value("Transparent"), "off");
+    assert!(value("Theme").starts_with("auto ("));
+    assert_eq!(value("Projection"), "perspective");
+  }
+
+  /// The live preview is the normal case and would be noise on every page;
+  /// only a raytraced still is called out. And since the path tracer is
+  /// perspective-only, a still taken from an orthographic viewport is a
+  /// perspective picture — reporting the viewport's own projection and
+  /// distance would describe something that is not on the page.
+  #[test]
+  fn a_raytraced_still_is_described_as_the_perspective_it_is() {
+    let mut app = AppState::new(None);
+    let value = |settings: &Settings, key: &str| {
+      settings
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.clone())
+    };
+    assert!(app.orthogonal_view);
+    let preview = describe_settings(&app);
+    assert_eq!(value(&preview, "Viewport"), None);
+    assert_eq!(value(&preview, "Projection").unwrap(), "orthogonal");
+    let preview_camera = value(&preview, "Camera").unwrap();
+
+    app.raytrace_image = Some(crate::app::RaytraceImage {
+      width: 1,
+      height: 1,
+      rgb: vec![0, 0, 0],
+    });
+    let still = describe_settings(&app);
+    assert_eq!(value(&still, "Viewport").unwrap(), "raytraced still");
+    assert_eq!(value(&still, "Projection").unwrap(), "perspective");
+    // The distance the path tracer used, not the orthographic one
+    let camera = value(&still, "Camera").unwrap();
+    assert_ne!(camera, preview_camera);
+    assert!(
+      camera.ends_with(&format!(
+        "distance {:.2}",
+        app.camera_distance * projection_distance_ratio()
+      )),
+      "unexpected camera {camera}"
+    );
+  }
+
+  #[test]
   fn closing_keeps_the_tool_settings_but_drops_the_image() {
     let mut state = ScreenshotState {
       tool: Tool::Arrow,
       thickness: 7.0,
       capture: Some(capture(4, 4)),
+      settings: settings(4),
       note: "gone".to_string(),
       marks: vec![Mark {
         tool: Tool::Pen,
@@ -993,6 +1362,7 @@ mod tests {
     assert!(!state.is_active());
     assert!(state.capture.is_none());
     assert!(state.marks.is_empty());
+    assert!(state.settings.is_empty());
     assert!(state.note.is_empty());
     assert_eq!(state.tool, Tool::Arrow);
     assert_eq!(state.thickness, 7.0);

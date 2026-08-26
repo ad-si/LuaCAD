@@ -61,6 +61,17 @@ any release.
   be searched and copied. A note too long for the first page continues on
   further ones.
 
+  Under the image the PDF lists, as `key: value` pairs, what the studio was
+  set to when the shot was taken: the time, the file, the theme, the
+  projection, whether `Transparent` was on, the camera pose and the LuaCAD
+  version — plus `Viewport: raytraced still` when the picture is a path-traced
+  still rather than the live preview. The list describes the picture, not the
+  window: a still is reported as the perspective it is, at the distance the
+  path tracer used, even when the viewport itself was orthographic. It is
+  recorded with the capture, not with the save, since the toggles stay
+  reachable while the dialog is open — which also shows the same list under
+  the image.
+
 - Studio: the new `Transparent` button in the bottom bar draws every object
   see-through, so geometry hidden inside or behind other geometry stays
   visible without editing the model — an enclosed cavity, the wall of a bore,
