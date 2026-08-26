@@ -256,6 +256,37 @@ mod macos {
       let set_view_sel = sel_registerName(c"setView:".as_ptr());
       msg_send_one_ptr()(context, set_view_sel, ns_view.as_ptr().cast_const());
 
+      // State which colour space the pixels are in, so the window server
+      // stops guessing.
+      //
+      // A GL surface carries no profile of its own. Left unstated, the colour
+      // match applied on the way to the display is not stable — with several
+      // displays of differing profiles attached it can be re-decided between
+      // one frame and the next, and the window is then composited through a
+      // slightly different transfer curve each time. That reads as the whole
+      // window pulsing between two brightnesses while the image itself is
+      // unchanged, and it leaves neighbouring windows alone, which is what
+      // makes it look like the renderer's fault. Naming sRGB — what the
+      // shading and egui's colours already assume — pins one curve.
+      let ns_window = msg_send_no_args()(
+        ns_view.as_ptr().cast(),
+        sel_registerName(c"window".as_ptr()),
+      );
+      if !ns_window.is_null() {
+        let color_space_class = objc_getClass(c"NSColorSpace".as_ptr());
+        let srgb = msg_send_no_args()(
+          color_space_class,
+          sel_registerName(c"sRGBColorSpace".as_ptr()),
+        );
+        if !srgb.is_null() {
+          msg_send_one_ptr()(
+            ns_window,
+            sel_registerName(c"setColorSpace:".as_ptr()),
+            srgb.cast_const(),
+          );
+        }
+      }
+
       // Make current
       let make_current_sel = sel_registerName(c"makeCurrentContext".as_ptr());
       msg_send_no_args()(context, make_current_sel);
