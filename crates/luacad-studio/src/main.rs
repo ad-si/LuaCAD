@@ -5,7 +5,9 @@ mod editor;
 mod egui_integration;
 mod gl_context;
 mod input;
+mod pdf;
 mod scene;
+mod screenshot;
 mod theme;
 mod ui;
 
@@ -923,6 +925,33 @@ impl Studio {
         }
       }
 
+      // Save the marked-up screenshot as a PDF. Without a model file on disk
+      // there is no directory to put it next to, so it asks for one.
+      if app.screenshot.pending_save {
+        app.screenshot.pending_save = false;
+        let path = match screenshot::output_path(app.current_file.as_deref()) {
+          Some(path) => Some(path),
+          None => rfd::FileDialog::new()
+            .set_title("Save Screenshot")
+            .add_filter("PDF Files", &["pdf"])
+            .set_file_name(timestamped_filename(None, "pdf"))
+            .save_file(),
+        };
+        if let Some(path) = path {
+          match screenshot::save_pdf(&app.screenshot, &path) {
+            Ok(()) => {
+              app.screenshot.close();
+              app.export_status =
+                Some((format!("Saved screenshot to {}", path.display()), false))
+            }
+            Err(e) => {
+              app.export_status =
+                Some((format!("Screenshot export failed: {e}"), true))
+            }
+          }
+        }
+      }
+
       // Handle file open/save requests
       if let Some(action) = app.pending_file_action.take() {
         match action {
@@ -1246,6 +1275,26 @@ impl Studio {
 
       // Render egui overlay
       gui.render();
+
+      // Take the screenshot the selection asked for. This has to happen with
+      // the frame fully drawn but not yet swapped — and the pass that queued
+      // the region already left the selection overlay out of it, so the image
+      // shows the window as it was before the selection started.
+      if let Some(region) = app.screenshot.pending_capture.take() {
+        match screenshot::capture_region(
+          &gl.gl,
+          region,
+          dpr,
+          full.width,
+          full.height,
+        ) {
+          Some(capture) => app.screenshot.capture = Some(capture),
+          None => {
+            app.export_status =
+              Some(("Screenshot failed: empty selection".to_string(), true))
+          }
+        }
+      }
 
       winit_window.set_cursor(egui_to_winit_cursor(egui_cursor));
       gl.swap_buffers();

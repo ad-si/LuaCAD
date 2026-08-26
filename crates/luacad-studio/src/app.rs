@@ -8,6 +8,7 @@ use crate::csg_tree::{
   CsgGroup, CsgScene, OverlayMesh, SolidMesh, flatten_geometries, solid_meshes,
 };
 use crate::editor::EditorAction;
+use crate::screenshot::ScreenshotState;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
 
 /// Where the code editor panel is placed relative to the 3D viewport.
@@ -240,6 +241,8 @@ pub struct AppState {
   pub lint_text_snapshot: String,
   /// Find/replace search state
   pub search: SearchState,
+  /// Area selection, mark-up and PDF export of a window screenshot
+  pub screenshot: ScreenshotState,
 }
 
 impl AppState {
@@ -315,6 +318,7 @@ impl AppState {
       lint_diagnostics: vec![],
       lint_text_snapshot: String::new(),
       search: SearchState::default(),
+      screenshot: ScreenshotState::default(),
     };
     app.execute_source();
     app

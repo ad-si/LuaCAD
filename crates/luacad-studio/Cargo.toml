@@ -28,6 +28,8 @@ cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
 opencsg-sys = { workspace = true }
 arboard = "3"
+# Deflates the screenshot PDF's image and content streams
+flate2 = "1"
 rfd = "0.17"
 winit = "0.30"
 glutin = "0.32"

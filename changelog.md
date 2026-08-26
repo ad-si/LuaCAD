@@ -50,6 +50,17 @@ any release.
 
   [scad-chess]: https://github.com/quaternionmedia/scad-chess
 
+- Studio: the new `Screenshot` button in the bottom bar takes a picture of a
+  part of the window and turns it into a marked-up PDF. Drag out the area to
+  capture — the model, the code that made it, or both — and it opens in a
+  dialog with pen, arrow, rectangle and ellipse tools in six colors, plus a
+  field for a note. `Save PDF` writes it next to the model file under a
+  timestamped name, like every other export (`2026-03-01t2051_gear.pdf`); an
+  unsaved document asks where to put it. The marks and the note go into the
+  PDF as vectors and text, not as pixels, so they stay sharp and the note can
+  be searched and copied. A note too long for the first page continues on
+  further ones.
+
 - Studio: the new `Transparent` button in the bottom bar draws every object
   see-through, so geometry hidden inside or behind other geometry stays
   visible without editing the model — an enclosed cavity, the wall of a bore,

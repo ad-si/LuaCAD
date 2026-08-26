@@ -12,6 +12,7 @@ use crate::editor::{
   apply_editor_action, byte_index_of, char_index_of, double_click_range,
   find_matches, triple_click_range,
 };
+use crate::screenshot;
 use crate::theme::ThemeMode;
 
 /// Index of the "About" tab in the settings dialog.
@@ -407,6 +408,20 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
         .clicked()
       {
         app.pending_raytrace = true;
+      }
+      if ui
+        .add_enabled(
+          !app.screenshot.is_active(),
+          egui::Button::new("Screenshot"),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(
+          "Select an area of the window, mark it up, and save it as a PDF \
+           next to the model file",
+        )
+        .clicked()
+      {
+        app.screenshot.begin_selection();
       }
       ui.separator();
       if ui
@@ -1518,6 +1533,16 @@ pub fn render_ui(root_ui: &mut egui::Ui, app: &mut AppState) -> PanelLayout {
 
   render_raytrace_overlay(gui_context, app, scene_rect);
 
+  // The screenshot selection covers the whole window, not just the viewport:
+  // what the user marks up is usually the model *and* the code that made it.
+  screenshot::render_selection(gui_context, &mut app.screenshot, screen_rect);
+  screenshot::render_dialog(
+    gui_context,
+    &mut app.screenshot,
+    app.current_file.as_deref(),
+    screen_rect,
+  );
+
   PanelLayout { scene_rect }
 }
 
@@ -1647,14 +1672,18 @@ mod tests {
     time: f64,
     /// Scene rect returned by the most recent `render_ui` pass
     scene_rect: egui::Rect,
-    /// Text painted by the most recent `render_ui` pass
-    painted_text: Vec<String>,
+    /// Text painted by the most recent `render_ui` pass, with the rect each
+    /// glyph run covers
+    painted_text: Vec<(String, egui::Rect)>,
   }
 
-  /// Collect the text of every glyph run in a shape tree.
-  fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+  /// Collect the text of every glyph run in a shape tree, with its rect.
+  fn collect_text(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
     match shape {
-      egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+      egui::Shape::Text(text) => out.push((
+        text.galley.text().to_string(),
+        egui::Rect::from_min_size(text.pos, text.galley.size()),
+      )),
       egui::Shape::Vec(shapes) => {
         for shape in shapes {
           collect_text(shape, out);
@@ -1736,7 +1765,17 @@ mod tests {
 
     /// Whether the last pass painted a label containing `needle`.
     fn painted(&self, needle: &str) -> bool {
-      self.painted_text.iter().any(|t| t.contains(needle))
+      self.painted_text.iter().any(|(t, _)| t.contains(needle))
+    }
+
+    /// Where the last pass painted the label `needle`, so that a test can
+    /// click the widget it belongs to.
+    fn painted_rect(&self, needle: &str) -> Option<egui::Rect> {
+      self
+        .painted_text
+        .iter()
+        .find(|(t, _)| t == needle)
+        .map(|(_, rect)| *rect)
     }
 
     fn selected_text(&self) -> String {
@@ -2190,5 +2229,101 @@ mod tests {
       "bottom bar painted: {:?}",
       h.painted_text
     );
+  }
+
+  /// The button reports its click on the pointer *release*, and that release
+  /// reaches the selection overlay in the very same pass. Taking it for the
+  /// end of a selection drag turned the mode straight back off, so the button
+  /// appeared to do nothing at all.
+  #[test]
+  fn the_click_that_starts_a_selection_does_not_end_it() {
+    let mut h = Harness::new("local width = 10\n");
+    h.pass(0.016, vec![]);
+    let button = h
+      .painted_rect("Screenshot")
+      .expect("the bottom bar has a Screenshot button");
+
+    h.press(0.016, button.center());
+    h.release(0.016, button.center());
+    assert!(
+      h.app.screenshot.selecting,
+      "the selection was turned off by its own click"
+    );
+
+    // And the overlay is up, so the next drag selects an area
+    h.pass(0.016, vec![]);
+    assert!(h.painted("Esc to cancel"));
+  }
+
+  /// Dragging out an area queues exactly that region for read-back — and the
+  /// pass that queues it must no longer paint the selection overlay, which
+  /// would otherwise be part of the captured image.
+  #[test]
+  fn a_dragged_out_area_is_queued_for_capture() {
+    let mut h = Harness::new("local width = 10\n");
+    h.pass(0.016, vec![]);
+    h.app.screenshot.begin_selection();
+
+    h.press(0.016, egui::pos2(100.0, 120.0));
+    h.pass(
+      0.016,
+      vec![egui::Event::PointerMoved(egui::pos2(300.0, 260.0))],
+    );
+    assert!(
+      h.painted("200 × 140"),
+      "no size readout while dragging: {:?}",
+      h.painted_text
+    );
+
+    h.release(0.016, egui::pos2(300.0, 260.0));
+    let region = h
+      .app
+      .screenshot
+      .pending_capture
+      .expect("the region was not queued");
+    assert_eq!(region.min, egui::pos2(100.0, 120.0));
+    assert_eq!(region.max, egui::pos2(300.0, 260.0));
+    assert!(!h.app.screenshot.selecting);
+    assert!(
+      !h.painted("Esc to cancel") && !h.painted("200 × 140"),
+      "the overlay is still in the frame that gets captured"
+    );
+  }
+
+  /// A click without a drag is not an area, and must not capture anything.
+  #[test]
+  fn a_click_without_a_drag_captures_nothing() {
+    let mut h = Harness::new("local width = 10\n");
+    h.pass(0.016, vec![]);
+    h.app.screenshot.begin_selection();
+    h.press(0.016, egui::pos2(100.0, 120.0));
+    h.release(0.016, egui::pos2(101.0, 121.0));
+    assert!(h.app.screenshot.pending_capture.is_none());
+    assert!(!h.app.screenshot.selecting);
+  }
+
+  #[test]
+  fn a_captured_screenshot_opens_the_mark_up_dialog() {
+    let mut h = Harness::new("local width = 10\n");
+    h.app.screenshot.capture = Some(screenshot::Capture {
+      width: 80,
+      height: 60,
+      rgb: vec![200; 80 * 60 * 3],
+    });
+    // Two passes: egui gives an `Area` its size on the first one.
+    h.pass(0.016, vec![]);
+    h.pass(0.016, vec![]);
+    for label in ["Screenshot", "Pen", "Arrow", "Thickness", "Save PDF"] {
+      assert!(
+        h.painted(label),
+        "the dialog has no {label:?}: {:?}",
+        h.painted_text
+      );
+    }
+
+    h.app.screenshot.close();
+    h.pass(0.016, vec![]);
+    h.pass(0.016, vec![]);
+    assert!(!h.painted("Save PDF"), "the dialog stayed open");
   }
 }
