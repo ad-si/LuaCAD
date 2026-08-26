@@ -229,11 +229,12 @@ any release.
   face such as macOS's "GB18030 Bitmap" — warned "no font found" and emitted
   nothing, even with hundreds of usable fonts installed. Font resolution now
   walks on past a face it cannot read to the next candidate.
-- Studio crashed on scripts containing multi-byte characters like `ß` or an
-  emoji: the status line turned the caret, which counts characters, into a
-  byte offset directly and sliced the text in the middle of a character. The
-  column it shows now counts characters too, as does the character count next
-  to it.
+- Studio crashed on scripts containing multi-byte characters — a Cyrillic
+  letter, `ß`, an emoji: the status line turned the caret, which counts
+  characters, into a byte offset directly and sliced the text in the middle of
+  a character. In an alphabet that is multi-byte throughout this took the
+  window down on the first letter typed. The column it shows now counts
+  characters too, as does the character count next to it.
 - A case-insensitive find in Studio searched a lowercased copy of the text,
   whose byte offsets drift away from the original wherever lowercasing
   changes a character's length (`İ`, `ẞ`, …), so matches were highlighted at

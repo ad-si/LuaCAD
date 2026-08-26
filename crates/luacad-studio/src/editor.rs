@@ -838,6 +838,64 @@ mod toggle_comment_tests {
 }
 
 #[cfg(test)]
+mod multi_byte_tests {
+  use super::{
+    EditorAction, apply_editor_action, double_click_range, triple_click_range,
+    whole_line_at,
+  };
+
+  /// Every editor action, applied at every caret position and over every
+  /// selection of a buffer full of multi-byte characters. Char indices and
+  /// byte offsets are mixed all over these actions, and getting one wrong
+  /// slices a character in half, which takes the whole studio down.
+  #[test]
+  fn every_action_survives_every_caret_in_multi_byte_text() {
+    let source = "-- комментарий\nлокальный = \"привет\"\n  größe = 🙂\n\n";
+    let total = source.chars().count();
+    let actions = [
+      EditorAction::SelectNextOccurrence,
+      EditorAction::SelectLine,
+      EditorAction::ToggleComment,
+      EditorAction::InsertTab,
+      EditorAction::Unindent,
+      EditorAction::PasteLineAbove("ширина = 2\n".to_string()),
+      EditorAction::CutLine,
+      EditorAction::DeleteCharRight,
+      EditorAction::DeleteWordLeft,
+      EditorAction::WrapSelection('('),
+    ];
+
+    for action in &actions {
+      for start in 0..=total {
+        for end in start..=total {
+          let mut text = source.to_string();
+          let (new_start, new_end) =
+            apply_editor_action(action, &mut text, start, end);
+          let len = text.chars().count();
+          assert!(
+            new_start <= len && new_end <= len,
+            "{action:?} at {start}..{end} returned {new_start}..{new_end} \
+             for a text of {len} characters"
+          );
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn clicks_and_line_copies_survive_every_caret_in_multi_byte_text() {
+    let text = "-- комментарий\nлокальный = \"привет\"\n  größe = 🙂\n\n";
+    for caret in 0..=text.chars().count() {
+      let (start, end) = double_click_range(text, caret);
+      assert!(start <= end && end <= text.chars().count());
+      let (start, end) = triple_click_range(text, caret);
+      assert!(start <= end && end <= text.chars().count());
+      let _ = whole_line_at(text, caret);
+    }
+  }
+}
+
+#[cfg(test)]
 mod click_range_tests {
   use super::{double_click_range, triple_click_range};
 

@@ -2170,6 +2170,31 @@ mod tests {
     );
   }
 
+  /// A script written in a non-Latin alphabet is multi-byte from its very
+  /// first keystroke: the caret sits at character 1 while the buffer is
+  /// already 2 bytes long, so the studio used to go down on the first letter
+  /// typed rather than somewhere in the middle of a line.
+  #[test]
+  fn cyrillic_characters_do_not_crash_the_editor() {
+    let mut h = Harness::new("");
+    h.pass(0.016, vec![]);
+    h.press(0.016, IN_WORD);
+    h.release(0.05, IN_WORD);
+    // One character per pass: the status line is recomputed after every
+    // keystroke, and the very first one already puts the caret behind a
+    // multi-byte character
+    for ch in "локальный = \"привет\"".chars() {
+      h.pass(0.016, vec![egui::Event::Text(ch.to_string())]);
+    }
+    h.pass(0.016, vec![]);
+    assert_eq!(h.app.text_content, "локальный = \"привет\"");
+    assert_eq!(
+      h.app.editor_cursor_pos,
+      h.app.text_content.chars().count(),
+      "caret is not behind the typed text"
+    );
+  }
+
   /// Searching used to scan a lowercased copy of the text, whose byte offsets
   /// drift apart from the original as soon as lowercasing changes a
   /// character's length — the highlighter then sliced the text mid-character.
