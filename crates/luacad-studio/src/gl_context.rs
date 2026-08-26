@@ -67,6 +67,10 @@ mod macos {
   const NSOpenGLPFAAlphaSize: u32 = 11;
   const NSOpenGLPFAAccelerated: u32 = 73;
 
+  // NSOpenGLContextParameter: swaps are held back until the next vertical
+  // retrace when this is 1.
+  const NSOpenGLCPSwapInterval: isize = 222;
+
   // Objective-C runtime bindings — use typed function pointers, NOT variadic,
   // because on ARM64 variadic and non-variadic have different ABIs.
   #[link(name = "objc", kind = "dylib")]
@@ -92,6 +96,10 @@ mod macos {
     *mut c_void,
     *mut c_void,
   ) -> *mut c_void;
+  /// `-[NSOpenGLContext setValues:forParameter:]`: a pointer to the values
+  /// plus the parameter, which is an `NSInteger`.
+  type MsgSendPtrAndInt =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *const i32, isize);
 
   unsafe fn get_objc_msgsend_addr() -> *mut c_void {
     unsafe {
@@ -112,6 +120,10 @@ mod macos {
   }
 
   fn msg_send_two_ptr() -> MsgSendTwoPtr {
+    unsafe { std::mem::transmute(get_objc_msgsend_addr()) }
+  }
+
+  fn msg_send_ptr_and_int() -> MsgSendPtrAndInt {
     unsafe { std::mem::transmute(get_objc_msgsend_addr()) }
   }
 
@@ -247,6 +259,21 @@ mod macos {
       // Make current
       let make_current_sel = sel_registerName(c"makeCurrentContext".as_ptr());
       msg_send_no_args()(context, make_current_sel);
+
+      // Sync buffer swaps to the display's refresh. Without this the redraw
+      // loop (which polls and re-requests a redraw every iteration) flushes
+      // mid-scanout, so any moving content — orbiting the model, dragging the
+      // panel divider — tears into visibly flickering bands. The Linux and
+      // Windows paths get the same from `set_swap_interval`.
+      let set_values_sel =
+        sel_registerName(c"setValues:forParameter:".as_ptr());
+      let swap_interval: i32 = 1;
+      msg_send_ptr_and_int()(
+        context,
+        set_values_sel,
+        &swap_interval,
+        NSOpenGLCPSwapInterval,
+      );
 
       // Get the OpenGL framework handle for dlsym
       let gl_handle = dlopen(
