@@ -553,13 +553,6 @@ pub fn render_dialog(
       ui.add_space(8.0);
       ui.horizontal(|ui| {
         if ui
-          .button("Save PDF")
-          .on_hover_cursor(egui::CursorIcon::PointingHand)
-          .clicked()
-        {
-          state.pending_save = true;
-        }
-        if ui
           .button("Cancel")
           .on_hover_cursor(egui::CursorIcon::PointingHand)
           .clicked()
@@ -578,6 +571,19 @@ pub fn render_dialog(
             ui.label("Save the model first, or pick a location");
           }
         }
+        // The primary action sits at the far right of the bar.
+        ui.with_layout(
+          egui::Layout::right_to_left(egui::Align::Center),
+          |ui| {
+            if ui
+              .button("Save PDF")
+              .on_hover_cursor(egui::CursorIcon::PointingHand)
+              .clicked()
+            {
+              state.pending_save = true;
+            }
+          },
+        );
       });
     });
 
