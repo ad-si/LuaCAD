@@ -16,13 +16,14 @@ use crate::scad_export::ScadNode;
 
 fn as_geometry(
   lua: &Lua,
+  a: &Args,
   function: &'static str,
   native: ScadNode,
 ) -> LuaResult<LuaValue> {
   let scad = crate::bosl::bosl_node_with_children(
     "threading.scad",
     function,
-    String::new(),
+    a.scad_args().to_string(),
     vec![],
     Some(native),
   );
@@ -467,7 +468,7 @@ fn threaded_rod_from(
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, function, reorient(node, a, &attachable)?)
+  as_geometry(lua, a, function, reorient(node, a, &attachable)?)
 }
 
 /// A threaded nut: a hex or round body with the thread cut out of it.
@@ -519,7 +520,7 @@ fn threaded_nut_from(
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, function, reorient(node, a, &attachable)?)
+  as_geometry(lua, a, function, reorient(node, a, &attachable)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +743,7 @@ fn thread_helix(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
   });
   as_geometry(
     lua,
+    a,
     "thread_helix",
     reorient(ScadNode::Union(parts), a, &attachable)?,
   )
@@ -884,7 +886,7 @@ fn phillips_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, "phillips_mask", reorient(node, a, &attachable)?)
+  as_geometry(lua, a, "phillips_mask", reorient(node, a, &attachable)?)
 }
 
 /// Torx sizes: outer diameter, inner diameter and depth.
@@ -984,7 +986,7 @@ fn torx_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, "torx_mask", reorient(node, a, &attachable)?)
+  as_geometry(lua, a, "torx_mask", reorient(node, a, &attachable)?)
 }
 
 fn hex_drive_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
@@ -1006,7 +1008,7 @@ fn hex_drive_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, "hex_drive_mask", reorient(node, a, &attachable)?)
+  as_geometry(lua, a, "hex_drive_mask", reorient(node, a, &attachable)?)
 }
 
 fn robertson_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
@@ -1027,7 +1029,7 @@ fn robertson_mask(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
     shift: [0.0, 0.0],
     axis: [0.0, 0.0, 1.0],
   });
-  as_geometry(lua, "robertson_mask", reorient(node, a, &attachable)?)
+  as_geometry(lua, a, "robertson_mask", reorient(node, a, &attachable)?)
 }
 
 // ---------------------------------------------------------------------------
