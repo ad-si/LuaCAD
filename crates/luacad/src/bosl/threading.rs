@@ -117,23 +117,75 @@ fn read_profile(a: &Args) -> Option<Vec<[f64; 2]>> {
 // Building a thread
 // ---------------------------------------------------------------------------
 
-/// How a lead-in ramps the thread depth up from nothing.
+/// How a lead-in tapers the tooth away at a thread's end.
 #[derive(Clone, Copy)]
 enum LeadInShape {
   /// Fast at first, easing off — BOSL2's default.
   Sqrt,
   Linear,
-  /// A smoothstep, level at both ends of the ramp.
+  /// An ogive arc, level where it meets the full thread.
   Smooth,
+  /// No taper at all: the thread just stops.
+  Cut,
+  /// Height-only fade, a LuaCAD extension: the flanks stay put and the
+  /// thread spacing looks constant along the runout, like a die cut it.
+  /// The BOSL2 shapes narrow the fading tooth about its center, which
+  /// visibly widens the neighboring groove when the lead-in is long.
+  Even,
 }
 
 impl LeadInShape {
-  fn eval(self, t: f64) -> f64 {
-    let t = t.clamp(0.0, 1.0);
+  /// The `[width, height]` scales for the tooth at position `x` along the
+  /// lead-in — 1 where the full thread begins, 0 at the collapsed tip —
+  /// with `len` the lead-in's length. These are BOSL2's shape functions
+  /// verbatim, so the runouts match: the height falls to zero while the
+  /// width only shrinks partway, ending the thread in a low flat wedge.
+  fn eval(self, x: f64, len: f64) -> [f64; 2] {
+    let blend = |s: f64| 0.75 * s + 0.25;
     match self {
-      LeadInShape::Sqrt => t.sqrt(),
-      LeadInShape::Linear => t,
-      LeadInShape::Smooth => t * t * (3.0 - 2.0 * t),
+      LeadInShape::Sqrt => {
+        let end = 0.05f64;
+        if x > 1.0 {
+          [1.0, 1.0]
+        } else if x < 0.0 {
+          [blend(end), 0.0]
+        } else {
+          let s = (x + end * end * (1.0 - x)).sqrt();
+          [blend(s), s]
+        }
+      }
+      LeadInShape::Linear => {
+        let min = 0.1f64;
+        if x > 1.0 {
+          [1.0, 1.0]
+        } else if x < 0.0 {
+          [blend(min), 0.0]
+        } else {
+          let s = min + (1.0 - min) * x;
+          [blend(s), s]
+        }
+      }
+      LeadInShape::Smooth => {
+        let min = 0.05f64;
+        if x > 1.0 {
+          [1.0, 1.0]
+        } else if x < 0.0 {
+          [blend(min), 0.0]
+        } else {
+          let r = (len * len + (1.0 - min * min)) / 2.0 / (1.0 - min);
+          let s =
+            (r * r - (len * (1.0 - x)).powi(2)).max(0.0).sqrt() - (r - 1.0);
+          [blend(s), s]
+        }
+      }
+      LeadInShape::Cut => {
+        if x > 0.0 {
+          [1.0, 1.0]
+        } else {
+          [1.0, 0.0]
+        }
+      }
+      LeadInShape::Even => [1.0, x.clamp(0.0, 1.0)],
     }
   }
 }
@@ -186,31 +238,94 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
     profile.push([last[0], last[1] - drop]);
   }
 
+  let bottom = -t.length / 2.0;
+  let top = t.length / 2.0;
+  let dz = t.length / steps as f64;
+  let blunt1 = t.lead_in1 > 0.0;
+  let blunt2 = t.lead_in2 > 0.0;
+
+  // How far the outermost tooth's edge reaches past its center, so the
+  // fade can complete before that edge would cross the rod's end.
+  let last = t.profile[t.profile.len() - 1];
+  let margin1 = if (t.profile[0][1] - min_y).abs() < 1e-9 {
+    -t.profile[0][0]
+  } else {
+    0.5
+  } * t.pitch;
+  let margin2 = if (last[1] - min_y).abs() < 1e-9 {
+    last[0]
+  } else {
+    0.5
+  } * t.pitch;
+
+  // The bevel sizes BOSL2 uses: a machine-screw nose of a sixth of the
+  // root radius on a blunt-start end, one thread depth otherwise.
+  let bev1 = if t.bevel1 {
+    if blunt1 { root / 6.0 } else { depth }
+  } else {
+    0.0
+  };
+  let bev2 = if t.bevel2 {
+    if blunt2 { root / 6.0 } else { depth }
+  } else {
+    0.0
+  };
+  let end1 = if blunt1 { bev1 } else { 0.0 };
+  let end2 = if blunt2 { bev2 } else { 0.0 };
+
+  // The lead-in length is an arc along the thread, as BOSL2 gives it;
+  // convert to rows of the sweep, at least one, so the fade lands exactly
+  // on sampled rows however short it is.
+  let lead_rows = |arc: f64| -> usize {
+    let axial =
+      arc * t.pitch * t.starts as f64 / (2.0 * std::f64::consts::PI * t.r);
+    ((axial / dz).ceil() as usize).max(1)
+  };
+  // The rows where each end's tooth has fully collapsed; nothing of the
+  // band exists beyond them.
+  let i1 = if blunt1 {
+    (((end1 + margin1) / dz).ceil() as usize).min(steps)
+  } else {
+    0
+  };
+  let i2 = if blunt2 {
+    steps.saturating_sub((((end2 + margin2) / dz).ceil() as usize).min(steps))
+  } else {
+    steps
+  };
+  let n1 = if blunt1 { lead_rows(t.lead_in1) } else { 0 };
+  let n2 = if blunt2 { lead_rows(t.lead_in2) } else { 0 };
+
   let mut parts: Vec<ScadNode> = Vec::new();
   for start in 0..t.starts {
+    if i1 > i2 {
+      break;
+    }
     let phase = 360.0 * start as f64 / t.starts as f64;
-    let rows: Vec<Vec<[f64; 3]>> = (0..=steps)
+    let rows: Vec<Vec<[f64; 3]>> = (i1..=i2)
       .map(|i| {
         let u = i as f64 / steps as f64;
         // One full turn advances the axis by pitch * starts.
         let ang =
           phase + 360.0 * turns * u * if t.left_handed { -1.0 } else { 1.0 };
-        let z = -t.length / 2.0 + t.length * u;
+        let z = bottom + i as f64 * dz;
         let (s, c) = ang.to_radians().sin_cos();
-        // A lead-in caps how far this row may rise above the root, so
-        // the thread's height ramps up along the helix instead of the
-        // profile ending in a blunt wall at the trim plane. Fully
-        // faded rows fall to the root and the bury below swallows
-        // them into the core.
-        let mut rise = 1.0f64;
-        if t.lead_in1 > 0.0 {
-          rise = rise.min(t.lead_in_shape.eval(t.length * u / t.lead_in1));
+        // A lead-in shrinks this row's whole tooth about its center and
+        // the root — BOSL2's blunt start — so the thread thins and ends
+        // in a small wedge instead of a blunt wall at the trim plane.
+        // The tiny offset is BOSL2's EPSILON, forcing the collapsed row
+        // to evaluate as past the tip.
+        let mut x_arg = f64::INFINITY;
+        let mut arc = 0.0;
+        if blunt1 && i < i1 + n1 {
+          x_arg = (i - i1) as f64 / n1 as f64 - 1e-9;
+          arc = t.lead_in1;
         }
-        if t.lead_in2 > 0.0 {
-          rise =
-            rise.min(t.lead_in_shape.eval(t.length * (1.0 - u) / t.lead_in2));
+        if blunt2 && i + n2 > i2 {
+          x_arg = x_arg.min((i2 - i) as f64 / n2 as f64 - 1e-9);
+          arc = t.lead_in2;
         }
-        let cap = root + rise * depth;
+        let hsc = t.lead_in_shape.eval(x_arg, arc);
         // The profile is walked against the sweep so the flanks face
         // outward; a left-handed thread sweeps the other way, so it walks
         // the profile the other way too.
@@ -222,20 +337,32 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
         ordered
           .iter()
           .map(|p| {
-            let natural = t.r + p[1] * t.pitch;
-            let mut radius = natural.min(cap);
+            let px = p[0] * hsc[0];
+            let py = p[1] * hsc[1] + (1.0 - hsc[1]) * min_y;
+            let along = z + px * t.pitch;
+            let mut radius = t.r + py * t.pitch;
+            // Without a lead-in the bevel chamfers the crests off
+            // conically at the trimmed ends. It is cut here, point by
+            // point, because subtracting a cutter ring instead trips the
+            // csgrs booleans, which leave slivers of the cutter standing
+            // in the result.
+            if t.bevel1 && !blunt1 {
+              radius = radius.min(root + (along - bottom));
+            }
+            if t.bevel2 && !blunt2 {
+              radius = radius.min(root + (top - along));
+            }
             // Bury root-level points inside the core cylinder. At the
             // shared radius the band's facets rotate with the helix while
             // the core's stand still, so the two surfaces weave through
             // each other, and the union keeps slivers of void along the
             // crossings — a difference leaves them standing as thin fins
             // across the grooves. Buried, the core alone forms the root.
-            // An extended profile only needs this for lead-in-faded
-            // points; its own ends are already below the root.
-            if radius <= root + 1e-6 && (!ends_at_root || natural > cap) {
+            // An extended profile only needs this for collapsed rows;
+            // its own ends are already below the root.
+            if radius <= root + 1e-6 && (!ends_at_root || hsc[1] <= 0.0) {
               radius = bury_radius;
             }
-            let along = z + p[0] * t.pitch * t.starts as f64;
             [radius * c, radius * s, along]
           })
           .collect()
@@ -244,15 +371,53 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
     parts.push(Vnf::vertex_array(&rows, Caps::BOTH, true, false).to_node());
   }
 
-  // The core the threads stand on, or the bore they are cut into.
-  let core = ScadNode::Cylinder {
-    r1: root as f32,
-    r2: root as f32,
-    h: t.length as f32,
-    segments: facets,
-    center: true,
-  };
-  parts.push(core);
+  // The core the threads stand on, or the bore they are cut into. A
+  // blunt-start bevel chamfers its ends with integral cones, since the
+  // faded thread leaves the core's own edge exposed there.
+  let cone1 = blunt1 && bev1 > 0.0;
+  let cone2 = blunt2 && bev2 > 0.0;
+  let core_bot = bottom + if cone1 { bev1 } else { 0.0 };
+  let core_top = top - if cone2 { bev2 } else { 0.0 };
+  parts.push(ScadNode::Translate {
+    x: 0.0,
+    y: 0.0,
+    z: ((core_bot + core_top) / 2.0) as f32,
+    child: Box::new(ScadNode::Cylinder {
+      r1: root as f32,
+      r2: root as f32,
+      h: (core_top - core_bot) as f32,
+      segments: facets,
+      center: true,
+    }),
+  });
+  if cone1 {
+    parts.push(ScadNode::Translate {
+      x: 0.0,
+      y: 0.0,
+      z: bottom as f32,
+      child: Box::new(ScadNode::Cylinder {
+        r1: (root - bev1) as f32,
+        r2: root as f32,
+        h: bev1 as f32,
+        segments: facets,
+        center: false,
+      }),
+    });
+  }
+  if cone2 {
+    parts.push(ScadNode::Translate {
+      x: 0.0,
+      y: 0.0,
+      z: core_top as f32,
+      child: Box::new(ScadNode::Cylinder {
+        r1: root as f32,
+        r2: (root - bev2) as f32,
+        h: bev2 as f32,
+        segments: facets,
+        center: false,
+      }),
+    });
+  }
   let mut node = ScadNode::Union(parts);
 
   // Trim the helix flush with the ends, since it runs past them.
@@ -265,44 +430,6 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
   };
   node = ScadNode::Intersection(vec![node, bound]);
 
-  // A bevel takes the sharp first turn off, so the thread starts cleanly.
-  if t.bevel1 || t.bevel2 {
-    let cut = depth;
-    let mut cones: Vec<ScadNode> = Vec::new();
-    if t.bevel1 {
-      cones.push(ScadNode::Translate {
-        x: 0.0,
-        y: 0.0,
-        z: (-t.length / 2.0) as f32,
-        child: Box::new(ScadNode::Cylinder {
-          r1: (t.r - cut) as f32,
-          r2: (t.r + 0.01) as f32,
-          h: (cut + 0.01) as f32,
-          segments: facets,
-          center: false,
-        }),
-      });
-    }
-    if t.bevel2 {
-      cones.push(ScadNode::Translate {
-        x: 0.0,
-        y: 0.0,
-        z: (t.length / 2.0 - cut) as f32,
-        child: Box::new(ScadNode::Cylinder {
-          r1: (t.r + 0.01) as f32,
-          r2: (t.r - cut) as f32,
-          h: (cut + 0.01) as f32,
-          segments: facets,
-          center: false,
-        }),
-      });
-    }
-    // Keeping only what lies inside the bevel cones is what rounds the ends
-    // off without cutting into the shaft.
-    let _ = cones;
-    node = ScadNode::Difference(vec![node, bevel_rings(t, cut, facets)]);
-  }
-
   // The OpenCSG preview peels one depth layer per unit of convexity. A ray
   // along the axis crosses about one crest per pitch, so promise that many
   // layers — without this, a subtracted thread previews with its deeper
@@ -311,69 +438,6 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
     convexity: (t.length / t.pitch).abs().ceil() as u32 + 2,
     child: Box::new(node),
   }
-}
-
-/// The rings taken off the ends to bevel a thread.
-fn bevel_rings(t: &Thread, cut: f64, facets: u32) -> ScadNode {
-  let big = t.r * 3.0;
-  let mut rings: Vec<ScadNode> = Vec::new();
-  if t.bevel1 {
-    rings.push(ScadNode::Translate {
-      x: 0.0,
-      y: 0.0,
-      z: (-t.length / 2.0) as f32,
-      child: Box::new(ScadNode::Difference(vec![
-        ScadNode::Cylinder {
-          r1: big as f32,
-          r2: big as f32,
-          h: (cut * 2.0) as f32,
-          segments: 8,
-          center: true,
-        },
-        ScadNode::Translate {
-          x: 0.0,
-          y: 0.0,
-          z: (-cut) as f32,
-          child: Box::new(ScadNode::Cylinder {
-            r1: (t.r - cut) as f32,
-            r2: t.r as f32,
-            h: cut as f32,
-            segments: facets,
-            center: false,
-          }),
-        },
-      ])),
-    });
-  }
-  if t.bevel2 {
-    rings.push(ScadNode::Translate {
-      x: 0.0,
-      y: 0.0,
-      z: (t.length / 2.0) as f32,
-      child: Box::new(ScadNode::Difference(vec![
-        ScadNode::Cylinder {
-          r1: big as f32,
-          r2: big as f32,
-          h: (cut * 2.0) as f32,
-          segments: 8,
-          center: true,
-        },
-        ScadNode::Translate {
-          x: 0.0,
-          y: 0.0,
-          z: 0.0,
-          child: Box::new(ScadNode::Cylinder {
-            r1: t.r as f32,
-            r2: (t.r - cut) as f32,
-            h: cut as f32,
-            segments: facets,
-            center: false,
-          }),
-        },
-      ])),
-    });
-  }
-  ScadNode::Union(rings)
 }
 
 /// Read the parameters every threaded part shares.
@@ -410,22 +474,33 @@ fn read_thread(a: &Args, profile: Vec<[f64; 2]>) -> LuaResult<Thread> {
     .unwrap_or_else(|| "sqrt".to_string())
     .as_str()
   {
-    "sqrt" => LeadInShape::Sqrt,
+    "default" | "sqrt" => LeadInShape::Sqrt,
     "linear" => LeadInShape::Linear,
     "smooth" => LeadInShape::Smooth,
+    "cut" => LeadInShape::Cut,
+    "even" => LeadInShape::Even,
     other => {
       return a.err(format!(
-        "the lead_in_shape '{other}' is not one of sqrt, linear, smooth"
+        "the lead_in_shape '{other}' is not one of sqrt, linear, smooth, \
+         cut, even"
       ));
     }
   };
   let blunt = a.bool("blunt_start");
   let lead = a.num("lead_in");
+  // The default lead-in is one thread depth of arc, as in BOSL2 — a
+  // short, crisp runout, not a long taper.
+  let lead_default = pitch
+    * (profile
+      .iter()
+      .map(|p| p[1])
+      .fold(f64::NEG_INFINITY, f64::max)
+      - profile.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min));
   let lead_end =
     |every_end: Option<f64>, blunt_end: Option<bool>, this_end: Option<f64>| {
       let wanted = this_end.or(every_end);
       if wanted.is_some() || blunt_end.or(blunt).unwrap_or(false) {
-        wanted.unwrap_or(pitch * starts as f64).max(0.0)
+        wanted.unwrap_or(lead_default).max(0.0)
       } else {
         0.0
       }
@@ -1299,14 +1374,17 @@ mod tests {
   }
 
   #[test]
-  fn multiple_starts_add_more_threads() {
+  fn multiple_starts_keep_the_thread_volume() {
+    // The pitch is crest to crest whatever the start count, so more starts
+    // only steepen the helix; BOSL2's volumes agree to a fraction of a
+    // percent.
     let (one, _) = measure(
       "render(bosl.acme_threaded_rod({d = 10, l = 20, pitch = 2, starts = 1}))",
     );
     let (two, _) = measure(
       "render(bosl.acme_threaded_rod({d = 10, l = 20, pitch = 2, starts = 2}))",
     );
-    assert!(two > one, "{two} vs {one}");
+    assert!((two - one).abs() / one < 0.02, "{two} vs {one}");
   }
 
   #[test]
@@ -1334,14 +1412,15 @@ mod tests {
   }
 
   #[test]
-  fn a_blunt_start_defaults_its_lead_in_to_one_turn() {
+  fn a_blunt_start_defaults_its_lead_in_to_one_thread_depth() {
     let (blunt, _) = measure(
       "render(bosl.threaded_rod({d = 10, l = 20, pitch = 2,
         blunt_start = true}))",
     );
+    // The ISO thread depth for pitch 2: 2 * 5 * sqrt(3) / 16.
     let (explicit, _) = measure(
       "render(bosl.threaded_rod({d = 10, l = 20, pitch = 2,
-        lead_in = 2}))",
+        lead_in = 1.0825317547305482}))",
     );
     assert!(
       (blunt - explicit).abs() / explicit < 1e-6,

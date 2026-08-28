@@ -150,12 +150,25 @@ fn convert(
   name: &str,
   via_openscad: bool,
 ) -> PathBuf {
+  convert_via(dir, script, name, via_openscad, false)
+}
+
+fn convert_via(
+  dir: &Path,
+  script: &str,
+  name: &str,
+  via_openscad: bool,
+  via_manifold: bool,
+) -> PathBuf {
   let lua = dir.join(format!("{name}.lua"));
   let stl = dir.join(format!("{name}.stl"));
   std::fs::write(&lua, script).expect("the script can be written");
 
   let mut cmd = Command::new(luacad_bin());
   cmd.arg("convert").arg(&lua).arg(&stl);
+  if via_manifold {
+    cmd.arg("--via-manifold");
+  }
   if via_openscad {
     // The reference mesh comes out of the `luacad` binary rather than out of
     // OpenSCAD directly, so it is handed the same OpenSCAD the checks above
@@ -177,16 +190,27 @@ fn convert(
 }
 
 /// Build one `bosl.*` call both ways and check the meshes agree.
-fn assert_matches_bosl2(name: &str, call: &str) {
+fn assert_matches_bosl2_via(
+  name: &str,
+  call: &str,
+  native_via_manifold: bool,
+  volume_tolerance: f64,
+) {
   let dir = temp_dir();
   let script = format!("render({call})\n");
 
-  let native = measure(&convert(&dir, &script, "native", false));
+  let native = measure(&convert_via(
+    &dir,
+    &script,
+    "native",
+    false,
+    native_via_manifold,
+  ));
   let reference = measure(&convert(&dir, &script, "reference", true));
 
   let ratio = native.volume / reference.volume;
   assert!(
-    (ratio - 1.0).abs() < VOLUME_TOLERANCE,
+    (ratio - 1.0).abs() < volume_tolerance,
     "{name}: volume {} differs from BOSL2's {} by {:.1}%\n  {call}",
     native.volume,
     reference.volume,
@@ -213,6 +237,14 @@ fn assert_matches_bosl2(name: &str, call: &str) {
 
 /// Every case, so one run reports all the mismatches rather than the first.
 fn check_all(cases: &[(&str, &str)]) {
+  check_all_via(cases, false, VOLUME_TOLERANCE)
+}
+
+fn check_all_via(
+  cases: &[(&str, &str)],
+  native_via_manifold: bool,
+  volume_tolerance: f64,
+) {
   let binary = luacad::openscad_binary();
   let binary = binary.to_string_lossy();
   let Some(version) = openscad_version() else {
@@ -237,9 +269,14 @@ fn check_all(cases: &[(&str, &str)]) {
 
   let mut failures = Vec::new();
   for (name, call) in cases {
-    if let Err(panic) =
-      std::panic::catch_unwind(|| assert_matches_bosl2(name, call))
-    {
+    if let Err(panic) = std::panic::catch_unwind(|| {
+      assert_matches_bosl2_via(
+        name,
+        call,
+        native_via_manifold,
+        volume_tolerance,
+      )
+    }) {
       let msg = panic
         .downcast_ref::<String>()
         .cloned()
@@ -815,4 +852,38 @@ fn extruded_2d_shapes_match_bosl2() {
     .map(|(n, c)| (n.as_str(), c.as_str()))
     .collect();
   check_all(&refs);
+}
+
+#[test]
+fn threaded_rods_match_bosl2() {
+  // Native meshes go through Manifold: the csgrs booleans garble helical
+  // thread meshes (see todos.md). The volume tolerance is looser than for
+  // the plain shapes because BOSL2 rounds the ISO thread root where the
+  // native profile keeps it flat.
+  check_all_via(
+    &[
+      (
+        "threaded rod sharp",
+        "bosl.threaded_rod { d = 10, l = 20, pitch = 2, blunt_start = false }",
+      ),
+      (
+        "threaded rod blunt start",
+        "bosl.threaded_rod { d = 10, l = 20, pitch = 2, blunt_start = true }",
+      ),
+      (
+        "threaded rod blunt bevelled",
+        "bosl.threaded_rod { d = 10, l = 20, pitch = 2, blunt_start = true, bevel = true }",
+      ),
+      (
+        "microphone thread",
+        "bosl.threaded_rod { d = 15.875, l = 8, pitch = 0.941, blunt_start = true, bevel2 = true }",
+      ),
+      (
+        "two start rod",
+        "bosl.threaded_rod { d = 10, l = 20, pitch = 2, starts = 2, blunt_start = true }",
+      ),
+    ],
+    true,
+    0.02,
+  );
 }
