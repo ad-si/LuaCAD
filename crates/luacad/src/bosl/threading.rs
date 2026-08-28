@@ -165,6 +165,25 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
     .map(|p| -p[1] * t.pitch)
     .fold(0.0f64, f64::max);
   let root = t.r - depth;
+  let bury_radius = (root - 1.0).max(root * 0.5);
+
+  // A profile that ends at the root is extended straight down past it, so
+  // the band overlaps the core instead of sharing its root surface with it.
+  // Pulling the existing root points inward instead would keep their axial
+  // position and so steepen the flanks — a fine-pitch tooth loses most of
+  // its width to a bury that dwarfs the thread depth.
+  let min_y = t.profile.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
+  let ends_at_root = t.profile.len() >= 2
+    && (t.profile[0][1] - min_y).abs() < 1e-9
+    && (t.profile[t.profile.len() - 1][1] - min_y).abs() < 1e-9;
+  let mut profile = t.profile.clone();
+  if ends_at_root {
+    let drop = (root - bury_radius) / t.pitch;
+    let first = profile[0];
+    let last = profile[profile.len() - 1];
+    profile.insert(0, [first[0], first[1] - drop]);
+    profile.push([last[0], last[1] - drop]);
+  }
 
   let mut parts: Vec<ScadNode> = Vec::new();
   for start in 0..t.starts {
@@ -195,22 +214,25 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
         // outward; a left-handed thread sweeps the other way, so it walks
         // the profile the other way too.
         let ordered: Vec<[f64; 2]> = if t.left_handed {
-          t.profile.clone()
+          profile.clone()
         } else {
-          t.profile.iter().rev().copied().collect()
+          profile.iter().rev().copied().collect()
         };
         ordered
           .iter()
           .map(|p| {
-            let mut radius = (t.r + p[1] * t.pitch).min(cap);
-            // Bury the profile's root inside the core cylinder. At the
+            let natural = t.r + p[1] * t.pitch;
+            let mut radius = natural.min(cap);
+            // Bury root-level points inside the core cylinder. At the
             // shared radius the band's facets rotate with the helix while
             // the core's stand still, so the two surfaces weave through
             // each other, and the union keeps slivers of void along the
             // crossings — a difference leaves them standing as thin fins
             // across the grooves. Buried, the core alone forms the root.
-            if radius <= root + 1e-6 {
-              radius = (root - 1.0).max(root * 0.5);
+            // An extended profile only needs this for lead-in-faded
+            // points; its own ends are already below the root.
+            if radius <= root + 1e-6 && (!ends_at_root || natural > cap) {
+              radius = bury_radius;
             }
             let along = z + p[0] * t.pitch * t.starts as f64;
             [radius * c, radius * s, along]
