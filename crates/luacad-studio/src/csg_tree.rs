@@ -2113,10 +2113,7 @@ mod tests {
       h: 1.0,
       center: false,
     };
-    for scad in [
-      surface.clone(),
-      ScadNode::Intersection(vec![surface, cube]),
-    ] {
+    for scad in [surface.clone(), ScadNode::Intersection(vec![surface, cube])] {
       let scene = flatten_geometries(&[geometry(scad)]);
       let vertices: usize = scene
         .groups

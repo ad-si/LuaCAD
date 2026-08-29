@@ -227,8 +227,10 @@ fn export_via_openscad(
     .parent()
     .filter(|d| !d.as_os_str().is_empty())
     .unwrap_or_else(|| Path::new("."));
-  let tmp_scad = input_dir
-    .join(format!(".luacad_openscad-{}-{stamp}.scad", std::process::id()));
+  let tmp_scad = input_dir.join(format!(
+    ".luacad_openscad-{}-{stamp}.scad",
+    std::process::id()
+  ));
   std::fs::write(&tmp_scad, &scad_source)
     .map_err(|e| format!("Failed to write temp SCAD file: {e}"))?;
 
