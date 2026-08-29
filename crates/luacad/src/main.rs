@@ -200,6 +200,7 @@ fn export(
 
 fn export_via_openscad(
   geometries: &[luacad::geometry::CsgGeometry],
+  input: &Path,
   output: &Path,
 ) -> Result<(), String> {
   let nodes: Vec<_> =
@@ -210,19 +211,24 @@ fn export_via_openscad(
 
   let scad_source = luacad::scad_export::generate_scad(&nodes);
 
-  // The staging directory is unique per run. A fixed name would let two
-  // exports running at once — a `watch` in another terminal, a parallel
-  // build — overwrite each other's source between the write and OpenSCAD
-  // reading it, and the export would quietly produce the wrong model.
+  // The staged .scad goes next to the input file, not into a temp dir:
+  // OpenSCAD resolves `surface()` / `import()` files only against the
+  // directory of the .scad it was given (not the cwd), so staging
+  // elsewhere silently drops relative asset references.
+  // The file name is unique per run. A fixed name would let two exports
+  // running at once — a `watch` in another terminal, a parallel build —
+  // overwrite each other's source between the write and OpenSCAD reading
+  // it, and the export would quietly produce the wrong model.
   let stamp = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
     .map(|d| d.as_nanos())
     .unwrap_or(0);
-  let tmp_dir = std::env::temp_dir()
-    .join(format!("luacad_openscad-{}-{stamp}", std::process::id()));
-  std::fs::create_dir_all(&tmp_dir)
-    .map_err(|e| format!("Failed to create temp dir: {e}"))?;
-  let tmp_scad = tmp_dir.join("export.scad");
+  let input_dir = input
+    .parent()
+    .filter(|d| !d.as_os_str().is_empty())
+    .unwrap_or_else(|| Path::new("."));
+  let tmp_scad = input_dir
+    .join(format!(".luacad_openscad-{}-{stamp}.scad", std::process::id()));
   std::fs::write(&tmp_scad, &scad_source)
     .map_err(|e| format!("Failed to write temp SCAD file: {e}"))?;
 
@@ -231,7 +237,7 @@ fn export_via_openscad(
     .arg(output)
     .arg(&tmp_scad)
     .output();
-  let _ = std::fs::remove_dir_all(&tmp_dir);
+  let _ = std::fs::remove_file(&tmp_scad);
 
   let result = result.map_err(|e| {
     format!(
@@ -257,7 +263,7 @@ fn do_convert(args: &ConvertArgs, format: &str) -> Result<usize, String> {
   if args.via_manifold {
     luacad::export::export_manifold(&geometries, format, &args.output)?;
   } else if args.via_openscad {
-    export_via_openscad(&geometries, &args.output)?;
+    export_via_openscad(&geometries, &args.input, &args.output)?;
   } else {
     export(&geometries, format, &args.output)?;
   }

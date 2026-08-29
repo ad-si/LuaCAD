@@ -195,6 +195,15 @@ any release.
   emblem up by the emboss depth, and with the flipped heights the relief
   landed 100 units too high and vanished from the boolean that clips it.
 
+- `convert --via-openscad` silently dropped `surface()` images and `import()`
+  files given as relative paths: the generated `.scad` was staged in a temp
+  directory, and OpenSCAD resolves such paths only against the directory of
+  the file it is rendering (not the working directory), so the assets were
+  never found — OpenSCAD warns but still exports, so the model came out
+  missing those parts. The staged file now goes next to the input model under
+  a unique hidden name (removed after the run), so relative asset references
+  resolve exactly as they do when OpenSCAD opens the source file itself.
+
 - A part whose transform chain ends in an odd number of `mirror()` calls (or
   reflects through negative scale axes) was invisible in Studio's shaded
   preview and only appeared in transparent mode. The preview keeps each CSG
