@@ -2163,7 +2163,7 @@ mod tests {
       flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
     let leaves: usize = scene.groups.iter().map(|g| g.primitives.len()).sum();
     assert_eq!(leaves, 1, "expected one materialized mesh, not a product");
-    assert!(scene.groups[0].primitives[0].vertices.len() > 0);
+    assert!(!scene.groups[0].primitives[0].vertices.is_empty());
   }
 
   /// An ordinary subtraction — a bolt hole overshooting its plate a little —
