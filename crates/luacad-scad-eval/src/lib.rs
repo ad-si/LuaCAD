@@ -2414,10 +2414,13 @@ fn surf_face(faces: &mut Vec<Vec<u32>>, pts: &[Vec3], a: u32, b: u32, c: u32, ou
 
 /// Decode a PNG into a heightmap grid for `surface()`. Each pixel's height is
 /// its Rec.709 luma scaled to 0..100 (white = 100), matching OpenSCAD; `invert`
-/// flips brightness (height → 100 - height). Rows are returned bottom-to-top so
-/// they feed `surface_polyhedron`'s row-r→y=r convention (OpenSCAD places the
-/// image's top row at the maximum Y).
 fn png_heightmap(bytes: &[u8], invert: bool) -> Result<Vec<Vec<f64>>, String> {
+/// negates the height (white = -100, black = 0), which is how OpenSCAD does it —
+/// not the intuitive `100 - height`. Models place an inverted surface expecting
+/// its relief below z=0 (e.g. `translate` it up by the emboss depth), so the
+/// intuitive flip would shift the whole solid by +100 and break them.
+/// Rows are returned bottom-to-top so they feed `surface_polyhedron`'s
+/// row-r→y=r convention (OpenSCAD places the image's top row at the maximum Y).
     // LuaCAD deviation: upstream builds on png 0.17, which decodes straight from
     // a `&[u8]`. LuaCAD is on 0.18, where `Decoder` wants `BufRead + Seek`, so
     // the slice is wrapped rather than pinning a second copy of png in the tree.
@@ -2455,7 +2458,7 @@ fn png_heightmap(bytes: &[u8], invert: bool) -> Result<Vec<Vec<f64>>, String> {
             };
             let mut z = luma / 2.55; // 0..255 -> 0..100
             if invert {
-                z = 100.0 - z;
+                z = -z;
             }
             row.push(z);
         }

@@ -188,6 +188,13 @@ any release.
 
 ### Fixed
 
+- `surface(invert = true)` on an image built the wrong solid in the OpenSCAD
+  front end: it flipped brightness (`100 - height`), but OpenSCAD *negates*
+  the height, putting an inverted relief in −100..0. Models position an
+  inverted surface expecting exactly that — `medal.scad` translates its
+  emblem up by the emboss depth, and with the flipped heights the relief
+  landed 100 units too high and vanished from the boolean that clips it.
+
 - A part whose transform chain ends in an odd number of `mirror()` calls (or
   reflects through negative scale axes) was invisible in Studio's shaded
   preview and only appeared in transparent mode. The preview keeps each CSG
