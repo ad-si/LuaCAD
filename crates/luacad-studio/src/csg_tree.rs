@@ -347,7 +347,9 @@ fn flatten_node(
 
 type Aabb = ([f32; 3], [f32; 3]);
 
-fn bbox_of_points<'a>(points: impl Iterator<Item = &'a [f32; 3]>) -> Option<Aabb> {
+fn bbox_of_points<'a>(
+  points: impl Iterator<Item = &'a [f32; 3]>,
+) -> Option<Aabb> {
   let mut min = [f32::INFINITY; 3];
   let mut max = [f32::NEG_INFINITY; 3];
   let mut any = false;
@@ -416,7 +418,11 @@ fn node_bbox(node: &ScadNode) -> Option<Aabb> {
       r1, r2, h, center, ..
     } => {
       let r = r1.max(*r2);
-      let (z0, z1) = if *center { (-h / 2.0, h / 2.0) } else { (0.0, *h) };
+      let (z0, z1) = if *center {
+        (-h / 2.0, h / 2.0)
+      } else {
+        (0.0, *h)
+      };
       Some(([-r, -r, z0], [r, r, z1]))
     }
     ScadNode::Polyhedron { points, .. } => bbox_of_points(points.iter()),
@@ -471,9 +477,10 @@ fn node_bbox(node: &ScadNode) -> Option<Aabb> {
       Some(([-r, -r, min[1]], [r, r, max[1]]))
     }
 
-    ScadNode::Translate { x, y, z, child } => {
-      Some(transform_bbox(&mat4_translate(*x, *y, *z), node_bbox(child)?))
-    }
+    ScadNode::Translate { x, y, z, child } => Some(transform_bbox(
+      &mat4_translate(*x, *y, *z),
+      node_bbox(child)?,
+    )),
     ScadNode::Rotate { x, y, z, child } => {
       // OpenSCAD rotation order: Z then Y then X.
       let m = mat4_mul(&mat4_rotate_z(*z), &mat4_rotate_y(*y));
@@ -486,10 +493,9 @@ fn node_bbox(node: &ScadNode) -> Option<Aabb> {
     ScadNode::Mirror { x, y, z, child } => {
       Some(transform_bbox(&mat4_mirror(*x, *y, *z), node_bbox(child)?))
     }
-    ScadNode::Multmatrix { matrix, child } => Some(transform_bbox(
-      &row_to_col_major(matrix),
-      node_bbox(child)?,
-    )),
+    ScadNode::Multmatrix { matrix, child } => {
+      Some(transform_bbox(&row_to_col_major(matrix), node_bbox(child)?))
+    }
 
     ScadNode::Color { child, .. }
     | ScadNode::Material { child, .. }
@@ -2155,8 +2161,7 @@ mod tests {
     };
     let scene =
       flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
-    let leaves: usize =
-      scene.groups.iter().map(|g| g.primitives.len()).sum();
+    let leaves: usize = scene.groups.iter().map(|g| g.primitives.len()).sum();
     assert_eq!(leaves, 1, "expected one materialized mesh, not a product");
     assert!(scene.groups[0].primitives[0].vertices.len() > 0);
   }
@@ -2180,8 +2185,7 @@ mod tests {
     };
     let scene =
       flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
-    let leaves: usize =
-      scene.groups.iter().map(|g| g.primitives.len()).sum();
+    let leaves: usize = scene.groups.iter().map(|g| g.primitives.len()).sum();
     assert_eq!(leaves, 2, "expected an OpenCSG product of base and cutter");
   }
 }
