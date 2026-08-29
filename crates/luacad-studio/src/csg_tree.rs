@@ -345,6 +345,255 @@ fn flatten_node(
   flatten_inner(node, &ctx, INTERSECTION, sink)
 }
 
+type Aabb = ([f32; 3], [f32; 3]);
+
+fn bbox_of_points<'a>(points: impl Iterator<Item = &'a [f32; 3]>) -> Option<Aabb> {
+  let mut min = [f32::INFINITY; 3];
+  let mut max = [f32::NEG_INFINITY; 3];
+  let mut any = false;
+  for p in points {
+    any = true;
+    for axis in 0..3 {
+      min[axis] = min[axis].min(p[axis]);
+      max[axis] = max[axis].max(p[axis]);
+    }
+  }
+  any.then_some((min, max))
+}
+
+fn bbox_union(a: Aabb, b: Aabb) -> Aabb {
+  let mut min = a.0;
+  let mut max = a.1;
+  for axis in 0..3 {
+    min[axis] = min[axis].min(b.0[axis]);
+    max[axis] = max[axis].max(b.1[axis]);
+  }
+  (min, max)
+}
+
+fn bbox_intersection(a: Aabb, b: Aabb) -> Aabb {
+  let mut min = a.0;
+  let mut max = a.1;
+  for axis in 0..3 {
+    min[axis] = min[axis].max(b.0[axis]);
+    max[axis] = max[axis].min(b.1[axis]);
+    // An empty overlap collapses to a point rather than an inverted box.
+    max[axis] = max[axis].max(min[axis]);
+  }
+  (min, max)
+}
+
+/// The box's corners pushed through `m` (column-major), re-boxed. Grows under
+/// rotation; conservative is all the callers need.
+fn transform_bbox(m: &[f32; 16], (min, max): Aabb) -> Aabb {
+  let mut corners = [[0.0f32; 3]; 8];
+  for (i, corner) in corners.iter_mut().enumerate() {
+    *corner = mat4_apply_point(
+      m,
+      [
+        if i & 1 == 0 { min[0] } else { max[0] },
+        if i & 2 == 0 { min[1] } else { max[1] },
+        if i & 4 == 0 { min[2] } else { max[2] },
+      ],
+    );
+  }
+  bbox_of_points(corners.iter()).unwrap()
+}
+
+/// Conservative axis-aligned bounding box of a subtree, in the subtree's own
+/// coordinate space, computed without materializing anything. `None` means
+/// unknown (a file import, text, raw SCAD, a BOSL call) and the caller must
+/// assume nothing about the extent.
+fn node_bbox(node: &ScadNode) -> Option<Aabb> {
+  match node {
+    ScadNode::Cube { w, d, h, center } => Some(if *center {
+      ([-w / 2.0, -d / 2.0, -h / 2.0], [w / 2.0, d / 2.0, h / 2.0])
+    } else {
+      ([0.0; 3], [*w, *d, *h])
+    }),
+    ScadNode::Sphere { r, .. } => Some(([-r, -r, -r], [*r, *r, *r])),
+    ScadNode::Cylinder {
+      r1, r2, h, center, ..
+    } => {
+      let r = r1.max(*r2);
+      let (z0, z1) = if *center { (-h / 2.0, h / 2.0) } else { (0.0, *h) };
+      Some(([-r, -r, z0], [r, r, z1]))
+    }
+    ScadNode::Polyhedron { points, .. } => bbox_of_points(points.iter()),
+
+    ScadNode::Circle { r, .. } => Some(([-r, -r, 0.0], [*r, *r, 0.0])),
+    ScadNode::Square { w, h, center } => Some(if *center {
+      ([-w / 2.0, -h / 2.0, 0.0], [w / 2.0, h / 2.0, 0.0])
+    } else {
+      ([0.0; 3], [*w, *h, 0.0])
+    }),
+    ScadNode::Polygon { points, .. } => {
+      let points: Vec<[f32; 3]> =
+        points.iter().map(|p| [p[0], p[1], 0.0]).collect();
+      bbox_of_points(points.iter())
+    }
+
+    ScadNode::LinearExtrude {
+      height,
+      center,
+      twist,
+      scale,
+      child,
+      ..
+    } => {
+      let (min, max) = node_bbox(child)?;
+      let (z0, z1) = if *center {
+        (-height / 2.0, height / 2.0)
+      } else {
+        (0.0, *height)
+      };
+      // A twisted profile sweeps a circle; an untwisted one only grows by
+      // the top scale. Either way a radius bound around the axis covers it.
+      let grow = scale.abs().max(1.0);
+      if *twist != 0.0 {
+        let r = [min[0].abs(), max[0].abs(), min[1].abs(), max[1].abs()]
+          .into_iter()
+          .fold(0.0f32, f32::max)
+          * grow;
+        Some(([-r, -r, z0], [r, r, z1]))
+      } else {
+        Some((
+          [min[0] * grow, min[1] * grow, z0],
+          [max[0] * grow, max[1] * grow, z1],
+        ))
+      }
+    }
+    ScadNode::RotateExtrude { child, .. } => {
+      // The profile's x extent becomes the radius, its y extent the height;
+      // bound the full revolution regardless of the angle.
+      let (min, max) = node_bbox(child)?;
+      let r = min[0].abs().max(max[0].abs());
+      Some(([-r, -r, min[1]], [r, r, max[1]]))
+    }
+
+    ScadNode::Translate { x, y, z, child } => {
+      Some(transform_bbox(&mat4_translate(*x, *y, *z), node_bbox(child)?))
+    }
+    ScadNode::Rotate { x, y, z, child } => {
+      // OpenSCAD rotation order: Z then Y then X.
+      let m = mat4_mul(&mat4_rotate_z(*z), &mat4_rotate_y(*y));
+      let m = mat4_mul(&m, &mat4_rotate_x(*x));
+      Some(transform_bbox(&m, node_bbox(child)?))
+    }
+    ScadNode::Scale { x, y, z, child } => {
+      Some(transform_bbox(&mat4_scale(*x, *y, *z), node_bbox(child)?))
+    }
+    ScadNode::Mirror { x, y, z, child } => {
+      Some(transform_bbox(&mat4_mirror(*x, *y, *z), node_bbox(child)?))
+    }
+    ScadNode::Multmatrix { matrix, child } => Some(transform_bbox(
+      &row_to_col_major(matrix),
+      node_bbox(child)?,
+    )),
+
+    ScadNode::Color { child, .. }
+    | ScadNode::Material { child, .. }
+    | ScadNode::Render { child, .. }
+    | ScadNode::Modifier { child, .. } => node_bbox(child),
+    ScadNode::Offset {
+      delta, r, child, ..
+    } => {
+      let (min, max) = node_bbox(child)?;
+      let grow = delta.unwrap_or(0.0).abs().max(r.unwrap_or(0.0).abs());
+      Some((
+        [min[0] - grow, min[1] - grow, min[2]],
+        [max[0] + grow, max[1] + grow, max[2]],
+      ))
+    }
+    ScadNode::Projection { child, .. } => {
+      let (min, max) = node_bbox(child)?;
+      Some(([min[0], min[1], 0.0], [max[0], max[1], 0.0]))
+    }
+
+    // The hull of one subtree fills its box but never leaves it.
+    ScadNode::Hull(child) => node_bbox(child),
+    ScadNode::Union(children) => {
+      let mut all: Option<Aabb> = None;
+      for child in children {
+        let b = node_bbox(child)?;
+        all = Some(match all {
+          None => b,
+          Some(acc) => bbox_union(acc, b),
+        });
+      }
+      all
+    }
+    // A Minkowski sum's box is the sum of the operand boxes.
+    ScadNode::Minkowski(children) => {
+      let mut sum: Option<Aabb> = None;
+      for child in children {
+        let b = node_bbox(child)?;
+        sum = Some(match sum {
+          None => b,
+          Some((min, max)) => (
+            [min[0] + b.0[0], min[1] + b.0[1], min[2] + b.0[2]],
+            [max[0] + b.1[0], max[1] + b.1[1], max[2] + b.1[2]],
+          ),
+        });
+      }
+      sum
+    }
+    // A difference is contained in its base; unknown later operands
+    // cannot grow it.
+    ScadNode::Difference(children) => {
+      node_bbox(children.iter().find(|c| !c.is_csg_dropped())?)
+    }
+    // An intersection is contained in every operand, so any known box
+    // bounds it even when the others are unknown.
+    ScadNode::Intersection(children) => {
+      let mut overlap: Option<Aabb> = None;
+      for child in children.iter().filter(|c| !c.is_csg_dropped()) {
+        if let Some(b) = node_bbox(child) {
+          overlap = Some(match overlap {
+            None => b,
+            Some(acc) => bbox_intersection(acc, b),
+          });
+        }
+      }
+      overlap
+    }
+
+    ScadNode::BoslCall {
+      native: Some(native),
+      ..
+    } => node_bbox(native),
+
+    // Imports, text, raw SCAD, BOSL previews: extent unknown.
+    _ => None,
+  }
+}
+
+/// True when a boolean operand dwarfs `reference` — extends beyond it by
+/// more than the reference's own diagonal on some axis.
+///
+/// Such an operand — the giant sphere carving a shallow recess, the huge
+/// cube cutting a model in half — breaks the image-space CSG pass: OpenCSG
+/// needs both the front and back faces of every primitive inside the view
+/// frustum, but the camera orbits at a distance set by the *result's* size,
+/// so it routinely ends up inside the oversized operand. Its front faces
+/// then fall behind the near plane, the stencil parity breaks, and the
+/// subtraction quietly drops out — the carved-away stock pops back into
+/// view at those angles. An unknown extent on either side keeps the
+/// current behavior.
+fn dwarfs(operand: &ScadNode, reference: Aabb) -> bool {
+  let Some((omin, omax)) = node_bbox(operand) else {
+    return false;
+  };
+  let (rmin, rmax) = reference;
+  let diagonal = (0..3)
+    .map(|axis| (rmax[axis] - rmin[axis]).powi(2))
+    .sum::<f32>()
+    .sqrt();
+  (0..3).any(|axis| {
+    omin[axis] < rmin[axis] - diagonal || omax[axis] > rmax[axis] + diagonal
+  })
+}
+
 /// Returns true if `node`, sitting at `op` position, can be folded into the
 /// single OpenCSG product `I1 ∩ … ∩ In − S1 − … − Sm` that its enclosing
 /// boolean is flattened into.
@@ -425,6 +674,9 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     // difference would not.
     ScadNode::Difference(children) => {
       let base = children.iter().position(|c| !c.is_csg_dropped());
+      // A cutter dwarfing the base (see `dwarfs`) is measured against the
+      // base's box — the result can be no larger.
+      let base_bbox = base.and_then(|i| node_bbox(&children[i]));
       op == INTERSECTION
         && children.iter().enumerate().all(|(i, child)| {
           let child_op = if Some(i) == base {
@@ -433,15 +685,22 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
             SUBTRACTION
           };
           fits_in_product(child, child_op)
+            && !(child_op == SUBTRACTION
+              && base_bbox.is_some_and(|b| dwarfs(child, b)))
         })
     }
 
     // Same reasoning: intersections nest into an intersected position only.
+    // The dwarf check compares each operand against the overlap of all the
+    // boxes — a huge half-space cube cutting a model in two is the common
+    // case it catches.
     ScadNode::Intersection(children) => {
+      let overlap = node_bbox(node);
       op == INTERSECTION
-        && children
-          .iter()
-          .all(|child| fits_in_product(child, INTERSECTION))
+        && children.iter().all(|child| {
+          fits_in_product(child, INTERSECTION)
+            && !overlap.is_some_and(|b| dwarfs(child, b))
+        })
     }
 
     // Everything else is a leaf primitive (or renders nothing at all).
@@ -1867,5 +2126,65 @@ mod tests {
         .sum();
       assert!(vertices > 0, "a heightmap produced nothing to draw");
     }
+  }
+
+  /// A cutter that dwarfs its base — the medal's 500-radius sphere carving a
+  /// shallow recess out of a 150-radius disc — must not become an OpenCSG
+  /// leaf: the camera orbits at the result's scale, ends up inside the
+  /// sphere, and the subtraction drops out at those angles. The product is
+  /// materialized by Manifold instead, which shows as a single primitive.
+  #[test]
+  fn a_giant_cutter_is_materialized_not_peeled() {
+    let base = ScadNode::Translate {
+      x: 0.0,
+      y: 0.0,
+      z: -99.0,
+      child: Box::new(ScadNode::Cylinder {
+        r1: 150.0,
+        r2: 150.0,
+        h: 100.0,
+        segments: 64,
+        center: false,
+      }),
+    };
+    let cutter = ScadNode::Translate {
+      x: 0.0,
+      y: 0.0,
+      z: -500.0,
+      child: Box::new(ScadNode::Sphere {
+        r: 500.0,
+        segments: 64,
+      }),
+    };
+    let scene =
+      flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
+    let leaves: usize =
+      scene.groups.iter().map(|g| g.primitives.len()).sum();
+    assert_eq!(leaves, 1, "expected one materialized mesh, not a product");
+    assert!(scene.groups[0].primitives[0].vertices.len() > 0);
+  }
+
+  /// An ordinary subtraction — a bolt hole overshooting its plate a little —
+  /// keeps the interactive per-primitive OpenCSG path.
+  #[test]
+  fn a_proportionate_cutter_still_forms_a_product() {
+    let base = ScadNode::Cube {
+      w: 20.0,
+      d: 20.0,
+      h: 10.0,
+      center: true,
+    };
+    let cutter = ScadNode::Cylinder {
+      r1: 3.0,
+      r2: 3.0,
+      h: 12.0,
+      segments: 32,
+      center: true,
+    };
+    let scene =
+      flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
+    let leaves: usize =
+      scene.groups.iter().map(|g| g.primitives.len()).sum();
+    assert_eq!(leaves, 2, "expected an OpenCSG product of base and cutter");
   }
 }

@@ -209,6 +209,21 @@ any release.
 
 ### Fixed
 
+- Studio: a boolean operand far larger than the shape it carves — a
+  500-radius sphere scooping a shallow recess out of a 75-radius medal, a
+  huge cube cutting a model in half — made the carved-away stock pop back
+  into view at some camera angles in the shaded preview. OpenCSG needs both
+  the front and the back faces of every primitive inside the view frustum,
+  but the camera orbits at a distance set by the *result's* size, so it
+  routinely ended up inside the oversized operand; its front faces fell
+  behind the near plane, the stencil parity broke, and the subtraction
+  quietly dropped out. A product whose operand extends past its base's
+  bounding box by more than that box's diagonal (measured without
+  materializing, via a new conservative `ScadNode` bbox walk) is now
+  computed by Manifold and drawn as a plain mesh — correct at every angle,
+  like the transparent view always was. Proportionate cutters (a bolt hole
+  overshooting its plate) keep the interactive per-primitive OpenCSG path.
+
 - `surface(invert = true)` on an image built the wrong solid in the OpenSCAD
   front end: it flipped brightness (`100 - height`), but OpenSCAD *negates*
   the height, putting an inverted relief in −100..0. Models position an
