@@ -390,6 +390,11 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     }
     ScadNode::Import { convexity, .. } => *convexity <= 1,
 
+    // A heightmap's depth complexity is the number of ridges a grazing ray
+    // crosses — unbounded, and not knowable from the declared convexity —
+    // so it is always in the garbled class described above.
+    ScadNode::Surface { .. } => false,
+
     // A native BOSL shape previews as its expansion, so whether it fits
     // is the expansion's call — a threaded rod hides a Render marker.
     ScadNode::BoslCall {
@@ -673,6 +678,13 @@ fn flatten_inner(
     ScadNode::Import { file, convexity }
       if luacad::mesh_import::is_mesh_file(file) =>
     {
+      manifold_preview(node, ctx, op, (*convexity).max(1))
+    }
+
+    // A heightmap solid outside any boolean: materialized by Manifold like
+    // an import. (Inside one, `fits_in_product` already routes the whole
+    // product through Manifold.)
+    ScadNode::Surface { convexity, .. } => {
       manifold_preview(node, ctx, op, (*convexity).max(1))
     }
 
@@ -1817,5 +1829,43 @@ mod tests {
       .map(|leaf| leaf.vertices.len())
       .sum();
     assert!(vertices > 0, "a 2D shape produced nothing to draw");
+  }
+
+  /// A `surface()` heightmap inside a boolean must reach the normal preview.
+  /// It used to fall through the leaf walker's catch-all while still counting
+  /// as part of the OpenCSG product, so the emblem it carved simply vanished
+  /// from the shaded view (and only appeared in transparent mode).
+  #[test]
+  fn a_heightmap_reaches_the_viewport() {
+    let dir = std::env::temp_dir().join("luacad_studio_test_surface");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("heights.dat");
+    std::fs::write(&file, "0 2\n2 0\n").unwrap();
+
+    let surface = ScadNode::Surface {
+      file: file.to_string_lossy().into_owned(),
+      center: false,
+      convexity: 1,
+      invert: false,
+    };
+    let cube = ScadNode::Cube {
+      w: 1.0,
+      d: 1.0,
+      h: 1.0,
+      center: false,
+    };
+    for scad in [
+      surface.clone(),
+      ScadNode::Intersection(vec![surface, cube]),
+    ] {
+      let scene = flatten_geometries(&[geometry(scad)]);
+      let vertices: usize = scene
+        .groups
+        .iter()
+        .flat_map(|group| &group.primitives)
+        .map(|leaf| leaf.vertices.len())
+        .sum();
+      assert!(vertices > 0, "a heightmap produced nothing to draw");
+    }
   }
 }

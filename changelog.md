@@ -12,6 +12,27 @@ any release.
 
 ### Added
 
+- Lua's `surface()` now builds real geometry on the Manifold backend, so a
+  heightmap model previews in Studio, renders to PNG and exports with
+  `--via-manifold` instead of needing `--via-openscad`. It goes through the
+  same code that already evaluated `surface()` in an opened `.scad` file, so
+  both languages produce identical solids. The binding also gains the
+  `invert` parameter and a table form —
+  `surface{ "relief.png", center = true, invert = true }` — alongside the
+  positional one, and the SCAD export writes `invert = true` through. A
+  missing file is reported like a missing `import()` file. `physibles/medal`
+  is the model that drove this: its engraving came from a
+  `scad('surface(...)')` literal that only OpenSCAD could build, and was
+  simply absent from the Studio preview.
+
+  In Studio's shaded preview the heightmap is materialized by Manifold
+  rather than handed to OpenCSG as a leaf: its depth complexity is the
+  number of ridges a grazing ray crosses — unbounded, and not knowable from
+  the declared convexity — which puts it in the same garbled-by-Goldfeather
+  class as a thread. (The leaf walker previously dropped `surface()` nodes
+  while still counting them into the OpenCSG product, so the emblem showed
+  in transparent mode but not in the normal view.)
+
 - OpenSCAD files can be opened directly: `.scad` works anywhere `.lua` does,
   on the command line (`run`, `info`, `convert`, `watch`, `render`) and in
   Studio, through File → Open or by dropping one on the window. LuaCAD parses

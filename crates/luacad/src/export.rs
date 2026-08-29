@@ -1223,6 +1223,48 @@ pub fn clear_subtree_cache() {
   EXPENSIVE_SUBTREES.with(|c| c.borrow_mut().clear());
 }
 
+/// Read a `surface()` heightmap file and build its solid as a polyhedron,
+/// through the same OpenSCAD-front-end code that handles `surface()` in a
+/// `.scad` file. A `.png` extension selects the image reader (matching the
+/// front end); anything else is read as whitespace-separated rows of
+/// z-values. `invert` only applies to images, as in OpenSCAD.
+fn surface_polyhedron_node(
+  file: &str,
+  center: bool,
+  invert: bool,
+) -> Result<crate::scad_export::ScadNode, String> {
+  let is_png = file.to_ascii_lowercase().ends_with(".png");
+  let rows = if is_png {
+    let bytes = std::fs::read(file)
+      .map_err(|e| format!("Can't open surface file '{file}': {e}"))?;
+    openrscad_eval::png_heightmap(&bytes, invert)
+      .map_err(|e| format!("surface(): {e} in '{file}'"))?
+  } else {
+    let source = std::fs::read_to_string(file)
+      .map_err(|e| format!("Can't open surface file '{file}': {e}"))?;
+    openrscad_eval::dat_heightmap(&source)
+  };
+  match openrscad_eval::surface_polyhedron(&rows, center, is_png) {
+    openrscad_ir::Node::Polyhedron { points, faces } => {
+      Ok(crate::scad_export::ScadNode::Polyhedron {
+        points: points
+          .iter()
+          .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
+          .collect(),
+        faces: faces
+          .iter()
+          .map(|f| f.iter().map(|&i| i as usize).collect())
+          .collect(),
+      })
+    }
+    // A grid under 2×2 has no volume; the front end returns Empty for it.
+    _ => Ok(crate::scad_export::ScadNode::Polyhedron {
+      points: vec![],
+      faces: vec![],
+    }),
+  }
+}
+
 /// Build a Manifold from flat vertex and triangle arrays, as
 /// `manifold_meshgl` wants them: `verts` is x,y,z per vertex and `tris` is
 /// three vertex indices per triangle, wound counter-clockwise seen from
@@ -1364,6 +1406,26 @@ pub fn materialize_scad_manifold(
         }
       }
     }
+
+    // A heightmap becomes the same polyhedron the OpenSCAD front end
+    // builds for a `.scad` file's `surface()`, so both languages produce
+    // identical geometry. The file resolves against the working directory,
+    // like `import()` above; an unreadable one is reported and treated as
+    // empty for the same reason.
+    ScadNode::Surface {
+      file,
+      center,
+      invert,
+      ..
+    } => memoized(node, || {
+      match surface_polyhedron_node(file, *center, *invert) {
+        Ok(polyhedron) => materialize_scad_manifold(&polyhedron),
+        Err(e) => {
+          eprintln!("Warning: {e}");
+          Manifold::empty()
+        }
+      }
+    }),
 
     // --- CSG booleans ---
     ScadNode::Union(children) => {
@@ -2093,10 +2155,21 @@ fn collect_unsupported(
       }
     }
 
-    // --- Constructs with no Manifold implementation in either context ---
-    ScadNode::Surface { .. } => {
-      report("surface()", UnsupportedReason::NotImplemented)
+    // A heightmap builds a solid; the file check mirrors `import()` below,
+    // so a typo'd path fails with one clear message instead of a warning
+    // followed by an empty export.
+    ScadNode::Surface { file, .. } => {
+      if dim == Dimension::Two {
+        report("surface()", mismatch(dim))
+      } else if !std::path::Path::new(file).exists() {
+        report(
+          &format!("surface(\"{file}\")"),
+          UnsupportedReason::MissingFile,
+        )
+      }
     }
+
+    // --- Constructs with no Manifold implementation in either context ---
     ScadNode::Literal { .. } => {
       report("scad()", UnsupportedReason::NotImplemented)
     }
@@ -2853,11 +2926,9 @@ mod unsupported_tests {
     }
   }
 
-  fn surface() -> ScadNode {
-    ScadNode::Surface {
-      file: "heights.dat".into(),
-      center: false,
-      convexity: 1,
+  fn raw_scad() -> ScadNode {
+    ScadNode::Literal {
+      code: "frob();".into(),
     }
   }
 
@@ -2917,7 +2988,7 @@ mod unsupported_tests {
 
   #[test]
   fn a_viewer_is_still_told_what_cannot_be_evaluated() {
-    let found = unsupported_constructs_for_display(&surface());
+    let found = unsupported_constructs_for_display(&raw_scad());
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reason, UnsupportedReason::NotImplemented);
   }
@@ -2996,8 +3067,8 @@ mod unsupported_tests {
 
   #[test]
   fn unsupported_children_are_found_through_booleans() {
-    let tree = ScadNode::Difference(vec![cube(), surface()]);
-    assert_eq!(names(&tree), vec!["surface()"]);
+    let tree = ScadNode::Difference(vec![cube(), raw_scad()]);
+    assert_eq!(names(&tree), vec!["scad()"]);
   }
 
   #[test]
@@ -3006,7 +3077,7 @@ mod unsupported_tests {
       cube(),
       ScadNode::Modifier {
         kind: ModifierKind::Skip,
-        child: Box::new(surface()),
+        child: Box::new(raw_scad()),
       },
     ]);
     assert!(names(&tree).is_empty());
@@ -3016,9 +3087,9 @@ mod unsupported_tests {
   fn a_highlighted_subtree_still_has_to_be_materialized() {
     let tree = ScadNode::Modifier {
       kind: ModifierKind::Debug,
-      child: Box::new(surface()),
+      child: Box::new(raw_scad()),
     };
-    assert_eq!(names(&tree), vec!["surface()"]);
+    assert_eq!(names(&tree), vec!["scad()"]);
   }
 
   fn bosl(function: &str, native: Option<ScadNode>) -> ScadNode {
@@ -3058,14 +3129,14 @@ mod unsupported_tests {
   /// it still has to be reported.
   #[test]
   fn an_unsupported_construct_inside_a_native_shape_is_reported() {
-    let tree = bosl("cuboid", Some(surface()));
-    assert_eq!(names(&tree), vec!["surface()"]);
+    let tree = bosl("cuboid", Some(raw_scad()));
+    assert_eq!(names(&tree), vec!["scad()"]);
   }
 
   #[test]
   fn the_same_construct_is_only_reported_once() {
-    let tree = ScadNode::Union(vec![surface(), surface()]);
-    assert_eq!(names(&tree), vec!["surface()"]);
+    let tree = ScadNode::Union(vec![raw_scad(), raw_scad()]);
+    assert_eq!(names(&tree), vec!["scad()"]);
   }
 
   /// An empty file at a real path: the walker only checks that the path
@@ -3135,8 +3206,8 @@ mod unsupported_tests {
 
   #[test]
   fn the_message_points_at_the_routes_that_work() {
-    let msg = describe_unsupported(&unsupported_constructs(&surface()));
-    assert!(msg.contains("surface()"));
+    let msg = describe_unsupported(&unsupported_constructs(&raw_scad()));
+    assert!(msg.contains("scad()"));
     assert!(msg.contains("--via-openscad"));
   }
 }
@@ -4310,16 +4381,42 @@ mod cross_section_tests {
 
   #[test]
   fn unsupported_sketch_yields_empty_solid() {
-    // `surface()` still only reaches the SCAD tree.
+    // `scad()` raw code only reaches the SCAD tree.
     let scad = extrude(
-      ScadNode::Surface {
-        file: "heights.dat".to_string(),
-        center: false,
-        convexity: 1,
+      ScadNode::Literal {
+        code: "frob();".to_string(),
       },
       1.0,
     );
     assert_eq!(materialize_scad_manifold(&scad).num_tri(), 0);
+  }
+
+  /// A `surface()` heightmap builds the same solid the OpenSCAD front end
+  /// makes of it: a 2×2 grid of heights is one cell — four top triangles
+  /// around the averaged center vertex, walls, and a flat bottom one below
+  /// the lowest height.
+  #[test]
+  fn a_surface_heightmap_becomes_a_solid() {
+    let dir = std::env::temp_dir().join("luacad_test_surface");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("heights.dat");
+    std::fs::write(&file, "0 1\n2 3\n").unwrap();
+
+    let scad = ScadNode::Surface {
+      file: file.to_string_lossy().into_owned(),
+      center: false,
+      convexity: 1,
+      invert: false,
+    };
+    let m = materialize_scad_manifold(&scad);
+    assert!(m.num_tri() > 0, "surface should produce triangles");
+    let (min, max) = m.bounding_box();
+    assert_close(min[0] as f64, 0.0, 1e-5, "min x");
+    assert_close(max[0] as f64, 1.0, 1e-5, "max x");
+    assert_close(max[1] as f64, 1.0, 1e-5, "max y");
+    // Lowest height is 0, so the bottom sits at -1 and the top peaks at 3.
+    assert_close(min[2] as f64, -1.0, 1e-5, "min z");
+    assert_close(max[2] as f64, 3.0, 1e-5, "max z");
   }
 
   #[test]

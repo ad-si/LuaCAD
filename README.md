@@ -241,7 +241,7 @@ local post = bosl.attach(slab, bosl.cyl { d = 10, h = 20 }, bosl.TOP)
 bosl.diff { slab, post, bosl.tag(bosl.cyl { d = 5, h = 60 }, "remove") }
 ```
 
-`surface()`, `scad()` and `import()` of a DXF file do still need OpenSCAD;
+`scad()` and `import()` of a DXF file do still need OpenSCAD;
 `luacad` names them rather than exporting a file without them.
 
 [BOSL2]: https://github.com/BelfrySCAD/BOSL2/wiki

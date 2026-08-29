@@ -1286,18 +1286,7 @@ impl Interp<'_> {
                 self.warn(format!("Can't open surface file '{path}'"));
                 return Ok(Node::Empty);
             };
-            // Whitespace-separated rows of z-values; `#` lines are comments.
-            lf.source
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(|l| {
-                    l.split_whitespace()
-                        .filter_map(|s| s.parse::<f64>().ok())
-                        .collect()
-                })
-                .filter(|r: &Vec<f64>| !r.is_empty())
-                .collect()
+            dat_heightmap(&lf.source)
         };
         Ok(surface_polyhedron(&rows, center, is_png))
     }
@@ -2414,13 +2403,13 @@ fn surf_face(faces: &mut Vec<Vec<u32>>, pts: &[Vec3], a: u32, b: u32, c: u32, ou
 
 /// Decode a PNG into a heightmap grid for `surface()`. Each pixel's height is
 /// its Rec.709 luma scaled to 0..100 (white = 100), matching OpenSCAD; `invert`
-fn png_heightmap(bytes: &[u8], invert: bool) -> Result<Vec<Vec<f64>>, String> {
 /// negates the height (white = -100, black = 0), which is how OpenSCAD does it —
 /// not the intuitive `100 - height`. Models place an inverted surface expecting
 /// its relief below z=0 (e.g. `translate` it up by the emboss depth), so the
 /// intuitive flip would shift the whole solid by +100 and break them.
 /// Rows are returned bottom-to-top so they feed `surface_polyhedron`'s
 /// row-r→y=r convention (OpenSCAD places the image's top row at the maximum Y).
+pub fn png_heightmap(bytes: &[u8], invert: bool) -> Result<Vec<Vec<f64>>, String> {
     // LuaCAD deviation: upstream builds on png 0.17, which decodes straight from
     // a `&[u8]`. LuaCAD is on 0.18, where `Decoder` wants `BufRead + Seek`, so
     // the slice is wrapped rather than pinning a second copy of png in the tree.
@@ -2468,10 +2457,26 @@ fn png_heightmap(bytes: &[u8], invert: bool) -> Result<Vec<Vec<f64>>, String> {
     Ok(rows)
 }
 
+/// Parse a `surface()` text data file: whitespace-separated rows of z-values;
+/// `#` lines are comments.
+pub fn dat_heightmap(source: &str) -> Vec<Vec<f64>> {
+    source
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            l.split_whitespace()
+                .filter_map(|s| s.parse::<f64>().ok())
+                .collect()
+        })
+        .filter(|r: &Vec<f64>| !r.is_empty())
+        .collect()
+}
+
 /// Build the `surface()` solid from a heightmap grid: the top follows the
 /// heights, the bottom is flat at z=0, joined by vertical walls. Matches
 /// OpenSCAD (row r → y=r, col c → x=c; `center` shifts to the origin).
-fn surface_polyhedron(rows: &[Vec<f64>], center: bool, png: bool) -> Node {
+pub fn surface_polyhedron(rows: &[Vec<f64>], center: bool, png: bool) -> Node {
     let nr = rows.len();
     let nc = rows.iter().map(Vec::len).max().unwrap_or(0);
     if nr < 2 || nc < 2 {

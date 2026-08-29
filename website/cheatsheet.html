@@ -215,8 +215,8 @@ import("model.stl", convexity)
 -- Import SVG or DXF as a 2D sketch (DXF needs --via-openscad to export)
 import("logo.svg")
 
--- Import surface heightmap (SCAD export only)
-surface("heightmap.dat", center, convexity)
+-- Import surface heightmap (PNG or DAT)
+surface{ "heightmap.png", center = true, invert = true }
 
 -- Insert verbatim OpenSCAD code
 scad("cylinder(h=10, r=5, center=true);")

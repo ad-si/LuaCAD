@@ -151,6 +151,7 @@ pub enum ScadNode {
     file: String,
     center: bool,
     convexity: u32,
+    invert: bool,
   },
 
   // Modifier characters
@@ -767,6 +768,7 @@ impl ScadNode {
         file,
         center,
         convexity,
+        invert,
       } => {
         write_indent(out, depth);
         let center_str = if *center { ", center = true" } else { "" };
@@ -775,10 +777,11 @@ impl ScadNode {
         } else {
           String::new()
         };
+        let invert_str = if *invert { ", invert = true" } else { "" };
         let _ = writeln!(
           out,
-          "surface(file = \"{}\"{}{}); ",
-          file, center_str, convexity_str
+          "surface(file = \"{}\"{}{}{}); ",
+          file, center_str, convexity_str, invert_str
         );
       }
 

@@ -1559,32 +1559,60 @@ pub fn execute_lua_with_path(
 
     // ---- surface() ----
     let surface_fn = lua.create_function(|_, args: mlua::MultiValue| {
-      let file = if let Some(LuaValue::String(s)) = args.front() {
-        s.to_str().map(|s| s.to_string()).unwrap_or_default()
-      } else {
-        return Err(mlua::Error::RuntimeError(
-          "surface() requires a filename string".to_string(),
-        ));
+      let (file, center, convexity, invert) = match args.front() {
+        // Table form: surface{ "heightmap.png", center = true, invert = true }
+        Some(LuaValue::Table(t)) => {
+          check_table_keys(
+            t,
+            "surface",
+            &["file", "center", "convexity", "invert"],
+          )?;
+          let file: String = t
+            .get::<Option<String>>("file")?
+            .or(t.get::<Option<String>>(1)?)
+            .ok_or_else(|| {
+              mlua::Error::RuntimeError(
+                "surface() requires a filename string".to_string(),
+              )
+            })?;
+          let center = t.get::<Option<bool>>("center")?.unwrap_or(false);
+          let convexity = t.get::<Option<u32>>("convexity")?.unwrap_or(0);
+          let invert = t.get::<Option<bool>>("invert")?.unwrap_or(false);
+          (file, center, convexity, invert)
+        }
+        // Positional form: surface(file, center, convexity, invert)
+        Some(LuaValue::String(s)) => {
+          let file = s.to_str().map(|s| s.to_string()).unwrap_or_default();
+          let as_bool = |v: Option<&LuaValue>| {
+            v.and_then(|v| {
+              if let LuaValue::Boolean(b) = v {
+                Some(*b)
+              } else {
+                None
+              }
+            })
+            .unwrap_or(false)
+          };
+          let center = as_bool(args.get(1));
+          let convexity = args
+            .get(2)
+            .and_then(lua_val_to_f32)
+            .map(|v| v as u32)
+            .unwrap_or(0);
+          let invert = as_bool(args.get(3));
+          (file, center, convexity, invert)
+        }
+        _ => {
+          return Err(mlua::Error::RuntimeError(
+            "surface() requires a filename string".to_string(),
+          ));
+        }
       };
-      let center = args
-        .get(1)
-        .and_then(|v| {
-          if let LuaValue::Boolean(b) = v {
-            Some(*b)
-          } else {
-            None
-          }
-        })
-        .unwrap_or(false);
-      let convexity = args
-        .get(2)
-        .and_then(lua_val_to_f32)
-        .map(|v| v as u32)
-        .unwrap_or(0);
       let scad = Some(ScadNode::Surface {
         file,
         center,
         convexity,
+        invert,
       });
       Ok(CsgGeometry {
         name: None,
