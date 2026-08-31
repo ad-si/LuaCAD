@@ -2677,6 +2677,47 @@ mod tests {
   }
 
   #[test]
+  fn multmatrix_nested_rows() {
+    // The nested 4x4 OpenSCAD's `multmatrix` takes.
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {{1,0,0,3}, {0,1,0,2}, {0,0,1,1}, {0,0,0,1}}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("multmatrix("));
+    assert!(scad.contains("[1, 0, 0, 3]"), "got: {scad}");
+    assert!(scad.contains("[0, 1, 0, 2]"), "got: {scad}");
+  }
+
+  #[test]
+  fn multmatrix_three_rows_implies_the_fourth() {
+    let nodes = run_lua_scad(
+      "local c = cube { size = { 1, 1, 1 } }\n\
+       local m = {{1,0,0,3}, {0,1,0,2}, {0,0,1,1}}\n\
+       return c:multmatrix(m)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("[1, 0, 0, 3]"), "got: {scad}");
+    assert!(scad.contains("[0, 0, 0, 1]"), "got: {scad}");
+  }
+
+  #[test]
+  fn multmatrix_rejects_an_unreadable_matrix() {
+    // Silently zeroing the values it could not read used to collapse the
+    // model to a point.
+    let result = execute_lua(
+      "local c = cube { size = { 1, 1, 1 } }\n\
+       render(c:multmatrix({1, 0, 0}))",
+    );
+    let error = result.expect_err("a short matrix should be an error");
+    assert!(
+      error.to_string().contains("multmatrix()"),
+      "unhelpful error: {error}"
+    );
+  }
+
+  #[test]
   fn multmatrix_rotation() {
     let nodes = run_lua_scad(
       "local sin45 = 0.7071067811865475\n\

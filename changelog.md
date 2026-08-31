@@ -217,6 +217,15 @@ any release.
   which also gives them `size = n` (a square, or a cube, of that length) —
   `cube { size = 10 }` used to be a 1mm cube.
 
+- `obj:multmatrix(m)` collapsed the model to a point when `m` was the nested
+  4×4 the OpenSCAD-to-LuaCAD guide describes, because it read 16 values from
+  the top level of the table and substituted zero for each one it could not
+  convert — an all-zero matrix. It now takes either the nested rows (4 of
+  them, or 3 with `[0, 0, 0, 1]` implied, as OpenSCAD's `multmatrix` does) or
+  the same numbers flattened, and reports what it could not read instead of
+  quietly zeroing it. The dead 16-element length check that was supposed to
+  catch this is gone.
+
 - Studio: a boolean operand far larger than the shape it carves — a
   500-radius sphere scooping a shallow recess out of a 75-radius medal, a
   huge cube cutting a model in half — made the carved-away stock pop back

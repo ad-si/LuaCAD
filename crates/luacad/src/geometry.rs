@@ -51,6 +51,66 @@ pub fn lua_val_to_f32(v: &mlua::Value) -> Option<f32> {
   }
 }
 
+/// The 16 values of an affine matrix, in row major order.
+///
+/// Accepts the nested rows OpenSCAD's `multmatrix` takes — 4 of them, or 3
+/// with `[0, 0, 0, 1]` implied — as well as the same numbers flattened into
+/// one list. Anything else is an error, rather than a matrix quietly zeroed
+/// where the values could not be read.
+fn read_affine_matrix(matrix: &mlua::Table) -> mlua::Result<[f32; 16]> {
+  let mut values = [0.0f32; 16];
+  // The implied last row of a 3 row matrix.
+  values[15] = 1.0;
+
+  let number_at = |source: &mlua::Table, index: usize, what: String| {
+    source
+      .get::<f32>(index)
+      .map_err(|_| mlua::Error::RuntimeError(what))
+  };
+
+  if let Ok(LuaValue::Table(_)) = matrix.get::<mlua::Value>(1) {
+    let rows = matrix.raw_len();
+    if rows != 3 && rows != 4 {
+      return Err(mlua::Error::RuntimeError(format!(
+        "multmatrix() needs 3 or 4 rows of 4 numbers, got {rows}"
+      )));
+    }
+    for row in 0..rows {
+      let row_table: mlua::Table = matrix.get(row + 1).map_err(|_| {
+        mlua::Error::RuntimeError(format!(
+          "multmatrix() row {} is not a list of numbers",
+          row + 1
+        ))
+      })?;
+      for column in 0..4 {
+        values[row * 4 + column] = number_at(
+          &row_table,
+          column + 1,
+          format!(
+            "multmatrix() row {} column {} is not a number",
+            row + 1,
+            column + 1
+          ),
+        )?;
+      }
+    }
+    return Ok(values);
+  }
+
+  for (index, value) in values.iter_mut().enumerate() {
+    *value = number_at(
+      matrix,
+      index + 1,
+      format!(
+        "multmatrix() needs 16 numbers, or 4 rows of 4; \
+         element {} is not a number",
+        index + 1
+      ),
+    )?;
+  }
+  Ok(values)
+}
+
 /// Parse a hex color string (`#RGB`, `#RRGGBB`, `#RGBA`, `#RRGGBBAA`).
 /// Returns the RGB components; alpha is ignored for now since the color
 /// representation is `[f32; 3]`.
@@ -688,21 +748,10 @@ impl UserData for CsgGeometry {
     });
 
     methods.add_method("multmatrix", |_, this, matrix: mlua::Table| {
-      let vals: Vec<f32> = (1..=16)
-        .map(|i| matrix.get::<f32>(i).unwrap_or(0.0))
-        .collect();
-      if vals.len() != 16 {
-        return Err(mlua::Error::RuntimeError(
-          "multmatrix requires a table with 16 elements".to_string(),
-        ));
-      }
-      let scad = this.scad.as_ref().map(|s| {
-        let mut arr = [0.0f32; 16];
-        arr.copy_from_slice(&vals);
-        ScadNode::Multmatrix {
-          matrix: arr,
-          child: Box::new(s.clone()),
-        }
+      let vals = read_affine_matrix(&matrix)?;
+      let scad = this.scad.as_ref().map(|s| ScadNode::Multmatrix {
+        matrix: vals,
+        child: Box::new(s.clone()),
       });
       Ok(CsgGeometry {
         mesh: {
