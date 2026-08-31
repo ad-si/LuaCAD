@@ -226,6 +226,12 @@ any release.
   quietly zeroing it. The dead 16-element length check that was supposed to
   catch this is gone.
 
+- `luacad lint` reported `settings` as an undefined variable, so every script
+  that sets its resolution the way the cheatsheet says — `settings.fa = 4` —
+  had to be written around the linter. The special variables are now part of
+  the bundled standard library, which also means a misspelled one
+  (`settings.fragments`) is reported rather than silently doing nothing.
+
 - Studio: a boolean operand far larger than the shape it carves — a
   500-radius sphere scooping a shallow recess out of a 75-radius medal, a
   huge cube cutting a model in half — made the carved-away stock pop back

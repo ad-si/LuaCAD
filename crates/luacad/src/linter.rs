@@ -268,6 +268,29 @@ globals:
   PI:
     property: read-only
 
+  # Special variables — the `$fa` / `$fs` / `$fn` and friends of OpenSCAD.
+  # Scripts set the resolution and viewport ones; the engine reports the rest.
+  settings.fa:
+    property: full-write
+  settings.fs:
+    property: full-write
+  settings.fn:
+    property: full-write
+  settings.t:
+    property: full-write
+  settings.vpr:
+    property: full-write
+  settings.vpt:
+    property: full-write
+  settings.vpd:
+    property: full-write
+  settings.vpf:
+    property: full-write
+  settings.preview:
+    property: read-only
+  settings.children:
+    property: read-only
+
   # BOSL2 library table (extensible)
   bosl:
     property: new-fields
@@ -316,6 +339,37 @@ mod tests {
     assert!(
       undefined.is_empty(),
       "LuaCAD globals should not be flagged as undefined: {undefined:?}"
+    );
+  }
+
+  #[test]
+  fn settings_is_a_known_global() {
+    let code = r#"
+      settings.fa = 4
+      settings.fs = 0.25
+      settings.fn = 0
+      print(settings.preview)
+      print(settings.vpd)
+    "#;
+    let result = lint(code).unwrap();
+    let complaints: Vec<_> = result
+      .iter()
+      .filter(|d| d.severity == LintSeverity::Error)
+      .collect();
+    assert!(
+      complaints.is_empty(),
+      "the special variables should be known: {complaints:?}"
+    );
+  }
+
+  #[test]
+  fn a_misspelled_setting_is_flagged() {
+    let result = lint("settings.fragments = 4\n").unwrap();
+    assert!(
+      result.iter().any(|d| {
+        d.severity == LintSeverity::Error && d.message.contains("fragments")
+      }),
+      "an unknown setting should be reported: {result:?}"
     );
   }
 
