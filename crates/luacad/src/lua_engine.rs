@@ -125,6 +125,38 @@ fn check_table_keys(
 }
 
 // ---------------------------------------------------------------------------
+// Shared size parsing
+// ---------------------------------------------------------------------------
+
+/// The `count` size components a primitive was given, however they were
+/// written.
+///
+/// Accepts `{size = {w, d, h}}`, `{size = n}`, `{{w, d, h}, center = true}`
+/// and `{w, d, h}`, so every spelling the documentation shows means the same
+/// thing. A component the caller left out comes back as `None`, because each
+/// primitive fills those in differently.
+fn table_size_components(t: &mlua::Table, count: usize) -> Vec<Option<f32>> {
+  fn read(source: &mlua::Table, count: usize) -> Vec<Option<f32>> {
+    (1..=count).map(|i| source.get::<f32>(i).ok()).collect()
+  }
+
+  // size = {w, d, h}
+  if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
+    return read(&size_t, count);
+  }
+  // size = n, the same length along every axis
+  if let Ok(size) = t.get::<f32>("size") {
+    return vec![Some(size); count];
+  }
+  // {{w, d, h}, center = true}
+  if let Ok(LuaValue::Table(inner)) = t.get::<mlua::Value>(1) {
+    return read(&inner, count);
+  }
+  // {w, d, h}
+  read(t, count)
+}
+
+// ---------------------------------------------------------------------------
 // cube() argument parsing
 // ---------------------------------------------------------------------------
 
@@ -144,28 +176,10 @@ fn parse_cube_args(
   if let LuaValue::Table(t) = first {
     check_table_keys(t, "cube", &["size", "center"])?;
 
-    // Check for "size" named key: cube { size = {w,d,h}, center = true }
-    if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
-      let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
-      let d: f32 = size_t.get::<f32>(2).unwrap_or(1.0);
-      let h: f32 = size_t.get::<f32>(3).unwrap_or(1.0);
-      let center = table_get_bool(t, "cube", "center")?;
-      return Ok((w, d, h, center));
-    }
-
-    // Check if first element is a nested table: cube { {w,d,h}, center = true }
-    if let Ok(LuaValue::Table(inner)) = t.get::<mlua::Value>(1) {
-      let w: f32 = inner.get::<f32>(1).unwrap_or(1.0);
-      let d: f32 = inner.get::<f32>(2).unwrap_or(1.0);
-      let h: f32 = inner.get::<f32>(3).unwrap_or(1.0);
-      let center = table_get_bool(t, "cube", "center")?;
-      return Ok((w, d, h, center));
-    }
-
-    // Array form: cube { w, d, h } (with optional center)
-    let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
-    let d: f32 = t.get::<f32>(2).unwrap_or(1.0);
-    let h: f32 = t.get::<f32>(3).unwrap_or(1.0);
+    let size = table_size_components(t, 3);
+    let w = size[0].unwrap_or(1.0);
+    let d = size[1].unwrap_or(1.0);
+    let h = size[2].unwrap_or(1.0);
     let center = table_get_bool(t, "cube", "center")?;
     return Ok((w, d, h, center));
   }
@@ -1050,16 +1064,10 @@ pub fn execute_lua_with_path(
         // Registered as both `rect` and `square`; name the one the user called.
         check_table_keys(t, "rect", &["size", "center"])?;
 
-        let (w, h) =
-          if let Ok(LuaValue::Table(size_t)) = t.get::<mlua::Value>("size") {
-            let w: f32 = size_t.get::<f32>(1).unwrap_or(1.0);
-            let h: f32 = size_t.get::<f32>(2).unwrap_or(w);
-            (w, h)
-          } else {
-            let w: f32 = t.get::<f32>(1).unwrap_or(1.0);
-            let h: f32 = t.get::<f32>(2).unwrap_or(w);
-            (w, h)
-          };
+        let size = table_size_components(t, 2);
+        let w = size[0].unwrap_or(1.0);
+        // A rectangle given one length is a square of that length.
+        let h = size[1].unwrap_or(w);
         let center = table_get_bool(t, "rect", "center")?;
         let scad = Some(ScadNode::Square { w, h, center });
         Ok(CsgSketch {
@@ -2466,6 +2474,48 @@ mod tests {
     let nodes = run_lua_scad("return square { 10, 20 }:linear_extrude(1)");
     let scad = generate_scad(&nodes);
     assert!(scad.contains("square([10, 20])"));
+  }
+
+  #[test]
+  fn square_nested_size_with_center() {
+    // The form the OpenSCAD-to-LuaCAD guide shows.
+    let nodes = run_lua_scad(
+      "return square { { 10, 20 }, center = true }:linear_extrude(1)",
+    );
+    let scad = generate_scad(&nodes);
+    assert!(
+      scad.contains("square([10, 20]"),
+      "a nested size should be read, got: {scad}"
+    );
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn square_scalar_size() {
+    let nodes = run_lua_scad("return square { size = 10 }:linear_extrude(1)");
+    let scad = generate_scad(&nodes);
+    assert!(
+      scad.contains("square([10, 10])"),
+      "one length makes a square, got: {scad}"
+    );
+  }
+
+  #[test]
+  fn cube_nested_size_with_center() {
+    let nodes = run_lua_scad("return cube { { 10, 20, 30 }, center = true }");
+    let scad = generate_scad(&nodes);
+    assert!(scad.contains("cube([10, 20, 30]"), "got: {scad}");
+    assert!(scad.contains("center = true"));
+  }
+
+  #[test]
+  fn cube_scalar_size() {
+    let nodes = run_lua_scad("return cube { size = 10 }");
+    let scad = generate_scad(&nodes);
+    assert!(
+      scad.contains("cube([10, 10, 10]"),
+      "one length makes a cube, got: {scad}"
+    );
   }
 
   // =========================================================================

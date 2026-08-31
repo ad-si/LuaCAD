@@ -209,6 +209,14 @@ any release.
 
 ### Fixed
 
+- `square { {10, 20}, center = true }` — the spelling the OpenSCAD-to-LuaCAD
+  guide shows — built a 1×1 square. `square`/`rect` read the size straight out
+  of the argument table, so a nested size list was not a number where it
+  looked, and the fallback made a unit square without saying anything.
+  `cube` already handled the nested form; both now go through one size parser,
+  which also gives them `size = n` (a square, or a cube, of that length) —
+  `cube { size = 10 }` used to be a 1mm cube.
+
 - Studio: a boolean operand far larger than the shape it carves — a
   500-radius sphere scooping a shallow recess out of a 75-radius medal, a
   huge cube cutting a model in half — made the carved-away stock pop back
