@@ -93,7 +93,7 @@ fn byte_offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
 }
 
 /// LuaCAD-specific globals in selene YAML format.
-/// Merged at runtime with the built-in lua54 standard library.
+/// Merged at runtime with the built-in lua53 standard library.
 const LUACAD_STD_YAML: &str = r#"---
 name: luacad
 globals:
@@ -294,15 +294,47 @@ globals:
   # BOSL2 library table (extensible)
   bosl:
     property: new-fields
+
+  # Overrides for functions whose signatures were widened after Lua 5.1.
+  # selene's bundled `lua53` chains back to `lua51` and never re-declares
+  # these, so the 5.1 arities leak through and reject valid code. The
+  # runtime is Lua 5.4 (mlua), so all of the forms below do work.
+  math.atan:  # 5.3 added the `x` argument (the old `math.atan2`)
+    args:
+      - type: number
+      - required: false
+        type: number
+    must_use: true
+  string.rep:  # 5.2 added the separator
+    args:
+      - type: string
+      - type: number
+      - required: false
+        type: string
+    must_use: true
+  load:  # 5.2 took a string chunk plus `mode` and `env`
+    args:
+      - type: any
+      - required: false
+        type: string
+      - required: false
+        type: string
+      - required: false
+        type: any
+  _ENV:  # the 5.2 environment upvalue
+    property: full-write
 "#;
 
 fn build_standard_library() -> StandardLibrary {
-  let mut base = StandardLibrary::from_name("lua53")
+  let base = StandardLibrary::from_name("lua53")
     .expect("lua53 standard library should be built-in");
-  let custom: StandardLibrary = serde_yaml::from_str(LUACAD_STD_YAML)
+  // `extend` gives the receiver priority on conflicting names — that is how
+  // selene itself layers `lua53` over its `lua51` base — so the LuaCAD
+  // definitions have to be the receiver for the overrides above to apply.
+  let mut lib: StandardLibrary = serde_yaml::from_str(LUACAD_STD_YAML)
     .expect("embedded LuaCAD standard library YAML should be valid");
-  base.extend(custom);
-  base
+  lib.extend(base);
+  lib
 }
 
 #[cfg(test)]
@@ -359,6 +391,40 @@ mod tests {
     assert!(
       complaints.is_empty(),
       "the special variables should be known: {complaints:?}"
+    );
+  }
+
+  #[test]
+  fn post_lua51_signatures_are_accepted() {
+    // The runtime is Lua 5.4, but selene's `lua53` library inherits these
+    // signatures unchanged from `lua51`, where they take fewer arguments.
+    let code = r#"
+      local angle = math.atan(1, 2)
+      local dashes = string.rep("a", 3, "-")
+      local chunk = load("return 1", "chunk", "t", _ENV)
+      print(angle, dashes, chunk)
+    "#;
+    let result = lint(code).unwrap();
+    let complaints: Vec<_> = result
+      .iter()
+      .filter(|d| d.severity == LintSeverity::Error)
+      .collect();
+    assert!(
+      complaints.is_empty(),
+      "post-5.1 signatures should be accepted: {complaints:?}"
+    );
+  }
+
+  #[test]
+  fn too_many_arguments_are_still_flagged() {
+    // The overrides must widen the signatures, not disable arity checking.
+    let result = lint("print(math.atan(1, 2, 3))\n").unwrap();
+    assert!(
+      result.iter().any(|d| {
+        d.severity == LintSeverity::Error
+          && d.code == "incorrect_standard_library_use"
+      }),
+      "a three-argument atan should still be reported: {result:?}"
     );
   }
 
