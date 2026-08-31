@@ -209,6 +209,13 @@ any release.
 
 ### Fixed
 
+- Building on macOS inside `nix develop` failed in Clipper2, on `<vector>` of
+  all things. CMake asks `xcrun` for the macOS sysroot, which names the SDK
+  inside Xcode whatever compiler is in front of it, and the `-isysroot` it
+  then passed overrode the one the Nix compiler wrapper adds — leaving that
+  toolchain's libc++ looking for a C `stdint.h` that was not there.
+  `luacad-manifold-sys` now honours `SDKROOT` when the environment sets one.
+
 - `square { {10, 20}, center = true }` — the spelling the OpenSCAD-to-LuaCAD
   guide shows — built a 1×1 square. `square`/`rect` read the size straight out
   of the argument table, so a nested size list was not a number where it

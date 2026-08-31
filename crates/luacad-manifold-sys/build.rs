@@ -53,6 +53,22 @@ fn main() {
     cmake_config.cxxflag("/EHsc");
   }
 
+  if target_os == "macos" || target_os == "ios" {
+    // CMake picks the macOS sysroot by asking `xcrun`, which answers with the
+    // SDK inside Xcode even when the compiler in front of it came from
+    // somewhere else. In the `nix develop` shell that is the wrong one: the
+    // `-isysroot` CMake then passes overrides the one the Nix compiler wrapper
+    // adds, and its libc++ — built against a different SDK — stops finding the
+    // C `stdint.h` behind it, so `<vector>` fails to compile on
+    // `std::intmax_t`. `SDKROOT` is how such a toolchain names the SDK it goes
+    // with; honour it. Nothing sets it on a plain Xcode install, where CMake's
+    // own answer is right.
+    println!("cargo:rerun-if-env-changed=SDKROOT");
+    if let Ok(sdkroot) = env::var("SDKROOT") {
+      cmake_config.define("CMAKE_OSX_SYSROOT", &sdkroot);
+    }
+  }
+
   if target_os == "emscripten" {
     // CMake cannot reconfigure an existing Emscripten build directory on
     // macOS: the second pass re-runs the compiler test, and this time hands
