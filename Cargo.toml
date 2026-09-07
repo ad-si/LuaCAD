@@ -3,7 +3,6 @@ members = [
   "crates/luacad",
   "crates/luacad-studio",
   "crates/luacad-wasm",
-  "crates/opencsg-sys",
   "crates/luacad-manifold-sys",
   "crates/luacad-prime-core",
   "crates/luacad-scad-syntax",
@@ -15,9 +14,9 @@ resolver = "3"
 [workspace.package]
 version = "1.1.0"
 repository = "https://github.com/ad-si/LuaCAD"
-# Edition 2024 needs 1.85; the dependency tree pushes it to 1.89. The two -sys
-# crates and the three vendored OpenSCAD front-end crates still inherit this.
-# `luacad-prime-core` needs 1.96, and that carries through `luacad` to
+# Edition 2024 needs 1.85; the dependency tree pushes it to 1.89. The Manifold
+# -sys crate and the three vendored OpenSCAD front-end crates still inherit
+# this. `luacad-prime-core` needs 1.96, and that carries through `luacad` to
 # `luacad-studio` and `luacad-wasm`.
 rust-version = "1.89"
 
@@ -32,7 +31,6 @@ rust-version = "1.89"
 # `raytrace` default (prime-core's rand/getrandom does not compile for
 # wasm32). Members that want it name it: `features = ["raytrace"]`.
 luacad = { version = "1.1.0", path = "crates/luacad", default-features = false }
-opencsg-sys = { version = "1.1.0", path = "crates/opencsg-sys" }
 # Published as `luacad-manifold-sys`; the plain `manifold-sys` name on
 # crates.io belongs to an unrelated crate. Renamed back here so the FFI paths
 # read as `manifold_sys::` throughout.

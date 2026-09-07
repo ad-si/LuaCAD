@@ -148,7 +148,6 @@ release:
 	@echo '     cargo publish -p luacad-scad-syntax'
 	@echo '     cargo publish -p luacad-scad-ir'
 	@echo '     cargo publish -p luacad-scad-eval'
-	@echo '     cargo publish -p opencsg-sys'
 	@echo '     cargo publish -p luacad'
 	@echo '     cargo publish -p luacad-studio'
 	@echo '7. Push a `v*` tag, or create the release at' \

@@ -28,7 +28,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
@@ -54,16 +53,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
             libxrandr-dev \
             libwayland-dev
 
-      # The two -sys crates and the three vendored OpenSCAD front-end crates
-      # still hold the workspace MSRV; the vendored path tracer needs 1.96 and
-      # that reaches every other crate through `luacad`.
+      # The Manifold -sys crate and the three vendored OpenSCAD front-end
+      # crates still hold the workspace MSRV; the vendored path tracer needs
+      # 1.96 and that reaches every other crate through `luacad`.
       - name: Install the workspace MSRV toolchain
         uses: dtolnay/rust-toolchain@1.89.0
 
@@ -77,7 +75,6 @@ jobs:
         run: |
           cargo +1.89.0 check \
             --package luacad-manifold-sys \
-            --package opencsg-sys \
             --package luacad-scad-syntax \
             --package luacad-scad-ir \
             --package luacad-scad-eval \
@@ -106,7 +103,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
@@ -133,7 +129,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
@@ -160,7 +155,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
@@ -262,7 +256,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgl1-mesa-dev \
             libx11-dev \
             libxcb1-dev \
             libxkbcommon-dev \
