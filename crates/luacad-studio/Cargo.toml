@@ -28,7 +28,7 @@ egui_extras = { version = "0.36", features = ["default", "syntect"] }
 # The version egui-wgpu 0.36 is built against
 wgpu = "30"
 # Image-based CSG for the live preview, on the same wgpu device as egui
-webcsg = { path = "../../../WebCSG" }
+webcsg = "0.1"
 # WebCSG's matrix type; the camera keeps using cgmath
 glam = "0.33"
 bytemuck = { version = "1", features = ["derive"] }

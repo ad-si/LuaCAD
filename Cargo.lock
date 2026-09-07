@@ -4412,6 +4412,8 @@ dependencies = [
 [[package]]
 name = "webcsg"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a975af45bf6fc43004f4f3bb7903b8e7973143b6e22bc3b3ff89dfc95338d29"
 dependencies = [
  "bytemuck",
  "elsa",
