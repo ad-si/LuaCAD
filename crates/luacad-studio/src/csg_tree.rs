@@ -1,8 +1,10 @@
-//! Flatten a ScadNode CSG tree into groups of leaf primitives for OpenCSG rendering.
+//! Flatten a ScadNode CSG tree into groups of leaf primitives for image-based
+//! CSG rendering.
 //!
-//! OpenCSG renders a single "CSG product" at a time: a flat list of primitives each
-//! tagged as Intersection or Subtraction. Complex CSG trees (nested unions, etc.) are
-//! decomposed into multiple OpenCSG render calls (one per [`CsgGroup`]).
+//! WebCSG (like OpenCSG before it) renders a single "CSG product" at a time: a
+//! flat list of primitives each tagged as Intersection or Subtraction. Complex
+//! CSG trees (nested unions, etc.) are decomposed into multiple render calls
+//! (one per [`CsgGroup`]).
 
 use luacad::export::{
   Dimension, extract_manifold_mesh, materialize_scad_display_mesh,
@@ -11,27 +13,26 @@ use luacad::export::{
 use luacad::geometry::CsgGeometry;
 use luacad::material::MaterialSpec;
 use luacad::scad_export::{BoslPreviewParams, CylAxis, ModifierKind, ScadNode};
-use opencsg_sys::{INTERSECTION, SUBTRACTION};
 use std::f32::consts::PI;
-use std::os::raw::c_int;
+use webcsg::Operation;
 
-/// A single leaf primitive ready for OpenCSG rendering.
+/// A single leaf primitive ready for CSG rendering.
 pub struct CsgLeaf {
   /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up).
   pub vertices: Vec<[f32; 3]>,
   /// Accumulated model-to-world transform (column-major 4x4).
   pub transform: [f32; 16],
-  /// OpenCSG operation: INTERSECTION or SUBTRACTION.
-  pub operation: c_int,
+  /// Whether the leaf is intersected with or subtracted from its product.
+  pub operation: Operation,
   /// Convexity (max front faces at a single point). 1 for convex shapes.
   pub convexity: u32,
   /// Per-primitive color (RGB, 0..1).
   pub color: [f32; 3],
-  /// Per-primitive surface material (approximated by fixed-function GL).
+  /// Per-primitive surface material (approximated by Blinn-Phong shading).
   pub material: MaterialSpec,
 }
 
-/// A group of primitives that form a single OpenCSG render call.
+/// A group of primitives that form a single CSG render call.
 pub struct CsgGroup {
   pub primitives: Vec<CsgLeaf>,
 }
@@ -57,7 +58,7 @@ pub struct SolidMesh {
   pub vertices: Vec<[f32; 3]>,
   /// Color (RGB, 0..1).
   pub color: [f32; 3],
-  /// Surface material (approximated by fixed-function GL).
+  /// Surface material (approximated by Blinn-Phong shading).
   pub material: MaterialSpec,
 }
 
@@ -88,7 +89,7 @@ const BACKGROUND_COLOR: [f32; 4] = [0.71, 0.71, 0.71, 0.5];
 
 // --- Public API ---
 
-/// Flatten all geometries' ScadNode trees into a CsgScene for OpenCSG.
+/// Flatten all geometries' ScadNode trees into a CsgScene for WebCSG.
 /// Falls back to using the csgrs mesh when no ScadNode is available.
 pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
   let mut sink = ModifierSink::default();
@@ -110,7 +111,7 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
               primitives: vec![CsgLeaf {
                 vertices,
                 transform: IDENTITY,
-                operation: INTERSECTION,
+                operation: Operation::Intersection,
                 convexity: 1,
                 color: geom
                   .color
@@ -310,7 +311,7 @@ struct Ctx {
   base_color: Option<[f32; 3]>,
   material: MaterialSpec,
   /// Depth complexity promised by an enclosing `Render` node: how many
-  /// front-facing surfaces a ray may cross. OpenCSG's depth pass peels
+  /// front-facing surfaces a ray may cross. WebCSG's depth pass peels
   /// only this many layers, so a subtracted concave primitive (e.g. a
   /// thread) previewed with too small a value loses its deeper surfaces.
   convexity: u32,
@@ -342,7 +343,7 @@ fn flatten_node(
     material,
     convexity: 1,
   };
-  flatten_inner(node, &ctx, INTERSECTION, sink)
+  flatten_inner(node, &ctx, Operation::Intersection, sink)
 }
 
 type Aabb = ([f32; 3], [f32; 3]);
@@ -578,7 +579,7 @@ fn node_bbox(node: &ScadNode) -> Option<Aabb> {
 /// more than the reference's own diagonal on some axis.
 ///
 /// Such an operand — the giant sphere carving a shallow recess, the huge
-/// cube cutting a model in half — breaks the image-space CSG pass: OpenCSG
+/// cube cutting a model in half — breaks the image-space CSG pass: WebCSG
 /// needs both the front and back faces of every primitive inside the view
 /// frustum, but the camera orbits at a distance set by the *result's* size,
 /// so it routinely ends up inside the oversized operand. Its front faces
@@ -601,17 +602,17 @@ fn dwarfs(operand: &ScadNode, reference: Aabb) -> bool {
 }
 
 /// Returns true if `node`, sitting at `op` position, can be folded into the
-/// single OpenCSG product `I1 ∩ … ∩ In − S1 − … − Sm` that its enclosing
+/// single WebCSG product `I1 ∩ … ∩ In − S1 − … − Sm` that its enclosing
 /// boolean is flattened into.
 ///
 /// Only some tree shapes fit. A union is a *sum* of products and a subtracted
 /// difference expands to two products (`X − (A − B) = (X − A) ∪ (X ∩ B)`), so
 /// neither can be appended to the enclosing product's operand list.
 /// Non-tessellatable primitives (hull, Minkowski, extrusions) don't fit either
-/// — they have no leaf tessellation to hand OpenCSG. Whatever doesn't fit is
+/// — they have no leaf tessellation to hand WebCSG. Whatever doesn't fit is
 /// computed by Manifold instead and rendered as a plain mesh.
-fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
-  // A 2D shape has no OpenCSG form at all: its booleans combine areas, which
+fn fits_in_product(node: &ScadNode, op: Operation) -> bool {
+  // A 2D shape has no WebCSG form at all: its booleans combine areas, which
   // is Manifold's job, and the result draws as one flat mesh.
   if node_dimension(node) == Dimension::Two {
     return false;
@@ -635,7 +636,7 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     | ScadNode::Material { child, .. } => fits_in_product(child, op),
 
     // A declared depth complexity above 1 marks a deeply concave shape
-    // (a thread, an imported mesh). OpenCSG's layered Goldfeather pass
+    // (a thread, an imported mesh). WebCSG's layered Goldfeather pass
     // garbles those on the GL stacks the studio runs on — surface layers
     // drop out in facet-aligned stripes — so the product is computed by
     // Manifold instead. This also matches OpenSCAD, where `render()`
@@ -670,10 +671,10 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     // when every operand is subtracted — but not in an intersected position,
     // where it would turn into `A ∩ B`.
     ScadNode::Union(children) => {
-      op == SUBTRACTION
+      op == Operation::Subtraction
         && children
           .iter()
-          .all(|child| fits_in_product(child, SUBTRACTION))
+          .all(|child| fits_in_product(child, Operation::Subtraction))
     }
 
     // `X ∩ (A − B)` = `X ∩ A − B` keeps one product; subtracting the same
@@ -683,15 +684,15 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
       // A cutter dwarfing the base (see `dwarfs`) is measured against the
       // base's box — the result can be no larger.
       let base_bbox = base.and_then(|i| node_bbox(&children[i]));
-      op == INTERSECTION
+      op == Operation::Intersection
         && children.iter().enumerate().all(|(i, child)| {
           let child_op = if Some(i) == base {
-            INTERSECTION
+            Operation::Intersection
           } else {
-            SUBTRACTION
+            Operation::Subtraction
           };
           fits_in_product(child, child_op)
-            && !(child_op == SUBTRACTION
+            && !(child_op == Operation::Subtraction
               && base_bbox.is_some_and(|b| dwarfs(child, b)))
         })
     }
@@ -702,9 +703,9 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
     // case it catches.
     ScadNode::Intersection(children) => {
       let overlap = node_bbox(node);
-      op == INTERSECTION
+      op == Operation::Intersection
         && children.iter().all(|child| {
-          fits_in_product(child, INTERSECTION)
+          fits_in_product(child, Operation::Intersection)
             && !overlap.is_some_and(|b| dwarfs(child, b))
         })
     }
@@ -717,7 +718,7 @@ fn fits_in_product(node: &ScadNode, op: c_int) -> bool {
 fn flatten_inner(
   node: &ScadNode,
   ctx: &Ctx,
-  op: c_int,
+  op: Operation,
   sink: &mut ModifierSink,
 ) -> Vec<CsgGroup> {
   match node {
@@ -729,9 +730,9 @@ fn flatten_inner(
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
-      // Each child of a union becomes its own group (separate OpenCSG render call).
+      // Each child of a union becomes its own group (separate WebCSG render call).
       // Propagate `op` so that when a union appears inside a Difference (as a
-      // subtracted operand), its leaves inherit the SUBTRACTION operation.
+      // subtracted operand), its leaves inherit the Operation::Subtraction operation.
       let mut groups = Vec::new();
       for child in children {
         groups.extend(flatten_inner(child, ctx, op, sink));
@@ -739,9 +740,9 @@ fn flatten_inner(
       groups
     }
     ScadNode::Difference(children) if !children.is_empty() => {
-      // Shapes that don't fit a single OpenCSG product (nested unions and
+      // Shapes that don't fit a single WebCSG product (nested unions and
       // differences, hulls, extrusions, …) are computed by Manifold as a
-      // whole, which also avoids OpenCSG depth-buffer artifacts.
+      // whole, which also avoids WebCSG depth-buffer artifacts.
       if !fits_in_product(node, op) {
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
@@ -754,9 +755,9 @@ fn flatten_inner(
       for child in children {
         let child_op = if !base_found && !child.is_csg_dropped() {
           base_found = true;
-          INTERSECTION
+          Operation::Intersection
         } else {
-          SUBTRACTION
+          Operation::Subtraction
         };
         let child_groups = flatten_inner(child, ctx, child_op, sink);
         for g in child_groups {
@@ -778,7 +779,8 @@ fn flatten_inner(
       // All children are Intersection, in one group.
       let mut leaves = Vec::new();
       for child in children {
-        let child_groups = flatten_inner(child, ctx, INTERSECTION, sink);
+        let child_groups =
+          flatten_inner(child, ctx, Operation::Intersection, sink);
         for g in child_groups {
           leaves.extend(g.primitives);
         }
@@ -874,7 +876,8 @@ fn flatten_inner(
       ModifierKind::Only => {
         if sink.only.is_none() {
           let mut sub = ModifierSink::default();
-          let groups = flatten_inner(child, ctx, INTERSECTION, &mut sub);
+          let groups =
+            flatten_inner(child, ctx, Operation::Intersection, &mut sub);
           sink.only = Some(match sub.only {
             Some(inner) => inner,
             None => CsgScene {
@@ -1125,7 +1128,7 @@ fn cad_to_gl_vertices(verts: Vec<[f32; 3]>) -> Vec<[f32; 3]> {
 fn make_leaf_group(
   vertices: Vec<[f32; 3]>,
   ctx: &Ctx,
-  op: c_int,
+  op: Operation,
   convexity: u32,
 ) -> Vec<CsgGroup> {
   if vertices.is_empty() {
@@ -1197,7 +1200,7 @@ fn tessellate_cube(w: f32, d: f32, h: f32, center: bool) -> Vec<[f32; 3]> {
 
 /// Compute a rounded cuboid mesh via Manifold's Minkowski sum of an inner
 /// box with a sphere. Same approach OpenSCAD uses for Minkowski preview:
-/// compute the full mesh first, then pass it to OpenCSG as a leaf primitive.
+/// compute the full mesh first, then pass it to WebCSG as a leaf primitive.
 fn manifold_rounded_cube(
   w: f32,
   d: f32,
@@ -1453,7 +1456,8 @@ fn collect_modifier_effects(
       ModifierKind::Only => {
         if sink.only.is_none() {
           let mut sub = ModifierSink::default();
-          let groups = flatten_inner(child, ctx, INTERSECTION, &mut sub);
+          let groups =
+            flatten_inner(child, ctx, Operation::Intersection, &mut sub);
           sink.only = Some(match sub.only {
             Some(inner) => inner,
             None => CsgScene {
@@ -1480,11 +1484,11 @@ fn collect_modifier_effects(
 }
 
 /// Build a ScadNode tree from primitives, materialize it via Manifold, and
-/// return CsgGroups ready for OpenCSG rendering.
+/// return CsgGroups ready for WebCSG rendering.
 fn manifold_preview(
   node: &ScadNode,
   ctx: &Ctx,
-  op: c_int,
+  op: Operation,
   convexity: u32,
 ) -> Vec<CsgGroup> {
   // Dimension-aware, so a 2D shape shows up flat instead of not at all.
@@ -1809,7 +1813,7 @@ mod modifier_tests {
     );
     assert_eq!(scene.groups.len(), 1, "only the `!` subtree must remain");
     let leaf = &scene.groups[0].primitives[0];
-    assert_eq!(leaf.operation, INTERSECTION);
+    assert_eq!(leaf.operation, Operation::Intersection);
     assert_eq!(
       [leaf.transform[12], leaf.transform[13], leaf.transform[14]],
       [10.0, 30.0, 5.0],
@@ -1830,7 +1834,7 @@ mod modifier_tests {
       .collect();
     assert_eq!(
       ops,
-      vec![INTERSECTION, SUBTRACTION],
+      vec![Operation::Intersection, Operation::Subtraction],
       "`#` must still participate in the difference"
     );
     assert_eq!(scene.overlays.len(), 1, "`#` must add a highlight overlay");
@@ -1845,7 +1849,7 @@ mod modifier_tests {
     let leaves: Vec<_> =
       scene.groups.iter().flat_map(|g| &g.primitives).collect();
     assert_eq!(leaves.len(), 1, "only the sphere must remain in the CSG");
-    assert_eq!(leaves[0].operation, INTERSECTION);
+    assert_eq!(leaves[0].operation, Operation::Intersection);
     assert_eq!(scene.overlays.len(), 1, "`%` must add a background overlay");
     assert_eq!(scene.overlays[0].color, BACKGROUND_COLOR);
   }
@@ -1865,7 +1869,7 @@ mod product_tests {
     assert_eq!(scene.groups.len(), 1, "{what}: expected one group");
     let prims = &scene.groups[0].primitives;
     assert_eq!(prims.len(), 1, "{what}: expected one materialized leaf");
-    assert_eq!(prims[0].operation, INTERSECTION);
+    assert_eq!(prims[0].operation, Operation::Intersection);
     assert!(
       !prims[0].vertices.is_empty(),
       "{what}: leaf must have geometry"
@@ -1875,7 +1879,7 @@ mod product_tests {
   #[test]
   fn render_node_materializes_the_product() {
     // `render(convexity = n)` with n > 1 declares a shape too deep for
-    // OpenCSG's layered pass; the whole product drops to Manifold, like
+    // WebCSG's layered pass; the whole product drops to Manifold, like
     // OpenSCAD materializing a `render()` subtree at preview time.
     let scene = flatten_lua(
       "render(cube({ 20, 20, 20 })
@@ -1887,7 +1891,7 @@ mod product_tests {
   #[test]
   fn subtracted_thread_is_materialized() {
     // A threaded rod is deeply concave: a ray along the axis crosses one
-    // crest per pitch. Previewed as a subtracted OpenCSG primitive, its
+    // crest per pitch. Previewed as a subtracted WebCSG primitive, its
     // deeper surface layers came out garbled, leaving brick-shaped holes
     // across the bore wall — so the thread's own convexity declaration
     // must drop the whole product to Manifold.
@@ -1907,7 +1911,7 @@ mod product_tests {
 
   #[test]
   fn subtracted_difference_is_materialized() {
-    // `X - (A - B)` is not one OpenCSG product: flattening it in place would
+    // `X - (A - B)` is not one WebCSG product: flattening it in place would
     // render `X ∩ A - B` and drop the island `B` leaves inside the cavity.
     let scene = flatten_lua(
       r#"
@@ -1962,7 +1966,7 @@ mod product_tests {
   #[test]
   fn subtracted_union_still_uses_opencsg() {
     // `X - (A ∪ B)` = `X - A - B` does fit one product, so it must keep the
-    // cheap OpenCSG path instead of falling back to Manifold.
+    // cheap WebCSG path instead of falling back to Manifold.
     let scene = flatten_lua(
       r#"
       local holes = cylinder({ r = 3, h = 30 }):translate(5, 5, -5)
@@ -1976,7 +1980,14 @@ mod product_tests {
       .iter()
       .map(|p| p.operation)
       .collect();
-    assert_eq!(ops, vec![INTERSECTION, SUBTRACTION, SUBTRACTION]);
+    assert_eq!(
+      ops,
+      vec![
+        Operation::Intersection,
+        Operation::Subtraction,
+        Operation::Subtraction
+      ]
+    );
   }
 
   /// Write an OFF tetrahedron somewhere `import()` can read it back.
@@ -2009,7 +2020,7 @@ mod product_tests {
 
   #[test]
   fn an_imported_mesh_can_be_subtracted_in_one_product() {
-    // The imported leaf carries its own tessellation, so OpenCSG can take it
+    // The imported leaf carries its own tessellation, so WebCSG can take it
     // as a product operand instead of forcing a Manifold materialization.
     let path = temp_tetrahedron();
     let scene = flatten_lua(&format!(
@@ -2021,7 +2032,7 @@ mod product_tests {
       .iter()
       .map(|p| p.operation)
       .collect();
-    assert_eq!(ops, vec![INTERSECTION, SUBTRACTION]);
+    assert_eq!(ops, vec![Operation::Intersection, Operation::Subtraction]);
     let _ = std::fs::remove_file(&path);
   }
 
@@ -2052,7 +2063,14 @@ mod product_tests {
       .iter()
       .map(|p| p.operation)
       .collect();
-    assert_eq!(ops, vec![INTERSECTION, INTERSECTION, SUBTRACTION]);
+    assert_eq!(
+      ops,
+      vec![
+        Operation::Intersection,
+        Operation::Intersection,
+        Operation::Subtraction
+      ]
+    );
   }
 }
 
@@ -2098,7 +2116,7 @@ mod tests {
 
   /// A `surface()` heightmap inside a boolean must reach the normal preview.
   /// It used to fall through the leaf walker's catch-all while still counting
-  /// as part of the OpenCSG product, so the emblem it carved simply vanished
+  /// as part of the WebCSG product, so the emblem it carved simply vanished
   /// from the shaded view (and only appeared in transparent mode).
   #[test]
   fn a_heightmap_reaches_the_viewport() {
@@ -2132,7 +2150,7 @@ mod tests {
   }
 
   /// A cutter that dwarfs its base — the medal's 500-radius sphere carving a
-  /// shallow recess out of a 150-radius disc — must not become an OpenCSG
+  /// shallow recess out of a 150-radius disc — must not become an WebCSG
   /// leaf: the camera orbits at the result's scale, ends up inside the
   /// sphere, and the subtraction drops out at those angles. The product is
   /// materialized by Manifold instead, which shows as a single primitive.
@@ -2167,7 +2185,7 @@ mod tests {
   }
 
   /// An ordinary subtraction — a bolt hole overshooting its plate a little —
-  /// keeps the interactive per-primitive OpenCSG path.
+  /// keeps the interactive per-primitive WebCSG path.
   #[test]
   fn a_proportionate_cutter_still_forms_a_product() {
     let base = ScadNode::Cube {
@@ -2186,6 +2204,6 @@ mod tests {
     let scene =
       flatten_geometries(&[geometry(ScadNode::Difference(vec![base, cutter]))]);
     let leaves: usize = scene.groups.iter().map(|g| g.primitives.len()).sum();
-    assert_eq!(leaves, 2, "expected an OpenCSG product of base and cutter");
+    assert_eq!(leaves, 2, "expected an WebCSG product of base and cutter");
   }
 }

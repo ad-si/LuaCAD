@@ -22,19 +22,24 @@ csgrs = ["dep:csgrs", "luacad/csgrs"]
 luacad = { workspace = true, features = ["raytrace"] }
 clap = { workspace = true }
 egui = "0.36"
-egui_glow = "0.36"
+# The `winit` feature brings the surface-managing `Painter`
+egui-wgpu = { version = "0.36", features = ["winit"] }
 egui_extras = { version = "0.36", features = ["default", "syntect"] }
+# The version egui-wgpu 0.36 is built against
+wgpu = "30"
+# Image-based CSG for the live preview, on the same wgpu device as egui
+webcsg = { path = "../../../WebCSG" }
+# WebCSG's matrix type; the camera keeps using cgmath
+glam = "0.33"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
 cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }
-opencsg-sys = { workspace = true }
 arboard = "3"
 # Deflates the screenshot PDF's image and content streams
 flate2 = "1"
 rfd = "0.17"
 winit = "0.30"
-glutin = "0.32"
-glow = "0.17"
-raw-window-handle = "0.6"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 dirs = "6"
 serde_json = "1"

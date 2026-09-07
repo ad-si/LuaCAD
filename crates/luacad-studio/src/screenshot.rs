@@ -232,66 +232,36 @@ fn local_timestamp() -> String {
   now.format(&format).unwrap_or_default()
 }
 
-/// Flip an image's rows, converting between OpenGL's bottom-up read-back and
-/// the top-down order everything else uses.
-pub fn flip_rows(rgb: &[u8], width: usize, height: usize) -> Vec<u8> {
-  let stride = width * 3;
-  let mut out = Vec::with_capacity(rgb.len());
-  for row in (0..height).rev() {
-    out.extend_from_slice(&rgb[row * stride..(row + 1) * stride]);
-  }
-  out
-}
-
-/// Read a region of the window's back buffer, given in screen points.
+/// Cut a region, given in screen points, out of a whole-window frame read
+/// back from the GPU (in physical pixels, top row first).
 ///
-/// Has to run after the frame is fully drawn and before the buffers are
-/// swapped — and in a frame that no longer paints the selection overlay,
+/// The frame has to be one that no longer paints the selection overlay,
 /// which would otherwise end up in the image.
 pub fn capture_region(
-  gl: &glow::Context,
+  frame: &egui::ColorImage,
   region: egui::Rect,
   pixels_per_point: f32,
-  frame_width: u32,
-  frame_height: u32,
 ) -> Option<Capture> {
+  let [frame_width, frame_height] = frame.size;
   let left = (region.left() * pixels_per_point).round() as i32;
   let top = (region.top() * pixels_per_point).round() as i32;
-  let left = left.clamp(0, frame_width as i32);
-  let top = top.clamp(0, frame_height as i32);
+  let left = left.clamp(0, frame_width as i32) as usize;
+  let top = top.clamp(0, frame_height as i32) as usize;
   let width = ((region.width() * pixels_per_point).round() as i32)
-    .min(frame_width as i32 - left);
+    .clamp(0, (frame_width - left) as i32) as usize;
   let height = ((region.height() * pixels_per_point).round() as i32)
-    .min(frame_height as i32 - top);
+    .clamp(0, (frame_height - top) as i32) as usize;
   if width < 1 || height < 1 {
     return None;
   }
-  // OpenGL counts rows from the bottom of the frame buffer
-  let bottom = frame_height as i32 - (top + height);
 
-  let mut rgb = vec![0u8; (width * height * 3) as usize];
-  unsafe {
-    use glow::HasContext as _;
-    gl.read_buffer(glow::BACK);
-    // Rows of an RGB image are not multiples of the default 4-byte alignment
-    gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-    gl.read_pixels(
-      left,
-      bottom,
-      width,
-      height,
-      glow::RGB,
-      glow::UNSIGNED_BYTE,
-      glow::PixelPackData::Slice(Some(&mut rgb)),
-    );
+  let mut rgb = Vec::with_capacity(width * height * 3);
+  for row in top..top + height {
+    for pixel in &frame.pixels[row * frame_width + left..][..width] {
+      rgb.extend_from_slice(&pixel.to_array()[..3]);
+    }
   }
-
-  let (width, height) = (width as usize, height as usize);
-  Some(Capture {
-    width,
-    height,
-    rgb: flip_rows(&rgb, width, height),
-  })
+  Some(Capture { width, height, rgb })
 }
 
 /// Draw the area selection over the window and, once the drag ends, queue the
@@ -1038,16 +1008,35 @@ mod tests {
     }
   }
 
+  /// The selection is in screen points; the frame is in physical pixels.
   #[test]
-  fn read_back_rows_are_turned_right_side_up() {
-    let rgb = vec![
-      1, 1, 1, 2, 2, 2, // bottom row as OpenGL returns it
-      3, 3, 3, 4, 4, 4, // top row
-    ];
-    assert_eq!(
-      flip_rows(&rgb, 2, 2),
-      vec![3, 3, 3, 4, 4, 4, 1, 1, 1, 2, 2, 2]
-    );
+  fn the_region_is_cut_out_of_the_frame_at_the_pixel_scale() {
+    let mut frame = egui::ColorImage::filled([4, 4], egui::Color32::BLACK);
+    // The pixel at (2, 3) is the only bright one
+    frame.pixels[3 * 4 + 2] = egui::Color32::from_rgb(10, 20, 30);
+    // One point wide and high, two pixels per point, at point (1, 1.5)
+    let region =
+      egui::Rect::from_min_size(egui::pos2(1.0, 1.5), egui::vec2(1.0, 0.5));
+
+    let capture = capture_region(&frame, region, 2.0).expect("captured");
+
+    assert_eq!((capture.width, capture.height), (2, 1));
+    assert_eq!(capture.rgb, vec![10, 20, 30, 0, 0, 0]);
+  }
+
+  /// A selection dragged off the window is cut to it, and one entirely
+  /// outside captures nothing.
+  #[test]
+  fn the_region_is_clamped_to_the_frame() {
+    let frame = egui::ColorImage::filled([4, 4], egui::Color32::WHITE);
+    let region =
+      egui::Rect::from_min_size(egui::pos2(3.0, 3.0), egui::vec2(10.0, 10.0));
+    let capture = capture_region(&frame, region, 1.0).expect("captured");
+    assert_eq!((capture.width, capture.height), (1, 1));
+
+    let outside =
+      egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(2.0, 2.0));
+    assert!(capture_region(&frame, outside, 1.0).is_none());
   }
 
   #[test]

@@ -1,295 +1,1177 @@
-use crate::camera::*;
-use cgmath::InnerSpace;
+//! The 3D preview: image-based CSG through WebCSG, shaded on the wgpu device
+//! egui paints with.
+//!
+//! The scene is rendered into an offscreen texture that egui shows as an
+//! image in the viewport area. Each [`CsgGroup`] goes through WebCSG, which
+//! fills the depth buffer with the visible surface of the CSG product, and
+//! is then shaded with an `Equal` depth test so exactly that surface gets
+//! colored. Translucent modifier overlays (`#` and `%`) are blended on top;
+//! the transparent view mode draws the materialized solids see-through
+//! instead of the CSG groups.
 
 use crate::app::AppState;
+use crate::camera::*;
 use crate::csg_tree::{CsgGroup, OverlayMesh, SolidMesh};
+use cgmath::InnerSpace;
+use glam::Mat4;
 use luacad::material::{MaterialKind, MaterialSpec};
-use opencsg_sys::OcsgPrimitive;
-use std::ffi::c_void;
+use std::sync::Arc;
+use webcsg::{BoundingBox, Operation, Primitive};
+use wgpu::util::DeviceExt;
 
-/// Data passed to the OpenCSG render callback for each leaf primitive.
-struct LeafRenderData {
-  vertex_count: usize,
-  transform: [f32; 16],
-  /// VBO holding vertex positions (3 floats per vertex).
-  vbo_vertices: u32,
-  /// VBO holding per-vertex normals (3 floats per vertex, one face normal per vertex).
-  vbo_normals: u32,
-}
-
-/// OpenCSG render callback: draws the leaf's triangulated geometry using VBOs.
-unsafe extern "C" fn render_leaf_callback(user_data: *mut c_void) {
-  let data = unsafe { &*(user_data as *const LeafRenderData) };
-
-  unsafe {
-    gl_PushMatrix();
-    gl_MultMatrixf(data.transform.as_ptr());
-
-    // Use VBOs (server-side buffer objects) instead of immediate mode or
-    // client-side vertex arrays. Client-side arrays don't work on some
-    // GL 4.5 Compatibility contexts (e.g. llvmpipe on aarch64 Linux), and
-    // immediate mode inside OpenCSG's FBO causes CSG artifacts on llvmpipe.
-    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
-    gl_EnableClientState(GL_VERTEX_ARRAY);
-    gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
-    gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
-    gl_DisableClientState(GL_VERTEX_ARRAY);
-    gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-
-    gl_PopMatrix();
-  }
-}
+/// The scene is rendered at this multiple of its on-screen size and filtered
+/// back down when egui paints it, which smooths the silhouettes and the axis
+/// lines. WebCSG works on single-sampled targets, so multisampling is not an
+/// option for the CSG pass.
+///
+/// Costs `SSAA_FACTOR²` in fill rate and texture memory, which is why the
+/// render is cached between frames (see `SceneSignature` in `main.rs`).
+pub const SSAA_FACTOR: u32 = 2;
 
 /// Opacity of an object in the transparent view mode.
 const TRANSPARENT_ALPHA: f32 = 0.4;
 
-/// Model transform of a mesh whose transforms are already baked into its
-/// vertices, as the materialized solids are.
-const IDENTITY_TRANSFORM: [f32; 16] = [
+/// Color format of the offscreen scene texture. Not sRGB: the shading writes
+/// display values, like the fixed-function GL preview did, and egui samples
+/// the texture as is.
+const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// Positions only, three floats per vertex, at shader location 0 as WebCSG
+/// requires.
+const VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> =
+  wgpu::VertexBufferLayout {
+    array_stride: 12,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &[wgpu::VertexAttribute {
+      offset: 0,
+      shader_location: 0,
+      format: wgpu::VertexFormat::Float32x3,
+    }],
+  };
+
+/// Uniforms of one draw call, see `Draw` in `shaders/scene.wgsl`.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DrawUniforms {
+  mvp: [[f32; 4]; 4],
+  model_view: [[f32; 4]; 4],
+  color: [f32; 4],
+  specular: [f32; 4],
+  emission: [f32; 4],
+  line: [f32; 4],
+}
+
+/// A vertex of the axis line quads, see `LineVertex` in the shader.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct LineVertex {
+  start: [f32; 3],
+  end: [f32; 3],
+  color: [f32; 3],
+  corner: [f32; 2],
+}
+
+const LINE_VERTEX_LAYOUT: wgpu::VertexBufferLayout<'static> =
+  wgpu::VertexBufferLayout {
+    array_stride: std::mem::size_of::<LineVertex>() as u64,
+    step_mode: wgpu::VertexStepMode::Vertex,
+    attributes: &[
+      wgpu::VertexAttribute {
+        offset: 0,
+        shader_location: 0,
+        format: wgpu::VertexFormat::Float32x3,
+      },
+      wgpu::VertexAttribute {
+        offset: 12,
+        shader_location: 1,
+        format: wgpu::VertexFormat::Float32x3,
+      },
+      wgpu::VertexAttribute {
+        offset: 24,
+        shader_location: 2,
+        format: wgpu::VertexFormat::Float32x3,
+      },
+      wgpu::VertexAttribute {
+        offset: 36,
+        shader_location: 3,
+        format: wgpu::VertexFormat::Float32x2,
+      },
+    ],
+  };
+
+/// Maps OpenGL clip space (depth in [-1, 1]) to WebGPU clip space (depth in
+/// [0, 1]): z' = 0.5 z + 0.5 w.
+const GL_TO_WGPU_DEPTH: Mat4 = Mat4::from_cols_array(&[
   1.0, 0.0, 0.0, 0.0, //
   0.0, 1.0, 0.0, 0.0, //
-  0.0, 0.0, 1.0, 0.0, //
-  0.0, 0.0, 0.0, 1.0, //
-];
+  0.0, 0.0, 0.5, 0.0, //
+  0.0, 0.0, 0.5, 1.0, //
+]);
 
-/// Render the full CSG scene using OpenCSG.
-///
-/// This performs OpenCSG's z-buffer CSG for each group, then a shading pass
-/// with fixed-function lighting and `GL_EQUAL` depth test. Translucent
-/// modifier overlays (`#` and `%`) are blended on top at the end.
-///
-/// With `transparent` set, the CSG groups give way to the materialized
-/// `solids`, drawn see-through (see [`render_transparent_solids`]). A scene
-/// that materialized to nothing stays opaque rather than disappearing.
-pub fn render_opencsg_scene(
-  groups: &[CsgGroup],
-  overlays: &[OverlayMesh],
-  solids: &[SolidMesh],
-  projection: &[f32; 16],
-  view: &[f32; 16],
-  transparent: bool,
-) {
-  let transparent = transparent && !solids.is_empty();
-  unsafe {
-    // Ensure we're using the fixed-function pipeline (no shader program active).
-    // egui_glow leaves a shader program bound after rendering which would
-    // intercept our legacy GL calls.
-    gl_UseProgram(0);
+/// Everything one render of the scene depends on.
+pub struct SceneView<'a> {
+  pub groups: &'a [CsgGroup],
+  pub overlays: &'a [OverlayMesh],
+  pub solids: &'a [SolidMesh],
+  /// Bumped whenever the three slices above change
+  pub scene_revision: u64,
+  /// Column-major projection with OpenGL's depth range, as the camera makes it
+  pub projection: [f32; 16],
+  /// Column-major view matrix
+  pub view: [f32; 16],
+  pub orthographic: bool,
+  pub transparent: bool,
+  pub background: (f32, f32, f32),
+  /// Half length of the axis lines, in world units
+  pub axis_length: f32,
+}
 
-    // Unbind any VAO left by glow/egui so that legacy client-side vertex
-    // arrays (glVertexPointer, glNormalPointer) work correctly.
-    // On GL 3.0+ contexts, a non-default VAO ignores client pointers.
-    gl_BindVertexArray(0);
+// ---------------------------------------------------------------------------
+// Geometry on the GPU
 
-    // Set up legacy GL matrices from camera
-    gl_MatrixMode(GL_PROJECTION);
-    gl_LoadMatrixf(projection.as_ptr());
+/// A triangle mesh in a vertex buffer.
+struct GpuMesh {
+  buffer: wgpu::Buffer,
+  vertex_count: u32,
+  /// Object-space bounds, `None` for an empty mesh
+  bounds: Option<BoundingBox>,
+}
 
-    // Set up fixed-function lighting
-    gl_Enable(GL_LIGHTING);
-    gl_Enable(GL_LIGHT0);
-    gl_Enable(GL_LIGHT1);
-    gl_Enable(GL_LIGHT2);
-    gl_Enable(GL_NORMALIZE);
-    gl_Enable(GL_COLOR_MATERIAL);
-    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-
-    // Ambient light (35%)
-    let ambient: [f32; 4] = [0.35, 0.35, 0.35, 1.0];
-    gl_LightModelfv(GL_LIGHT_MODEL_AMBIENT, ambient.as_ptr());
-
-    // Two-sided lighting: subtracted primitives expose inner surfaces whose
-    // normals face away from the viewer. This ensures they're still lit.
-    gl_LightModeli(GL_LIGHT_MODEL_TWO_SIDE, 1);
-
-    let no_amb: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-
-    // Set light positions with identity modelview so they remain fixed in
-    // world space and don't move when the camera orbits.
-    gl_MatrixMode(GL_MODELVIEW);
-    gl_LoadIdentity();
-
-    // Key light (90%, top-right-front) with specular
-    let light0_dir: [f32; 4] = [1.0, 1.0, 0.5, 0.0]; // directional
-    let light0_diff: [f32; 4] = [0.9, 0.9, 0.9, 1.0];
-    let light0_spec: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
-    gl_Lightfv(GL_LIGHT0, GL_POSITION, light0_dir.as_ptr());
-    gl_Lightfv(GL_LIGHT0, GL_DIFFUSE, light0_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT0, GL_SPECULAR, light0_spec.as_ptr());
-    gl_Lightfv(GL_LIGHT0, GL_AMBIENT, no_amb.as_ptr());
-
-    // Fill light (55%, front-left, slightly above)
-    let light1_dir: [f32; 4] = [-1.0, 0.3, 0.5, 0.0];
-    let light1_diff: [f32; 4] = [0.55, 0.55, 0.55, 1.0];
-    gl_Lightfv(GL_LIGHT1, GL_POSITION, light1_dir.as_ptr());
-    gl_Lightfv(GL_LIGHT1, GL_DIFFUSE, light1_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT1, GL_AMBIENT, no_amb.as_ptr());
-
-    // Bottom light (40%, from below)
-    let light2_dir: [f32; 4] = [0.0, -1.0, 0.0, 0.0];
-    let light2_diff: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
-    gl_Lightfv(GL_LIGHT2, GL_POSITION, light2_dir.as_ptr());
-    gl_Lightfv(GL_LIGHT2, GL_DIFFUSE, light2_diff.as_ptr());
-    gl_Lightfv(GL_LIGHT2, GL_AMBIENT, no_amb.as_ptr());
-
-    // Now load the actual view matrix for geometry rendering
-    gl_LoadMatrixf(view.as_ptr());
-
-    // Material specular properties (subtle highlight, medium shininess)
-    let mat_spec: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
-    let mat_shin: f32 = 25.0;
-    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec.as_ptr());
-    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, mat_shin);
-
-    // Disable lighting for the OpenCSG depth pass (it only cares about geometry)
-    gl_Disable(GL_LIGHTING);
+impl GpuMesh {
+  fn new(device: &wgpu::Device, vertices: &[[f32; 3]]) -> Self {
+    let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("Scene Mesh"),
+      contents: bytemuck::cast_slice(vertices),
+      usage: wgpu::BufferUsages::VERTEX,
+    });
+    Self {
+      buffer,
+      vertex_count: vertices.len() as u32,
+      bounds: bounds_of(vertices),
+    }
   }
+}
+
+fn bounds_of(vertices: &[[f32; 3]]) -> Option<BoundingBox> {
+  let mut min = glam::Vec3::splat(f32::INFINITY);
+  let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+  for vertex in vertices {
+    let v = glam::Vec3::from(*vertex);
+    min = min.min(v);
+    max = max.max(v);
+  }
+  (!vertices.is_empty()).then_some(BoundingBox::new(min, max))
+}
+
+struct GpuLeaf {
+  mesh: GpuMesh,
+  /// Model transform in GL space
+  transform: Mat4,
+  operation: Operation,
+  convexity: u32,
+  color: [f32; 3],
+  material: MaterialSpec,
+}
+
+struct GpuGroup {
+  leaves: Vec<GpuLeaf>,
+}
+
+struct GpuOverlay {
+  mesh: GpuMesh,
+  transform: Mat4,
+  color: [f32; 4],
+}
+
+struct GpuSolid {
+  mesh: GpuMesh,
+  color: [f32; 3],
+  material: MaterialSpec,
+  /// Center of the bounding box, for the back-to-front sort
+  center: [f32; 3],
+}
+
+/// The scene's geometry, uploaded once per scene revision.
+struct GpuScene {
+  revision: u64,
+  groups: Vec<GpuGroup>,
+  overlays: Vec<GpuOverlay>,
+  solids: Vec<GpuSolid>,
+}
+
+impl GpuScene {
+  fn new(device: &wgpu::Device, view: &SceneView) -> Self {
+    let groups = view
+      .groups
+      .iter()
+      .map(|group| GpuGroup {
+        leaves: group
+          .primitives
+          .iter()
+          .filter(|leaf| !leaf.vertices.is_empty())
+          .map(|leaf| GpuLeaf {
+            mesh: GpuMesh::new(device, &leaf.vertices),
+            transform: Mat4::from_cols_array(&cad_to_gl_transform(
+              &leaf.transform,
+            )),
+            operation: leaf.operation,
+            convexity: leaf.convexity,
+            color: leaf.color,
+            material: leaf.material,
+          })
+          .collect(),
+      })
+      .collect();
+    let overlays = view
+      .overlays
+      .iter()
+      .filter(|overlay| !overlay.vertices.is_empty())
+      .map(|overlay| GpuOverlay {
+        mesh: GpuMesh::new(device, &overlay.vertices),
+        transform: Mat4::from_cols_array(&cad_to_gl_transform(
+          &overlay.transform,
+        )),
+        color: overlay.color,
+      })
+      .collect();
+    let solids = view
+      .solids
+      .iter()
+      .filter(|solid| !solid.vertices.is_empty())
+      .map(|solid| GpuSolid {
+        mesh: GpuMesh::new(device, &solid.vertices),
+        color: solid.color,
+        material: solid.material,
+        center: bounding_center(&solid.vertices),
+      })
+      .collect();
+    Self {
+      revision: view.scene_revision,
+      groups,
+      overlays,
+      solids,
+    }
+  }
+
+  /// Number of draw calls a render of this scene makes
+  fn draw_count(&self, transparent: bool) -> u32 {
+    let meshes = if transparent {
+      2 * self.solids.len()
+    } else {
+      self.groups.iter().map(|g| g.leaves.len()).sum()
+    };
+    (meshes + self.overlays.len() + 1) as u32
+  }
+}
+
+/// A CSG leaf as WebCSG sees it: drawn from the shading pass's vertex buffer,
+/// so the geometry is uploaded once.
+struct LeafPrimitive {
+  buffer: wgpu::Buffer,
+  vertex_count: u32,
+  operation: Operation,
+  convexity: u32,
+  transform: Mat4,
+  bounding_box: Option<BoundingBox>,
+}
+
+impl Primitive for LeafPrimitive {
+  fn operation(&self) -> Operation {
+    self.operation
+  }
+
+  fn set_operation(&mut self, operation: Operation) {
+    self.operation = operation;
+  }
+
+  fn convexity(&self) -> u32 {
+    self.convexity
+  }
+
+  fn set_convexity(&mut self, convexity: u32) {
+    self.convexity = convexity;
+  }
+
+  fn bounding_box(&self) -> Option<BoundingBox> {
+    self.bounding_box
+  }
+
+  fn set_bounding_box(&mut self, bbox: BoundingBox) {
+    self.bounding_box = Some(bbox);
+  }
+
+  fn vertex_data(&self) -> &[u8] {
+    &[]
+  }
+
+  fn vertex_buffer(&self) -> Option<&wgpu::Buffer> {
+    Some(&self.buffer)
+  }
+
+  fn index_data(&self) -> Option<(&[u8], wgpu::IndexFormat)> {
+    None
+  }
+
+  fn vertex_layout(&self) -> wgpu::VertexBufferLayout<'static> {
+    VERTEX_LAYOUT
+  }
+
+  fn vertex_count(&self) -> u32 {
+    self.vertex_count
+  }
+
+  fn index_range(&self) -> Option<std::ops::Range<u32>> {
+    None
+  }
+
+  fn transform(&self) -> Option<Mat4> {
+    Some(self.transform)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Draw list
+
+/// How a mesh is drawn in the shading pass
+#[derive(Clone, Copy)]
+enum Style {
+  /// Front faces of an intersected primitive where the depth equals the
+  /// CSG result
+  CsgFront,
+  /// Back faces of a subtracted primitive (the walls of the cavity it
+  /// carves) where the depth equals the CSG result
+  CsgBack,
+  /// Ordinary depth-tested mesh, both sides
+  Plain,
+  /// Blended, far side of a see-through solid
+  TransparentBack,
+  /// Blended, near side of a see-through solid
+  TransparentFront,
+  /// Blended over the opaque result, depth-tested but not depth-written
+  Overlay,
+}
+
+/// One mesh draw of the shading pass
+struct Draw<'s> {
+  mesh: &'s GpuMesh,
+  style: Style,
+  /// Index of the draw's uniforms in the uniform buffer
+  uniform: u32,
+}
+
+/// The passes of one render, in order
+enum Step<'s> {
+  /// Let WebCSG merge a CSG product into the depth buffer
+  Csg(Vec<Arc<dyn Primitive>>),
+  /// Shade meshes
+  Draws(Vec<Draw<'s>>),
+}
+
+/// Collects the uniforms of the draws of one render, in draw order.
+struct Uniforms {
+  draws: Vec<DrawUniforms>,
+  view_projection: Mat4,
+  view: Mat4,
+  /// 1.0 for an orthographic projection
+  orthographic: f32,
+  line: [f32; 4],
+}
+
+impl Uniforms {
+  /// Add a draw's uniforms and return their index
+  fn push(
+    &mut self,
+    transform: Mat4,
+    color: [f32; 3],
+    material: Option<&MaterialSpec>,
+    alpha: f32,
+  ) -> u32 {
+    let (color, specular, emission) = match material {
+      Some(material) => material_uniforms(color, material, alpha),
+      None => ([color[0], color[1], color[2], alpha], [0.0; 4], [0.0; 3]),
+    };
+    self.draws.push(DrawUniforms {
+      // Exactly the product WebCSG computes for its depth pass, so that
+      // the `Equal` depth test of the shading hits the CSG surface
+      mvp: (self.view_projection * transform).to_cols_array_2d(),
+      model_view: (self.view * transform).to_cols_array_2d(),
+      color,
+      specular,
+      emission: [emission[0], emission[1], emission[2], self.orthographic],
+      line: self.line,
+    });
+    self.draws.len() as u32 - 1
+  }
+}
+
+/// Build the draw list of a render and its uniforms.
+fn build_steps<'s>(
+  scene: &'s GpuScene,
+  transparent: bool,
+  view: &[f32; 16],
+  uniforms: &mut Uniforms,
+) -> Vec<Step<'s>> {
+  let view_projection = uniforms.view_projection;
+  let mut steps = Vec::new();
 
   if transparent {
-    render_transparent_solids(solids, projection, view);
+    let mut draws = Vec::new();
+    for index in back_to_front(&scene.solids, view) {
+      let solid = &scene.solids[index];
+      let uniform = uniforms.push(
+        Mat4::IDENTITY,
+        solid.color,
+        Some(&solid.material),
+        TRANSPARENT_ALPHA,
+      );
+      // Far side first, so that it is composited under the near side
+      draws.push(Draw {
+        mesh: &solid.mesh,
+        style: Style::TransparentBack,
+        uniform,
+      });
+      draws.push(Draw {
+        mesh: &solid.mesh,
+        style: Style::TransparentFront,
+        uniform,
+      });
+    }
+    steps.push(Step::Draws(draws));
   } else {
-    for group in groups {
-      render_csg_group(group, projection, view);
+    for group in &scene.groups {
+      if group.leaves.is_empty() {
+        continue;
+      }
+      // A group with a single intersected primitive is just a plain mesh:
+      // the CSG pass would contribute nothing, and its convexity-bounded
+      // depth peeling drops surfaces of concave meshes (e.g. a
+      // materialized Minkowski minus a cube). Such groups are drawn with
+      // ordinary depth testing instead.
+      let plain = group.leaves.len() == 1
+        && group.leaves[0].operation == Operation::Intersection;
+      if !plain {
+        let primitives = group
+          .leaves
+          .iter()
+          .map(|leaf| {
+            Arc::new(LeafPrimitive {
+              buffer: leaf.mesh.buffer.clone(),
+              vertex_count: leaf.mesh.vertex_count,
+              operation: leaf.operation,
+              convexity: leaf.convexity,
+              transform: leaf.transform,
+              bounding_box: leaf
+                .mesh
+                .bounds
+                .map(|b| b.transformed(&(view_projection * leaf.transform))),
+            }) as Arc<dyn Primitive>
+          })
+          .collect();
+        steps.push(Step::Csg(primitives));
+      }
+      let draws = group
+        .leaves
+        .iter()
+        .map(|leaf| Draw {
+          mesh: &leaf.mesh,
+          style: match (plain, leaf.operation) {
+            (true, _) => Style::Plain,
+            (false, Operation::Intersection) => Style::CsgFront,
+            (false, Operation::Subtraction) => Style::CsgBack,
+          },
+          uniform: uniforms.push(
+            leaf.transform,
+            leaf.color,
+            Some(&leaf.material),
+            1.0,
+          ),
+        })
+        .collect();
+      steps.push(Step::Draws(draws));
     }
   }
 
-  render_overlay_meshes(overlays, projection, view);
-
-  unsafe {
-    // Clean up lighting state
-    gl_Disable(GL_LIGHTING);
-    gl_Disable(GL_LIGHT0);
-    gl_Disable(GL_LIGHT1);
-    gl_Disable(GL_LIGHT2);
-    gl_Disable(GL_NORMALIZE);
-    gl_Disable(GL_COLOR_MATERIAL);
-  }
+  // Translucent modifier meshes over the opaque result
+  let overlays = scene
+    .overlays
+    .iter()
+    .map(|overlay| Draw {
+      mesh: &overlay.mesh,
+      style: Style::Overlay,
+      uniform: uniforms.push(
+        overlay.transform,
+        [overlay.color[0], overlay.color[1], overlay.color[2]],
+        None,
+        overlay.color[3],
+      ),
+    })
+    .collect();
+  steps.push(Step::Draws(overlays));
+  steps
 }
 
-/// Draw the materialized solids see-through.
-///
-/// The preview's CSG pass can only produce the surfaces facing the camera, so
-/// the transparent mode draws the materialized boolean results instead: every
-/// surface of the real model, including the ones inside it — the wall of a
-/// bore, an enclosed cavity, a part sitting in a housing.
-///
-/// Each solid is drawn twice, back faces first, so its far side is composited
-/// under its near side; nothing writes depth, so the paint order alone decides
-/// what shows through what, and the solids are painted from the back.
-fn render_transparent_solids(
-  solids: &[SolidMesh],
-  projection: &[f32; 16],
-  view: &[f32; 16],
-) {
-  unsafe {
-    gl_UseProgram(0);
-    gl_MatrixMode(GL_PROJECTION);
-    gl_LoadMatrixf(projection.as_ptr());
-    gl_MatrixMode(GL_MODELVIEW);
-    gl_LoadMatrixf(view.as_ptr());
+// ---------------------------------------------------------------------------
+// Renderer
 
-    gl_Enable(GL_LIGHTING);
-    gl_Enable(GL_LIGHT0);
-    gl_Enable(GL_LIGHT1);
-    gl_Enable(GL_LIGHT2);
-    gl_Enable(GL_NORMALIZE);
-    gl_Enable(GL_COLOR_MATERIAL);
-    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    gl_ShadeModel(GL_SMOOTH);
+/// The shading pipelines, one per [`Style`] plus the axes.
+struct Pipelines {
+  csg_front: wgpu::RenderPipeline,
+  csg_back: wgpu::RenderPipeline,
+  plain: wgpu::RenderPipeline,
+  transparent_back: wgpu::RenderPipeline,
+  transparent_front: wgpu::RenderPipeline,
+  overlay: wgpu::RenderPipeline,
+  axes: wgpu::RenderPipeline,
+}
 
-    gl_Enable(GL_BLEND);
-    gl_BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    gl_DepthMask(0);
-    gl_Enable(GL_CULL_FACE);
-
-    for solid in depth_sorted_solids(solids, view) {
-      let normals = compute_face_normals(&solid.vertices);
-
-      let mut vbos = [0u32; 2];
-      gl_GenBuffers(2, vbos.as_mut_ptr());
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (solid.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        solid.vertices.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        normals.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-
-      apply_material(solid.color, &solid.material, TRANSPARENT_ALPHA);
-
-      let data = LeafRenderData {
-        vertex_count: solid.vertices.len(),
-        transform: IDENTITY_TRANSFORM,
-        vbo_vertices: vbos[0],
-        vbo_normals: vbos[1],
-      };
-      // Two-sided lighting (set up in `render_opencsg_scene`) shades the far
-      // side with its normal flipped towards the camera, so the inside of a
-      // cavity is lit rather than black.
-      gl_CullFace(GL_FRONT);
-      draw_leaf(&data);
-      gl_CullFace(GL_BACK);
-      draw_leaf(&data);
-
-      gl_DeleteBuffers(2, vbos.as_ptr());
+impl Pipelines {
+  fn get(&self, style: Style) -> &wgpu::RenderPipeline {
+    match style {
+      Style::CsgFront => &self.csg_front,
+      Style::CsgBack => &self.csg_back,
+      Style::Plain => &self.plain,
+      Style::TransparentBack => &self.transparent_back,
+      Style::TransparentFront => &self.transparent_front,
+      Style::Overlay => &self.overlay,
     }
-
-    gl_Disable(GL_CULL_FACE);
-    gl_Disable(GL_BLEND);
-    gl_DepthMask(1);
-    reset_leaf_material();
-    gl_Disable(GL_LIGHTING);
   }
 }
+
+/// Renders the 3D scene into a texture that egui paints.
+pub struct SceneRenderer {
+  device: wgpu::Device,
+  queue: wgpu::Queue,
+  egui_renderer: Arc<egui::mutex::RwLock<egui_wgpu::Renderer>>,
+  csg: webcsg::Context,
+  pipelines: Pipelines,
+  uniform_layout: wgpu::BindGroupLayout,
+  uniform_buffer: wgpu::Buffer,
+  uniform_bind_group: wgpu::BindGroup,
+  /// Draws the uniform buffer has room for
+  uniform_capacity: u32,
+  /// Bytes between two draws' uniforms
+  uniform_stride: u64,
+  axes: wgpu::Buffer,
+  color: wgpu::Texture,
+  depth: wgpu::Texture,
+  width: u32,
+  height: u32,
+  texture_id: egui::TextureId,
+  scene: Option<GpuScene>,
+}
+
+impl SceneRenderer {
+  /// Create the renderer on egui's device, with a scene texture of the given
+  /// size in pixels.
+  pub fn new(
+    render_state: &egui_wgpu::RenderState,
+    width: u32,
+    height: u32,
+  ) -> Self {
+    let device = render_state.device.clone();
+    let queue = render_state.queue.clone();
+    let csg = webcsg::Context::new(&device);
+    let depth_format = webcsg::recommended_depth_format(&device);
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+      label: Some("Scene Shader"),
+      source: wgpu::ShaderSource::Wgsl(
+        include_str!("shaders/scene.wgsl").into(),
+      ),
+    });
+    let uniform_stride = (std::mem::size_of::<DrawUniforms>() as u64)
+      .max(device.limits().min_uniform_buffer_offset_alignment as u64);
+    let uniform_layout =
+      device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Scene Draw Uniforms Layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+          binding: 0,
+          visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+          ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: true,
+            min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+              DrawUniforms,
+            >() as u64),
+          },
+          count: None,
+        }],
+      });
+    let pipeline_layout =
+      device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Scene Pipeline Layout"),
+        bind_group_layouts: &[Some(&uniform_layout)],
+        immediate_size: 0,
+      });
+
+    let blend = wgpu::BlendState {
+      color: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::SrcAlpha,
+        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+        operation: wgpu::BlendOperation::Add,
+      },
+      // The texture stays opaque: egui would otherwise blend the scene's
+      // see-through pixels with whatever it painted underneath
+      alpha: wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+      },
+    };
+    let make_pipeline = |label: &str,
+                         entries: (&str, &str),
+                         layout: wgpu::VertexBufferLayout<'static>,
+                         cull: Option<wgpu::Face>,
+                         depth_compare: wgpu::CompareFunction,
+                         depth_write: bool,
+                         blended: bool| {
+      device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+          module: &shader,
+          entry_point: Some(entries.0),
+          compilation_options: Default::default(),
+          buffers: &[Some(layout)],
+        },
+        fragment: Some(wgpu::FragmentState {
+          module: &shader,
+          entry_point: Some(entries.1),
+          compilation_options: Default::default(),
+          targets: &[Some(wgpu::ColorTargetState {
+            format: SCENE_FORMAT,
+            blend: blended.then_some(blend),
+            write_mask: wgpu::ColorWrites::ALL,
+          })],
+        }),
+        primitive: wgpu::PrimitiveState {
+          topology: wgpu::PrimitiveTopology::TriangleList,
+          front_face: wgpu::FrontFace::Ccw,
+          cull_mode: cull,
+          ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+          format: depth_format,
+          depth_write_enabled: Some(depth_write),
+          depth_compare: Some(depth_compare),
+          stencil: Default::default(),
+          bias: Default::default(),
+        }),
+        multisample: Default::default(),
+        multiview_mask: None,
+        cache: None,
+      })
+    };
+    use wgpu::CompareFunction::{Equal, Less, LessEqual};
+    use wgpu::Face::{Back, Front};
+    let lit = ("vs_main", "fs_lit");
+    let pipelines = Pipelines {
+      csg_front: make_pipeline(
+        "Scene CSG Front",
+        lit,
+        VERTEX_LAYOUT,
+        Some(Back),
+        Equal,
+        false,
+        false,
+      ),
+      csg_back: make_pipeline(
+        "Scene CSG Back",
+        lit,
+        VERTEX_LAYOUT,
+        Some(Front),
+        Equal,
+        false,
+        false,
+      ),
+      plain: make_pipeline(
+        "Scene Plain",
+        lit,
+        VERTEX_LAYOUT,
+        None,
+        Less,
+        true,
+        false,
+      ),
+      transparent_back: make_pipeline(
+        "Scene Transparent Back",
+        lit,
+        VERTEX_LAYOUT,
+        Some(Front),
+        Less,
+        false,
+        true,
+      ),
+      transparent_front: make_pipeline(
+        "Scene Transparent Front",
+        lit,
+        VERTEX_LAYOUT,
+        Some(Back),
+        Less,
+        false,
+        true,
+      ),
+      // Only the surface facing the viewer: without depth writes, back
+      // faces would blend through the front ones and show the far side's
+      // tessellation as darker bands
+      overlay: make_pipeline(
+        "Scene Overlay",
+        lit,
+        VERTEX_LAYOUT,
+        Some(Back),
+        LessEqual,
+        false,
+        true,
+      ),
+      axes: make_pipeline(
+        "Scene Axes",
+        ("vs_line", "fs_line"),
+        LINE_VERTEX_LAYOUT,
+        None,
+        Less,
+        false,
+        false,
+      ),
+    };
+
+    let axes = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("Scene Axes"),
+      contents: bytemuck::cast_slice(&axis_vertices()),
+      usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let (color, depth) = create_targets(&device, width, height);
+    let texture_id = render_state.renderer.write().register_native_texture(
+      &device,
+      &color.create_view(&Default::default()),
+      wgpu::FilterMode::Linear,
+    );
+
+    let uniform_capacity = 64;
+    let (uniform_buffer, uniform_bind_group) = create_uniform_buffer(
+      &device,
+      &uniform_layout,
+      uniform_stride,
+      uniform_capacity,
+    );
+
+    Self {
+      device,
+      queue,
+      egui_renderer: render_state.renderer.clone(),
+      csg,
+      pipelines,
+      uniform_layout,
+      uniform_buffer,
+      uniform_bind_group,
+      uniform_capacity,
+      uniform_stride,
+      axes,
+      width: color.width(),
+      height: color.height(),
+      color,
+      depth,
+      texture_id,
+      scene: None,
+    }
+  }
+
+  /// The egui texture the scene is rendered into.
+  pub fn texture_id(&self) -> egui::TextureId {
+    self.texture_id
+  }
+
+  /// Resize the scene texture if the size changed. Returns true if it did;
+  /// the texture's content is undefined then.
+  pub fn ensure_size(&mut self, width: u32, height: u32) -> bool {
+    let (width, height) = (width.max(1), height.max(1));
+    if width == self.width && height == self.height {
+      return false;
+    }
+    let (color, depth) = create_targets(&self.device, width, height);
+    self
+      .egui_renderer
+      .write()
+      .update_egui_texture_from_wgpu_texture(
+        &self.device,
+        &color.create_view(&Default::default()),
+        wgpu::FilterMode::Linear,
+        self.texture_id,
+      );
+    self.color = color;
+    self.depth = depth;
+    self.width = width;
+    self.height = height;
+    true
+  }
+
+  /// Block until the GPU has finished everything submitted so far. Only used
+  /// to time renders.
+  pub fn wait_idle(&self) {
+    let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+  }
+
+  /// Make room for `draws` sets of uniforms.
+  fn ensure_uniform_capacity(&mut self, draws: u32) {
+    if draws <= self.uniform_capacity {
+      return;
+    }
+    let capacity = draws.next_power_of_two();
+    let (buffer, bind_group) = create_uniform_buffer(
+      &self.device,
+      &self.uniform_layout,
+      self.uniform_stride,
+      capacity,
+    );
+    self.uniform_buffer = buffer;
+    self.uniform_bind_group = bind_group;
+    self.uniform_capacity = capacity;
+  }
+
+  /// Render the scene into the texture.
+  pub fn render(&mut self, view: &SceneView) {
+    if self
+      .scene
+      .as_ref()
+      .is_none_or(|scene| scene.revision != view.scene_revision)
+    {
+      self.scene = Some(GpuScene::new(&self.device, view));
+    }
+    // The transparent mode falls back to the CSG groups when the scene
+    // materialized to nothing, rather than showing nothing
+    let transparent = view.transparent
+      && self.scene.as_ref().is_some_and(|s| !s.solids.is_empty());
+    let draw_count = self
+      .scene
+      .as_ref()
+      .map_or(1, |scene| scene.draw_count(transparent));
+    self.ensure_uniform_capacity(draw_count);
+
+    let projection = GL_TO_WGPU_DEPTH * Mat4::from_cols_array(&view.projection);
+    let view_matrix = Mat4::from_cols_array(&view.view);
+    let mut uniforms = Uniforms {
+      draws: Vec::with_capacity(draw_count as usize),
+      view_projection: projection * view_matrix,
+      view: view_matrix,
+      orthographic: if view.orthographic { 1.0 } else { 0.0 },
+      line: [
+        // Two render pixels wide (one physical pixel after supersampling):
+        // half the width, like the GL preview's `glLineWidth(2.0)`
+        1.0,
+        view.axis_length,
+        self.width as f32,
+        self.height as f32,
+      ],
+    };
+
+    let scene = self.scene.as_ref().expect("uploaded above");
+    let steps = build_steps(scene, transparent, &view.view, &mut uniforms);
+    let axes_uniform = uniforms.push(Mat4::IDENTITY, [0.0; 3], None, 1.0);
+
+    // --- Upload the uniforms ---
+    let stride = self.uniform_stride as usize;
+    let mut bytes = vec![0u8; stride * uniforms.draws.len()];
+    for (i, draw) in uniforms.draws.iter().enumerate() {
+      bytes[i * stride..][..std::mem::size_of::<DrawUniforms>()]
+        .copy_from_slice(bytemuck::bytes_of(draw));
+    }
+    self.queue.write_buffer(&self.uniform_buffer, 0, &bytes);
+
+    let color_view = self.color.create_view(&Default::default());
+    let depth_view = self.depth.create_view(&Default::default());
+    let (bg_r, bg_g, bg_b) = view.background;
+    let background = wgpu::Color {
+      r: bg_r as f64,
+      g: bg_g as f64,
+      b: bg_b as f64,
+      a: 1.0,
+    };
+
+    // Every render pass boundary costs a load and a store of the (large,
+    // supersampled) color and depth attachments, so as many draws as
+    // possible go into one pass: the clear happens in the first one, the
+    // axes in the last, and only a CSG product, which WebCSG renders with
+    // passes of its own, forces a break.
+    let record_pass = |encoder: &mut wgpu::CommandEncoder,
+                       draws: &[&Draw],
+                       clear: bool,
+                       axes: bool| {
+      let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("Scene Shading"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+          view: &color_view,
+          depth_slice: None,
+          resolve_target: None,
+          ops: wgpu::Operations {
+            load: if clear {
+              wgpu::LoadOp::Clear(background)
+            } else {
+              wgpu::LoadOp::Load
+            },
+            store: wgpu::StoreOp::Store,
+          },
+        })],
+        depth_stencil_attachment: Some(
+          wgpu::RenderPassDepthStencilAttachment {
+            view: &depth_view,
+            depth_ops: Some(wgpu::Operations {
+              load: if clear {
+                wgpu::LoadOp::Clear(1.0)
+              } else {
+                wgpu::LoadOp::Load
+              },
+              store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+          },
+        ),
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+      });
+      for draw in draws {
+        pass.set_pipeline(self.pipelines.get(draw.style));
+        pass.set_bind_group(
+          0,
+          &self.uniform_bind_group,
+          &[(draw.uniform as u64 * self.uniform_stride) as u32],
+        );
+        pass.set_vertex_buffer(0, draw.mesh.buffer.slice(..));
+        pass.draw(0..draw.mesh.vertex_count, 0..1);
+      }
+      if axes {
+        pass.set_pipeline(&self.pipelines.axes);
+        pass.set_bind_group(
+          0,
+          &self.uniform_bind_group,
+          &[(axes_uniform as u64 * self.uniform_stride) as u32],
+        );
+        pass.set_vertex_buffer(0, self.axes.slice(..));
+        pass.draw(0..AXIS_VERTEX_COUNT, 0..1);
+      }
+    };
+
+    let csg_options = webcsg::RenderOptions {
+      view_projection: uniforms.view_projection,
+      ..Default::default()
+    };
+    let mut encoder = self.device.create_command_encoder(&Default::default());
+    let mut pending: Vec<&Draw> = Vec::new();
+    let mut cleared = false;
+    for step in &steps {
+      match step {
+        Step::Csg(primitives) => {
+          record_pass(&mut encoder, &pending, !cleared, false);
+          pending.clear();
+          cleared = true;
+          // WebCSG submits its own command buffers, so everything recorded
+          // so far has to go first
+          self.queue.submit(std::iter::once(encoder.finish()));
+          encoder = self.device.create_command_encoder(&Default::default());
+          if let Err(error) = self.csg.render(
+            &self.device,
+            &self.queue,
+            primitives,
+            &self.depth,
+            &csg_options,
+          ) {
+            eprintln!("CSG rendering failed: {error}");
+          }
+        }
+        Step::Draws(draws) => pending.extend(draws),
+      }
+    }
+    record_pass(&mut encoder, &pending, !cleared, true);
+    self.queue.submit(std::iter::once(encoder.finish()));
+  }
+}
+
+fn create_targets(
+  device: &wgpu::Device,
+  width: u32,
+  height: u32,
+) -> (wgpu::Texture, wgpu::Texture) {
+  let size = wgpu::Extent3d {
+    width: width.max(1),
+    height: height.max(1),
+    depth_or_array_layers: 1,
+  };
+  let color = device.create_texture(&wgpu::TextureDescriptor {
+    label: Some("Scene Color"),
+    size,
+    mip_level_count: 1,
+    sample_count: 1,
+    dimension: wgpu::TextureDimension::D2,
+    format: SCENE_FORMAT,
+    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+      | wgpu::TextureUsages::TEXTURE_BINDING,
+    view_formats: &[],
+  });
+  let depth = device.create_texture(&wgpu::TextureDescriptor {
+    label: Some("Scene Depth"),
+    size,
+    mip_level_count: 1,
+    sample_count: 1,
+    dimension: wgpu::TextureDimension::D2,
+    format: webcsg::recommended_depth_format(device),
+    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+    view_formats: &[],
+  });
+  (color, depth)
+}
+
+fn create_uniform_buffer(
+  device: &wgpu::Device,
+  layout: &wgpu::BindGroupLayout,
+  stride: u64,
+  capacity: u32,
+) -> (wgpu::Buffer, wgpu::BindGroup) {
+  let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    label: Some("Scene Draw Uniforms"),
+    size: stride * capacity as u64,
+    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    mapped_at_creation: false,
+  });
+  let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("Scene Draw Uniforms"),
+    layout,
+    entries: &[wgpu::BindGroupEntry {
+      binding: 0,
+      resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+        buffer: &buffer,
+        offset: 0,
+        size: wgpu::BufferSize::new(std::mem::size_of::<DrawUniforms>() as u64),
+      }),
+    }],
+  });
+  (buffer, bind_group)
+}
+
+/// The color, specular and emission terms of a surface, from its material's
+/// Blinn-Phong approximation (the same mapping the software rasterizer uses,
+/// so the preview matches `luacad render`).
+///
+/// `alpha` is the opacity the surface is drawn with: 1 in the opaque path,
+/// less in the transparent view mode.
+fn material_uniforms(
+  color: [f32; 3],
+  material: &MaterialSpec,
+  alpha: f32,
+) -> ([f32; 4], [f32; 4], [f32; 3]) {
+  let [r, g, b] = color;
+  if material.kind == MaterialKind::Emissive {
+    // Unlit: all radiance comes from the emission term. Overbright values
+    // are normalized by the largest channel rather than clamped per
+    // channel, which would wash saturated colors out to white.
+    let s = material.strength;
+    let max = (r.max(g).max(b) * s).max(1.0);
+    let n = s / max;
+    return (
+      [0.0, 0.0, 0.0, alpha],
+      [0.0, 0.0, 0.0, 1.0],
+      [r * n, g * n, b * n],
+    );
+  }
+  let params = material.blinn_phong();
+  let d = params.diffuse_scale;
+  let s = params.specular_strength;
+  let specular = if params.tinted_specular {
+    [s * r, s * g, s * b]
+  } else {
+    [s, s, s]
+  };
+  (
+    [r * d, g * d, b * d, alpha],
+    // Fixed-function GL clamped the shininess to 128; the preview keeps
+    // that look
+    [
+      specular[0],
+      specular[1],
+      specular[2],
+      params.shininess.min(128.0),
+    ],
+    [0.0; 3],
+  )
+}
+
+/// Vertices of the axis line quads through the origin.
+/// CAD convention: Red=X, Green=Y, Blue=Z. Mapping: CAD (x,y,z) → GL (y,z,x).
+/// Negative directions are dimmed. The lines are scaled to the axis length
+/// in the shader.
+fn axis_vertices() -> Vec<LineVertex> {
+  // (GL direction, color) per CAD axis
+  let axes = [
+    ([0.0_f32, 0.0, 1.0], [1.0_f32, 0.0, 0.0]), // CAD X (red) → GL Z
+    ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),         // CAD Y (green) → GL X
+    ([0.0, 1.0, 0.0], [0.3, 0.3, 1.0]),         // CAD Z (blue) → GL Y
+  ];
+  let corners = [
+    [0.0, -1.0],
+    [1.0, -1.0],
+    [1.0, 1.0],
+    [0.0, -1.0],
+    [1.0, 1.0],
+    [0.0, 1.0],
+  ];
+  let mut vertices = Vec::new();
+  for ([x, y, z], [r, g, b]) in axes {
+    for (sign, color) in [(1.0, [r, g, b]), (-1.0, [0.4 * r, 0.4 * g, 0.4 * b])]
+    {
+      for corner in corners {
+        vertices.push(LineVertex {
+          start: [0.0; 3],
+          end: [sign * x, sign * y, sign * z],
+          color,
+          corner,
+        });
+      }
+    }
+  }
+  vertices
+}
+
+/// Three axes, two directions each, six vertices per line quad
+const AXIS_VERTEX_COUNT: u32 = 3 * 2 * 6;
 
 /// Order the solids from the farthest to the nearest, which is the order the
 /// blended transparent pass has to paint them in.
-fn depth_sorted_solids<'a>(
-  solids: &'a [SolidMesh],
-  view: &[f32; 16],
-) -> Vec<&'a SolidMesh> {
-  let mut sorted: Vec<(f32, &SolidMesh)> = solids
+fn back_to_front(solids: &[GpuSolid], view: &[f32; 16]) -> Vec<usize> {
+  let centers: Vec<[f32; 3]> = solids.iter().map(|s| s.center).collect();
+  back_to_front_centers(&centers, view)
+}
+
+/// [`back_to_front`] on the solids' bounding centers.
+fn back_to_front_centers(centers: &[[f32; 3]], view: &[f32; 16]) -> Vec<usize> {
+  let mut order: Vec<(f32, usize)> = centers
     .iter()
-    .map(|solid| (solid_view_depth(solid, view), solid))
+    .enumerate()
+    .map(|(index, center)| (transform_point(view, *center)[2], index))
     .collect();
   // The camera looks down -z in view space, so the most negative depth is
   // the farthest solid and has to be painted first.
-  sorted.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-  sorted.into_iter().map(|(_, solid)| solid).collect()
+  order.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+  order.into_iter().map(|(_, index)| index).collect()
 }
 
-/// View-space z of the center of a solid's bounding box, used to sort the
-/// transparent solids back to front.
-fn solid_view_depth(solid: &SolidMesh, view: &[f32; 16]) -> f32 {
+/// Center of the bounding box of a mesh, used to sort the transparent solids
+/// back to front. The origin for an empty mesh.
+fn bounding_center(vertices: &[[f32; 3]]) -> [f32; 3] {
   let mut min = [f32::INFINITY; 3];
   let mut max = [f32::NEG_INFINITY; 3];
-
-  for vertex in &solid.vertices {
+  for vertex in vertices {
     for axis in 0..3 {
       min[axis] = min[axis].min(vertex[axis]);
       max[axis] = max[axis].max(vertex[axis]);
     }
   }
-
   if min[0] > max[0] {
-    // Nothing to place: sort it as if it sat at the origin.
-    return transform_point(view, [0.0; 3])[2];
+    return [0.0; 3];
   }
-
-  let center = [
+  [
     (min[0] + max[0]) * 0.5,
     (min[1] + max[1]) * 0.5,
     (min[2] + max[2]) * 0.5,
-  ];
-  transform_point(view, center)[2]
+  ]
 }
 
 /// Apply a column-major affine 4x4 matrix to a point.
@@ -299,382 +1181,6 @@ fn transform_point(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
     m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
     m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
   ]
-}
-
-/// Draw translucent modifier meshes (`#` highlight, `%` background) over the
-/// opaque CSG result: lit, alpha-blended, depth-tested but not depth-written
-/// so they never occlude regular geometry or each other.
-fn render_overlay_meshes(
-  overlays: &[OverlayMesh],
-  projection: &[f32; 16],
-  view: &[f32; 16],
-) {
-  if overlays.is_empty() {
-    return;
-  }
-  unsafe {
-    gl_UseProgram(0);
-    gl_MatrixMode(GL_PROJECTION);
-    gl_LoadMatrixf(projection.as_ptr());
-    gl_MatrixMode(GL_MODELVIEW);
-    gl_LoadMatrixf(view.as_ptr());
-
-    gl_Enable(GL_LIGHTING);
-    gl_Enable(GL_LIGHT0);
-    gl_Enable(GL_LIGHT1);
-    gl_Enable(GL_LIGHT2);
-    gl_Enable(GL_NORMALIZE);
-    gl_Enable(GL_COLOR_MATERIAL);
-    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    gl_ShadeModel(GL_SMOOTH);
-
-    gl_DepthFunc(GL_LEQUAL);
-    gl_DepthMask(0);
-    gl_Enable(GL_BLEND);
-    gl_BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    // Only draw the surface facing the viewer: without depth writes, back
-    // faces would blend through the front ones and show the far side's
-    // tessellation as darker bands.
-    gl_Enable(GL_CULL_FACE);
-    gl_CullFace(GL_BACK);
-
-    for overlay in overlays {
-      let normals = compute_face_normals(&overlay.vertices);
-
-      let mut vbos = [0u32; 2];
-      gl_GenBuffers(2, vbos.as_mut_ptr());
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (overlay.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        overlay.vertices.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        normals.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-
-      gl_Color4f(
-        overlay.color[0],
-        overlay.color[1],
-        overlay.color[2],
-        overlay.color[3],
-      );
-
-      gl_PushMatrix();
-      gl_MultMatrixf(cad_to_gl_transform(&overlay.transform).as_ptr());
-
-      gl_EnableClientState(GL_VERTEX_ARRAY);
-      gl_EnableClientState(GL_NORMAL_ARRAY);
-
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
-      gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-      gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
-
-      gl_DrawArrays(GL_TRIANGLES, 0, overlay.vertices.len() as i32);
-
-      gl_DisableClientState(GL_NORMAL_ARRAY);
-      gl_DisableClientState(GL_VERTEX_ARRAY);
-      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-
-      gl_PopMatrix();
-      gl_DeleteBuffers(2, vbos.as_ptr());
-    }
-
-    gl_Disable(GL_CULL_FACE);
-    gl_Disable(GL_BLEND);
-    gl_DepthMask(1);
-    gl_DepthFunc(GL_LEQUAL);
-    gl_Disable(GL_LIGHTING);
-  }
-}
-
-/// Render a single CSG group: OpenCSG depth pass + shading pass.
-fn render_csg_group(
-  group: &CsgGroup,
-  projection: &[f32; 16],
-  view: &[f32; 16],
-) {
-  // Filter to non-empty leaves and collect render data + colors together.
-  let active_leaves: Vec<_> = group
-    .primitives
-    .iter()
-    .filter(|leaf| !leaf.vertices.is_empty())
-    .collect();
-
-  if active_leaves.is_empty() {
-    return;
-  }
-
-  let mut render_datas: Vec<LeafRenderData> =
-    Vec::with_capacity(active_leaves.len());
-  let mut ocsg_prims: Vec<*mut OcsgPrimitive> =
-    Vec::with_capacity(active_leaves.len());
-
-  for leaf in &active_leaves {
-    let normals = compute_face_normals(&leaf.vertices);
-
-    // Create VBOs for vertex positions and normals (server-side buffer objects).
-    // VBOs work correctly on all GL contexts including llvmpipe, unlike
-    // client-side vertex arrays which fail on some GL 4.5 Compatibility contexts.
-    let mut vbos = [0u32; 2];
-    unsafe {
-      gl_GenBuffers(2, vbos.as_mut_ptr());
-
-      // Upload vertex positions
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[0]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (leaf.vertices.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        leaf.vertices.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-
-      // Upload normals
-      gl_BindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-      gl_BufferData(
-        GL_ARRAY_BUFFER,
-        (normals.len() * std::mem::size_of::<[f32; 3]>()) as isize,
-        normals.as_ptr() as *const c_void,
-        GL_STATIC_DRAW,
-      );
-
-      gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-    }
-
-    render_datas.push(LeafRenderData {
-      vertex_count: leaf.vertices.len(),
-      transform: cad_to_gl_transform(&leaf.transform),
-      vbo_vertices: vbos[0],
-      vbo_normals: vbos[1],
-    });
-  }
-
-  // A group with a single intersected primitive is just a plain mesh:
-  // OpenCSG contributes nothing, and its convexity-bounded depth pass
-  // drops surfaces of concave meshes (e.g. a materialized Minkowski
-  // minus a cube), leaving background-colored holes. Render such groups
-  // directly with ordinary depth testing instead.
-  let plain_mesh = active_leaves.len() == 1
-    && active_leaves[0].operation == opencsg_sys::INTERSECTION;
-
-  if !plain_mesh {
-    // Create OpenCSG primitives with callbacks pointing to our render data.
-    for (i, leaf) in active_leaves.iter().enumerate() {
-      let prim = unsafe {
-        opencsg_sys::primitive_new(
-          leaf.operation,
-          leaf.convexity,
-          render_leaf_callback,
-          &render_datas[i] as *const LeafRenderData as *mut c_void,
-        )
-      };
-      ocsg_prims.push(prim);
-    }
-
-    if ocsg_prims.is_empty() {
-      return;
-    }
-
-    // --- OpenCSG depth pass ---
-    unsafe {
-      opencsg_sys::render(&mut ocsg_prims);
-    }
-  }
-
-  // --- Shading pass ---
-  // OpenCSG's glPopAttrib restores pre-render GL state. Re-render the same
-  // geometry with GL_EQUAL to shade only CSG-visible surfaces. Plain meshes
-  // skipped the depth pass, so they shade with ordinary GL_LEQUAL testing.
-  unsafe {
-    gl_UseProgram(0);
-    gl_MatrixMode(GL_PROJECTION);
-    gl_LoadMatrixf(projection.as_ptr());
-    gl_MatrixMode(GL_MODELVIEW);
-    gl_LoadMatrixf(view.as_ptr());
-    gl_DepthFunc(if plain_mesh { GL_LEQUAL } else { GL_EQUAL });
-    gl_Enable(GL_LIGHTING);
-    gl_Enable(GL_LIGHT0);
-    gl_Enable(GL_LIGHT1);
-    gl_Enable(GL_LIGHT2);
-    gl_Enable(GL_NORMALIZE);
-    gl_Enable(GL_COLOR_MATERIAL);
-    gl_ColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    gl_ShadeModel(GL_SMOOTH);
-
-    for (i, leaf) in active_leaves.iter().enumerate() {
-      apply_material(leaf.color, &leaf.material, 1.0);
-
-      // Use VBOs for the shading pass (must match the OpenCSG depth pass
-      // to produce identical depth values for GL_EQUAL to work).
-      draw_leaf(&render_datas[i]);
-    }
-
-    // Restore the default material state so the last leaf's specular/
-    // emission doesn't leak into overlay or later passes.
-    reset_leaf_material();
-    gl_DepthFunc(GL_LEQUAL);
-    gl_Disable(GL_LIGHTING);
-  }
-
-  // Free OpenCSG primitives
-  for prim in ocsg_prims {
-    unsafe {
-      opencsg_sys::primitive_free(prim);
-    }
-  }
-
-  // Delete VBOs
-  for data in &render_datas {
-    unsafe {
-      let vbos = [data.vbo_vertices, data.vbo_normals];
-      gl_DeleteBuffers(2, vbos.as_ptr());
-    }
-  }
-}
-
-/// Draw one leaf's triangles from its VBOs, under its model transform and
-/// with its per-vertex normals bound.
-unsafe fn draw_leaf(data: &LeafRenderData) {
-  unsafe {
-    gl_PushMatrix();
-    gl_MultMatrixf(data.transform.as_ptr());
-
-    gl_EnableClientState(GL_VERTEX_ARRAY);
-    gl_EnableClientState(GL_NORMAL_ARRAY);
-
-    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_vertices);
-    gl_VertexPointer(3, GL_FLOAT, 0, std::ptr::null());
-
-    gl_BindBuffer(GL_ARRAY_BUFFER, data.vbo_normals);
-    gl_NormalPointer(GL_FLOAT, 0, std::ptr::null());
-
-    gl_DrawArrays(GL_TRIANGLES, 0, data.vertex_count as i32);
-
-    gl_DisableClientState(GL_NORMAL_ARRAY);
-    gl_DisableClientState(GL_VERTEX_ARRAY);
-    gl_BindBuffer(GL_ARRAY_BUFFER, 0);
-
-    gl_PopMatrix();
-  }
-}
-
-/// Set the fixed-function color/specular/shininess/emission for one surface
-/// from its material's Blinn-Phong approximation (the same mapping the
-/// software rasterizer uses, so the preview matches `luacad render`).
-///
-/// `alpha` is the opacity the surface is drawn with: 1 in the opaque path,
-/// less in the transparent view mode. `GL_COLOR_MATERIAL` tracks the current
-/// color into the diffuse term, whose alpha is what the blend uses.
-unsafe fn apply_material(color: [f32; 3], material: &MaterialSpec, alpha: f32) {
-  let [r, g, b] = color;
-
-  if material.kind == MaterialKind::Emissive {
-    // Unlit: all radiance comes from the emission term. Overbright values
-    // are normalized by the largest channel rather than clamped per channel,
-    // which would wash saturated colors out to white.
-    let s = material.strength;
-    let max = (r.max(g).max(b) * s).max(1.0);
-    let n = s / max;
-    let emission = [r * n, g * n, b * n, 1.0];
-    let no_spec: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-    unsafe {
-      gl_Color4f(0.0, 0.0, 0.0, alpha);
-      gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, emission.as_ptr());
-      gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, no_spec.as_ptr());
-    }
-    return;
-  }
-
-  let params = material.blinn_phong();
-  let d = params.diffuse_scale;
-  let s = params.specular_strength;
-  let spec: [f32; 4] = if params.tinted_specular {
-    [s * r, s * g, s * b, 1.0]
-  } else {
-    [s, s, s, 1.0]
-  };
-  let no_emission: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-  unsafe {
-    gl_Color4f(r * d, g * d, b * d, alpha);
-    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, spec.as_ptr());
-    // Fixed-function GL clamps shininess to 128.
-    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, params.shininess.min(128.0));
-    gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, no_emission.as_ptr());
-  }
-}
-
-/// Restore the global material defaults set up in `render_scene`.
-unsafe fn reset_leaf_material() {
-  let mat_spec: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
-  let no_emission: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-  unsafe {
-    gl_Materialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec.as_ptr());
-    gl_Materialf(GL_FRONT_AND_BACK, GL_SHININESS, 25.0);
-    gl_Materialfv(GL_FRONT_AND_BACK, GL_EMISSION, no_emission.as_ptr());
-  }
-}
-
-/// Compute per-face normals for triangle vertices. Returns one normal per vertex
-/// (each triangle's 3 vertices share the same face normal).
-fn compute_face_normals(verts: &[[f32; 3]]) -> Vec<[f32; 3]> {
-  let mut normals = Vec::with_capacity(verts.len());
-  // `as_chunks` types the group as a fixed [_; 3], so the three indexes
-  // below are checked at compile time. A trailing partial triangle is
-  // dropped, just as `chunks_exact` dropped it.
-  for tri in verts.as_chunks::<3>().0 {
-    let a = tri[0];
-    let b = tri[1];
-    let c = tri[2];
-    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    let n = [
-      ab[1] * ac[2] - ab[2] * ac[1],
-      ab[2] * ac[0] - ab[0] * ac[2],
-      ab[0] * ac[1] - ab[1] * ac[0],
-    ];
-    normals.push(n);
-    normals.push(n);
-    normals.push(n);
-  }
-  normals
-}
-
-/// Draw 3D axes through the origin using raw GL.
-/// CAD convention: Red=X, Green=Y, Blue=Z.
-/// Mapping: CAD (x,y,z) → GL (y,z,x).
-/// Endpoints are homogeneous points at infinity (w=0), so the axes span
-/// the whole view at any zoom level; negative directions are dimmed.
-pub fn render_axes() {
-  // (GL direction, color) per CAD axis
-  let axes = [
-    ([0.0_f32, 0.0, 1.0], [1.0_f32, 0.0, 0.0]), // CAD X (red) → GL Z
-    ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),         // CAD Y (green) → GL X
-    ([0.0, 1.0, 0.0], [0.3, 0.3, 1.0]),         // CAD Z (blue) → GL Y
-  ];
-  unsafe {
-    gl_Disable(GL_LIGHTING);
-    gl_LineWidth(2.0);
-    gl_Begin(GL_LINES);
-
-    for ([x, y, z], [r, g, b]) in axes {
-      gl_Color3f(r, g, b);
-      gl_Vertex3f(0.0, 0.0, 0.0);
-      gl_Vertex4f(x, y, z, 0.0);
-
-      gl_Color3f(0.4 * r, 0.4 * g, 0.4 * b);
-      gl_Vertex3f(0.0, 0.0, 0.0);
-      gl_Vertex4f(-x, -y, -z, 0.0);
-    }
-
-    gl_End();
-    gl_LineWidth(1.0);
-  }
 }
 
 /// Convert a CAD-space column-major transform to GL-space.
@@ -791,876 +1297,21 @@ pub fn build_camera(viewport: Viewport, app: &AppState) -> Camera {
   }
 }
 
-/// Extract projection matrix as column-major f32 array from three-d Camera.
+/// Extract projection matrix as column-major f32 array from the camera.
 pub fn camera_projection_matrix(camera: &Camera) -> [f32; 16] {
-  let m = camera.projection();
-  // cgmath Matrix4<f32> is column-major, same memory layout as [f32; 16]
-  unsafe { std::mem::transmute(m) }
+  let m: [[f32; 4]; 4] = camera.projection().into();
+  bytemuck::cast(m)
 }
 
-/// Extract view matrix as column-major f32 array from three-d Camera.
+/// Extract view matrix as column-major f32 array from the camera.
 pub fn camera_view_matrix(camera: &Camera) -> [f32; 16] {
-  let m = camera.view();
-  unsafe { std::mem::transmute(m) }
-}
-
-// --- Raw OpenGL function bindings via system libraries ---
-// We need these because OpenCSG uses legacy GL, and we need to interop
-// with the same GL context. glow only provides core profile functions.
-
-#[cfg(target_os = "macos")]
-#[link(name = "OpenGL", kind = "framework")]
-unsafe extern "C" {
-  #[link_name = "glMatrixMode"]
-  fn gl_MatrixMode(mode: u32);
-  #[link_name = "glLoadMatrixf"]
-  fn gl_LoadMatrixf(m: *const f32);
-  #[link_name = "glLoadIdentity"]
-  fn gl_LoadIdentity();
-  #[link_name = "glPushMatrix"]
-  fn gl_PushMatrix();
-  #[link_name = "glPopMatrix"]
-  fn gl_PopMatrix();
-  #[link_name = "glMultMatrixf"]
-  fn gl_MultMatrixf(m: *const f32);
-  #[link_name = "glEnable"]
-  fn gl_Enable(cap: u32);
-  #[link_name = "glDisable"]
-  fn gl_Disable(cap: u32);
-  #[link_name = "glLightfv"]
-  fn gl_Lightfv(light: u32, pname: u32, params: *const f32);
-  #[link_name = "glLightModelfv"]
-  fn gl_LightModelfv(pname: u32, params: *const f32);
-  #[link_name = "glLightModeli"]
-  fn gl_LightModeli(pname: u32, param: i32);
-  #[link_name = "glColorMaterial"]
-  fn gl_ColorMaterial(face: u32, mode: u32);
-  #[link_name = "glShadeModel"]
-  fn gl_ShadeModel(mode: u32);
-  #[link_name = "glDepthFunc"]
-  fn gl_DepthFunc(func: u32);
-  #[link_name = "glBegin"]
-  fn gl_Begin(mode: u32);
-  #[link_name = "glEnd"]
-  fn gl_End();
-  #[link_name = "glVertex3f"]
-  fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glVertex4f"]
-  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
-
-  #[link_name = "glColor3f"]
-  fn gl_Color3f(r: f32, g: f32, b: f32);
-  #[link_name = "glColor4f"]
-  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glBlendFunc"]
-  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
-  #[link_name = "glDepthMask"]
-  fn gl_DepthMask(flag: u8);
-  #[link_name = "glColorMask"]
-  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
-  #[link_name = "glCullFace"]
-  fn gl_CullFace(mode: u32);
-  #[link_name = "glLineWidth"]
-  fn gl_LineWidth(width: f32);
-  #[link_name = "glClear"]
-  fn gl_Clear(mask: u32);
-  #[link_name = "glClearColor"]
-  fn gl_ClearColor(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glClearDepth"]
-  fn gl_ClearDepth(depth: f64);
-  #[link_name = "glClearStencil"]
-  fn gl_ClearStencil(s: i32);
-  #[link_name = "glViewport"]
-  fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
-  #[link_name = "glMaterialfv"]
-  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
-  #[link_name = "glMaterialf"]
-  fn gl_Materialf(face: u32, pname: u32, param: f32);
-  #[link_name = "glUseProgram"]
-  fn gl_UseProgram(program: u32);
-  #[link_name = "glGenBuffers"]
-  fn gl_GenBuffers(n: i32, buffers: *mut u32);
-  #[link_name = "glDeleteBuffers"]
-  fn gl_DeleteBuffers(n: i32, buffers: *const u32);
-  #[link_name = "glBindBuffer"]
-  fn gl_BindBuffer(target: u32, buffer: u32);
-  #[link_name = "glBufferData"]
-  fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
-
-  // FBO functions (EXT on macOS GL 2.1 Legacy)
-  #[link_name = "glGenFramebuffersEXT"]
-  fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32);
-  #[link_name = "glDeleteFramebuffersEXT"]
-  fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32);
-  #[link_name = "glBindFramebufferEXT"]
-  fn gl_BindFramebuffer(target: u32, framebuffer: u32);
-  #[link_name = "glGenRenderbuffersEXT"]
-  fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32);
-  #[link_name = "glDeleteRenderbuffersEXT"]
-  fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32);
-  #[link_name = "glBindRenderbufferEXT"]
-  fn gl_BindRenderbuffer(target: u32, renderbuffer: u32);
-  #[link_name = "glRenderbufferStorageEXT"]
-  fn gl_RenderbufferStorage(target: u32, format: u32, width: i32, height: i32);
-  #[link_name = "glFramebufferRenderbufferEXT"]
-  fn gl_FramebufferRenderbuffer(
-    target: u32,
-    attachment: u32,
-    renderbuffer_target: u32,
-    renderbuffer: u32,
-  );
-  #[link_name = "glCheckFramebufferStatusEXT"]
-  fn gl_CheckFramebufferStatus(target: u32) -> u32;
-  #[link_name = "glBlitFramebufferEXT"]
-  fn gl_BlitFramebuffer(
-    src_x0: i32,
-    src_y0: i32,
-    src_x1: i32,
-    src_y1: i32,
-    dst_x0: i32,
-    dst_y0: i32,
-    dst_x1: i32,
-    dst_y1: i32,
-    mask: u32,
-    filter: u32,
-  );
-}
-
-// macOS uses GL 2.1 Legacy which has no VAOs; provide a no-op.
-#[cfg(target_os = "macos")]
-#[allow(non_snake_case)]
-unsafe fn gl_BindVertexArray(_array: u32) {}
-
-#[cfg(target_os = "linux")]
-#[link(name = "GL")]
-unsafe extern "C" {
-  #[link_name = "glMatrixMode"]
-  fn gl_MatrixMode(mode: u32);
-  #[link_name = "glLoadMatrixf"]
-  fn gl_LoadMatrixf(m: *const f32);
-  #[link_name = "glLoadIdentity"]
-  fn gl_LoadIdentity();
-  #[link_name = "glPushMatrix"]
-  fn gl_PushMatrix();
-  #[link_name = "glPopMatrix"]
-  fn gl_PopMatrix();
-  #[link_name = "glMultMatrixf"]
-  fn gl_MultMatrixf(m: *const f32);
-  #[link_name = "glEnable"]
-  fn gl_Enable(cap: u32);
-  #[link_name = "glDisable"]
-  fn gl_Disable(cap: u32);
-  #[link_name = "glLightfv"]
-  fn gl_Lightfv(light: u32, pname: u32, params: *const f32);
-  #[link_name = "glLightModelfv"]
-  fn gl_LightModelfv(pname: u32, params: *const f32);
-  #[link_name = "glLightModeli"]
-  fn gl_LightModeli(pname: u32, param: i32);
-  #[link_name = "glColorMaterial"]
-  fn gl_ColorMaterial(face: u32, mode: u32);
-  #[link_name = "glShadeModel"]
-  fn gl_ShadeModel(mode: u32);
-  #[link_name = "glDepthFunc"]
-  fn gl_DepthFunc(func: u32);
-  #[link_name = "glBegin"]
-  fn gl_Begin(mode: u32);
-  #[link_name = "glEnd"]
-  fn gl_End();
-  #[link_name = "glVertex3f"]
-  fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glVertex4f"]
-  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
-
-  #[link_name = "glColor3f"]
-  fn gl_Color3f(r: f32, g: f32, b: f32);
-  #[link_name = "glLineWidth"]
-  fn gl_LineWidth(width: f32);
-  #[link_name = "glClear"]
-  fn gl_Clear(mask: u32);
-  #[link_name = "glClearColor"]
-  fn gl_ClearColor(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glClearDepth"]
-  fn gl_ClearDepth(depth: f64);
-  #[link_name = "glClearStencil"]
-  fn gl_ClearStencil(s: i32);
-  #[link_name = "glViewport"]
-  fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
-  #[link_name = "glMaterialfv"]
-  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
-  #[link_name = "glMaterialf"]
-  fn gl_Materialf(face: u32, pname: u32, param: f32);
-  #[link_name = "glColor4f"]
-  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glBlendFunc"]
-  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
-  #[link_name = "glDepthMask"]
-  fn gl_DepthMask(flag: u8);
-  #[link_name = "glColorMask"]
-  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
-  #[link_name = "glCullFace"]
-  fn gl_CullFace(mode: u32);
-  #[link_name = "glUseProgram"]
-  fn gl_UseProgram(program: u32);
-  #[link_name = "glBindVertexArray"]
-  fn gl_BindVertexArray(array: u32);
-  #[link_name = "glGenBuffers"]
-  fn gl_GenBuffers(n: i32, buffers: *mut u32);
-  #[link_name = "glDeleteBuffers"]
-  fn gl_DeleteBuffers(n: i32, buffers: *const u32);
-  #[link_name = "glBindBuffer"]
-  fn gl_BindBuffer(target: u32, buffer: u32);
-  #[link_name = "glBufferData"]
-  fn gl_BufferData(target: u32, size: isize, data: *const c_void, usage: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
-
-  // FBO functions (core in GL 3.0+, available on Linux)
-  #[link_name = "glGenFramebuffers"]
-  fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32);
-  #[link_name = "glDeleteFramebuffers"]
-  fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32);
-  #[link_name = "glBindFramebuffer"]
-  fn gl_BindFramebuffer(target: u32, framebuffer: u32);
-  #[link_name = "glGenRenderbuffers"]
-  fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32);
-  #[link_name = "glDeleteRenderbuffers"]
-  fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32);
-  #[link_name = "glBindRenderbuffer"]
-  fn gl_BindRenderbuffer(target: u32, renderbuffer: u32);
-  #[link_name = "glRenderbufferStorage"]
-  fn gl_RenderbufferStorage(target: u32, format: u32, width: i32, height: i32);
-  #[link_name = "glFramebufferRenderbuffer"]
-  fn gl_FramebufferRenderbuffer(
-    target: u32,
-    attachment: u32,
-    renderbuffer_target: u32,
-    renderbuffer: u32,
-  );
-  #[link_name = "glCheckFramebufferStatus"]
-  fn gl_CheckFramebufferStatus(target: u32) -> u32;
-  #[link_name = "glBlitFramebuffer"]
-  fn gl_BlitFramebuffer(
-    src_x0: i32,
-    src_y0: i32,
-    src_x1: i32,
-    src_y1: i32,
-    dst_x0: i32,
-    dst_y0: i32,
-    dst_x1: i32,
-    dst_y1: i32,
-    mask: u32,
-    filter: u32,
-  );
-}
-
-#[cfg(target_os = "windows")]
-#[link(name = "opengl32")]
-unsafe extern "C" {
-  #[link_name = "glMatrixMode"]
-  fn gl_MatrixMode(mode: u32);
-  #[link_name = "glLoadMatrixf"]
-  fn gl_LoadMatrixf(m: *const f32);
-  #[link_name = "glLoadIdentity"]
-  fn gl_LoadIdentity();
-  #[link_name = "glPushMatrix"]
-  fn gl_PushMatrix();
-  #[link_name = "glPopMatrix"]
-  fn gl_PopMatrix();
-  #[link_name = "glMultMatrixf"]
-  fn gl_MultMatrixf(m: *const f32);
-  #[link_name = "glEnable"]
-  fn gl_Enable(cap: u32);
-  #[link_name = "glDisable"]
-  fn gl_Disable(cap: u32);
-  #[link_name = "glLightfv"]
-  fn gl_Lightfv(light: u32, pname: u32, params: *const f32);
-  #[link_name = "glLightModelfv"]
-  fn gl_LightModelfv(pname: u32, params: *const f32);
-  #[link_name = "glLightModeli"]
-  fn gl_LightModeli(pname: u32, param: i32);
-  #[link_name = "glColorMaterial"]
-  fn gl_ColorMaterial(face: u32, mode: u32);
-  #[link_name = "glShadeModel"]
-  fn gl_ShadeModel(mode: u32);
-  #[link_name = "glDepthFunc"]
-  fn gl_DepthFunc(func: u32);
-  #[link_name = "glBegin"]
-  fn gl_Begin(mode: u32);
-  #[link_name = "glEnd"]
-  fn gl_End();
-  #[link_name = "glVertex3f"]
-  fn gl_Vertex3f(x: f32, y: f32, z: f32);
-  #[link_name = "glVertex4f"]
-  fn gl_Vertex4f(x: f32, y: f32, z: f32, w: f32);
-
-  #[link_name = "glColor3f"]
-  fn gl_Color3f(r: f32, g: f32, b: f32);
-  #[link_name = "glLineWidth"]
-  fn gl_LineWidth(width: f32);
-  #[link_name = "glClear"]
-  fn gl_Clear(mask: u32);
-  #[link_name = "glClearColor"]
-  fn gl_ClearColor(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glClearDepth"]
-  fn gl_ClearDepth(depth: f64);
-  #[link_name = "glClearStencil"]
-  fn gl_ClearStencil(s: i32);
-  #[link_name = "glViewport"]
-  fn gl_Viewport(x: i32, y: i32, width: i32, height: i32);
-  #[link_name = "glMaterialfv"]
-  fn gl_Materialfv(face: u32, pname: u32, params: *const f32);
-  #[link_name = "glMaterialf"]
-  fn gl_Materialf(face: u32, pname: u32, param: f32);
-  #[link_name = "glColor4f"]
-  fn gl_Color4f(r: f32, g: f32, b: f32, a: f32);
-  #[link_name = "glBlendFunc"]
-  fn gl_BlendFunc(sfactor: u32, dfactor: u32);
-  #[link_name = "glDepthMask"]
-  fn gl_DepthMask(flag: u8);
-  #[link_name = "glColorMask"]
-  fn gl_ColorMask(red: u8, green: u8, blue: u8, alpha: u8);
-  #[link_name = "glCullFace"]
-  fn gl_CullFace(mode: u32);
-  #[link_name = "glVertexPointer"]
-  fn gl_VertexPointer(
-    size: i32,
-    type_: u32,
-    stride: i32,
-    pointer: *const c_void,
-  );
-  #[link_name = "glNormalPointer"]
-  fn gl_NormalPointer(type_: u32, stride: i32, pointer: *const c_void);
-  #[link_name = "glEnableClientState"]
-  fn gl_EnableClientState(array: u32);
-  #[link_name = "glDisableClientState"]
-  fn gl_DisableClientState(array: u32);
-  #[link_name = "glDrawArrays"]
-  fn gl_DrawArrays(mode: u32, first: i32, count: i32);
-}
-
-// glUseProgram is GL 2.0+ and not exported by opengl32.lib on Windows.
-// It must be loaded at runtime via wglGetProcAddress.
-#[cfg(target_os = "windows")]
-unsafe fn gl_UseProgram(program: u32) {
-  use std::sync::OnceLock;
-  #[link(name = "opengl32")]
-  unsafe extern "C" {
-    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
-  }
-  static FUNC: OnceLock<unsafe extern "C" fn(u32)> = OnceLock::new();
-  let f = FUNC.get_or_init(|| {
-    let ptr = unsafe { wglGetProcAddress(c"glUseProgram".as_ptr()) };
-    assert!(!ptr.is_null(), "failed to load glUseProgram");
-    unsafe { std::mem::transmute(ptr) }
-  });
-  unsafe { f(program) }
-}
-
-// glBindVertexArray is GL 3.0+ and not exported by opengl32.lib on Windows.
-#[cfg(target_os = "windows")]
-unsafe fn gl_BindVertexArray(array: u32) {
-  use std::sync::OnceLock;
-  #[link(name = "opengl32")]
-  unsafe extern "C" {
-    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
-  }
-  static FUNC: OnceLock<unsafe extern "C" fn(u32)> = OnceLock::new();
-  let f = FUNC.get_or_init(|| {
-    let ptr = unsafe { wglGetProcAddress(c"glBindVertexArray".as_ptr()) };
-    assert!(!ptr.is_null(), "failed to load glBindVertexArray");
-    unsafe { std::mem::transmute(ptr) }
-  });
-  unsafe { f(array) }
-}
-
-// GL 1.5+ buffer functions are not exported by opengl32.lib on Windows.
-#[cfg(target_os = "windows")]
-mod win_gl_buffers {
-  use std::ffi::c_void;
-  use std::sync::OnceLock;
-
-  #[link(name = "opengl32")]
-  unsafe extern "C" {
-    fn wglGetProcAddress(name: *const std::ffi::c_char) -> *const c_void;
-  }
-
-  macro_rules! load_gl_fn {
-    ($name:ident, $c_name:expr, $sig:ty) => {
-      pub unsafe fn $name() -> $sig {
-        static FUNC: OnceLock<$sig> = OnceLock::new();
-        *FUNC.get_or_init(|| {
-          let ptr = unsafe { wglGetProcAddress($c_name.as_ptr()) };
-          assert!(
-            !ptr.is_null(),
-            concat!("failed to load ", stringify!($name))
-          );
-          unsafe { std::mem::transmute(ptr) }
-        })
-      }
-    };
-  }
-
-  load_gl_fn!(
-    gen_buffers,
-    c"glGenBuffers",
-    unsafe extern "C" fn(i32, *mut u32)
-  );
-  load_gl_fn!(
-    delete_buffers,
-    c"glDeleteBuffers",
-    unsafe extern "C" fn(i32, *const u32)
-  );
-  load_gl_fn!(bind_buffer, c"glBindBuffer", unsafe extern "C" fn(u32, u32));
-  load_gl_fn!(
-    buffer_data,
-    c"glBufferData",
-    unsafe extern "C" fn(u32, isize, *const c_void, u32)
-  );
-
-  // FBO functions (GL 3.0+)
-  load_gl_fn!(
-    gen_framebuffers,
-    c"glGenFramebuffers",
-    unsafe extern "C" fn(i32, *mut u32)
-  );
-  load_gl_fn!(
-    delete_framebuffers,
-    c"glDeleteFramebuffers",
-    unsafe extern "C" fn(i32, *const u32)
-  );
-  load_gl_fn!(
-    bind_framebuffer,
-    c"glBindFramebuffer",
-    unsafe extern "C" fn(u32, u32)
-  );
-  load_gl_fn!(
-    gen_renderbuffers,
-    c"glGenRenderbuffers",
-    unsafe extern "C" fn(i32, *mut u32)
-  );
-  load_gl_fn!(
-    delete_renderbuffers,
-    c"glDeleteRenderbuffers",
-    unsafe extern "C" fn(i32, *const u32)
-  );
-  load_gl_fn!(
-    bind_renderbuffer,
-    c"glBindRenderbuffer",
-    unsafe extern "C" fn(u32, u32)
-  );
-  load_gl_fn!(
-    renderbuffer_storage,
-    c"glRenderbufferStorage",
-    unsafe extern "C" fn(u32, u32, i32, i32)
-  );
-  load_gl_fn!(
-    framebuffer_renderbuffer,
-    c"glFramebufferRenderbuffer",
-    unsafe extern "C" fn(u32, u32, u32, u32)
-  );
-  load_gl_fn!(
-    check_framebuffer_status,
-    c"glCheckFramebufferStatus",
-    unsafe extern "C" fn(u32) -> u32
-  );
-  load_gl_fn!(
-    blit_framebuffer,
-    c"glBlitFramebuffer",
-    unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32)
-  );
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn gl_GenBuffers(n: i32, buffers: *mut u32) {
-  unsafe { (win_gl_buffers::gen_buffers())(n, buffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_DeleteBuffers(n: i32, buffers: *const u32) {
-  unsafe { (win_gl_buffers::delete_buffers())(n, buffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_BindBuffer(target: u32, buffer: u32) {
-  unsafe { (win_gl_buffers::bind_buffer())(target, buffer) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_BufferData(
-  target: u32,
-  size: isize,
-  data: *const c_void,
-  usage: u32,
-) {
-  unsafe { (win_gl_buffers::buffer_data())(target, size, data, usage) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_GenFramebuffers(n: i32, framebuffers: *mut u32) {
-  unsafe { (win_gl_buffers::gen_framebuffers())(n, framebuffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_DeleteFramebuffers(n: i32, framebuffers: *const u32) {
-  unsafe { (win_gl_buffers::delete_framebuffers())(n, framebuffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_BindFramebuffer(target: u32, framebuffer: u32) {
-  unsafe { (win_gl_buffers::bind_framebuffer())(target, framebuffer) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_GenRenderbuffers(n: i32, renderbuffers: *mut u32) {
-  unsafe { (win_gl_buffers::gen_renderbuffers())(n, renderbuffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_DeleteRenderbuffers(n: i32, renderbuffers: *const u32) {
-  unsafe { (win_gl_buffers::delete_renderbuffers())(n, renderbuffers) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_BindRenderbuffer(target: u32, renderbuffer: u32) {
-  unsafe { (win_gl_buffers::bind_renderbuffer())(target, renderbuffer) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_RenderbufferStorage(
-  target: u32,
-  format: u32,
-  width: i32,
-  height: i32,
-) {
-  unsafe {
-    (win_gl_buffers::renderbuffer_storage())(target, format, width, height)
-  }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_FramebufferRenderbuffer(
-  target: u32,
-  attachment: u32,
-  renderbuffer_target: u32,
-  renderbuffer: u32,
-) {
-  unsafe {
-    (win_gl_buffers::framebuffer_renderbuffer())(
-      target,
-      attachment,
-      renderbuffer_target,
-      renderbuffer,
-    )
-  }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_CheckFramebufferStatus(target: u32) -> u32 {
-  unsafe { (win_gl_buffers::check_framebuffer_status())(target) }
-}
-#[cfg(target_os = "windows")]
-unsafe fn gl_BlitFramebuffer(
-  src_x0: i32,
-  src_y0: i32,
-  src_x1: i32,
-  src_y1: i32,
-  dst_x0: i32,
-  dst_y0: i32,
-  dst_x1: i32,
-  dst_y1: i32,
-  mask: u32,
-  filter: u32,
-) {
-  unsafe {
-    (win_gl_buffers::blit_framebuffer())(
-      src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask,
-      filter,
-    )
-  }
-}
-
-// GL constants
-const GL_PROJECTION: u32 = 0x1701;
-const GL_MODELVIEW: u32 = 0x1700;
-const GL_LIGHTING: u32 = 0x0B50;
-const GL_LIGHT0: u32 = 0x4000;
-const GL_LIGHT1: u32 = 0x4001;
-const GL_LIGHT2: u32 = 0x4002;
-const GL_NORMALIZE: u32 = 0x0BA1;
-const GL_COLOR_MATERIAL: u32 = 0x0B57;
-const GL_POSITION: u32 = 0x1203;
-const GL_DIFFUSE: u32 = 0x1201;
-const GL_AMBIENT: u32 = 0x1200;
-const GL_SPECULAR: u32 = 0x1202;
-const GL_SHININESS: u32 = 0x1601;
-const GL_EMISSION: u32 = 0x1600;
-const GL_AMBIENT_AND_DIFFUSE: u32 = 0x1602;
-const GL_FRONT_AND_BACK: u32 = 0x0408;
-const GL_LIGHT_MODEL_AMBIENT: u32 = 0x0B53;
-const GL_LIGHT_MODEL_TWO_SIDE: u32 = 0x0B52;
-const GL_SMOOTH: u32 = 0x1D01;
-const GL_EQUAL: u32 = 0x0202;
-const GL_LEQUAL: u32 = 0x0203;
-const GL_LESS: u32 = 0x0201;
-const GL_TRIANGLES: u32 = 0x0004;
-const GL_LINES: u32 = 0x0001;
-const GL_DEPTH_BUFFER_BIT: u32 = 0x00000100;
-const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
-const GL_STENCIL_BUFFER_BIT: u32 = 0x00000400;
-const GL_DEPTH_TEST: u32 = 0x0B71;
-const GL_BLEND: u32 = 0x0BE2;
-const GL_SRC_ALPHA: u32 = 0x0302;
-const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
-const GL_CULL_FACE: u32 = 0x0B44;
-const GL_FRONT: u32 = 0x0404;
-const GL_BACK: u32 = 0x0405;
-const GL_ARRAY_BUFFER: u32 = 0x8892;
-const GL_STATIC_DRAW: u32 = 0x88E4;
-const GL_FLOAT: u32 = 0x1406;
-const GL_VERTEX_ARRAY: u32 = 0x8074;
-const GL_NORMAL_ARRAY: u32 = 0x8075;
-
-// FBO constants
-const GL_FRAMEBUFFER: u32 = 0x8D40;
-const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
-const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
-const GL_RENDERBUFFER: u32 = 0x8D41;
-const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
-const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
-const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
-const GL_RGBA8: u32 = 0x8058;
-const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
-const GL_LINEAR: u32 = 0x2601;
-
-/// Supersampling factor for the 3D view.
-///
-/// The scene is rendered into an FBO this many times larger than the area it
-/// occupies on screen and downsampled when blitted, which anti-aliases the CSG
-/// silhouettes and the axis lines. A plain shader-free approach is used because
-/// the GL 2.1 compatibility context OpenCSG requires makes multisampled
-/// renderbuffers an extension question, and because MSAA would interact with
-/// OpenCSG's per-sample stencil parity passes.
-///
-/// Costs `SSAA_FACTOR²` in fill rate and FBO memory, which is why the render is
-/// cached between frames (see `SceneSignature` in `main.rs`).
-pub const SSAA_FACTOR: u32 = 2;
-
-/// Offscreen framebuffer for rendering the 3D scene.
-///
-/// OpenCSG's internal FBO/blit logic assumes the GL viewport starts at (0,0).
-/// By rendering into this offscreen FBO at (0,0) with the scene dimensions,
-/// then blitting to the correct screen position, we avoid that constraint.
-pub struct SceneFbo {
-  fbo: u32,
-  color_rb: u32,
-  depth_stencil_rb: u32,
-  width: u32,
-  height: u32,
-}
-
-impl SceneFbo {
-  /// Create a new offscreen FBO with the given dimensions.
-  pub fn new(width: u32, height: u32) -> Self {
-    let w = width.max(1);
-    let h = height.max(1);
-    let mut fbo = 0u32;
-    let mut rbs = [0u32; 2];
-    unsafe {
-      gl_GenFramebuffers(1, &mut fbo);
-      gl_GenRenderbuffers(2, rbs.as_mut_ptr());
-
-      gl_BindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-      // Color attachment
-      gl_BindRenderbuffer(GL_RENDERBUFFER, rbs[0]);
-      gl_RenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w as i32, h as i32);
-      gl_FramebufferRenderbuffer(
-        GL_FRAMEBUFFER,
-        GL_COLOR_ATTACHMENT0,
-        GL_RENDERBUFFER,
-        rbs[0],
-      );
-
-      // Depth+stencil attachment
-      gl_BindRenderbuffer(GL_RENDERBUFFER, rbs[1]);
-      gl_RenderbufferStorage(
-        GL_RENDERBUFFER,
-        GL_DEPTH24_STENCIL8,
-        w as i32,
-        h as i32,
-      );
-      gl_FramebufferRenderbuffer(
-        GL_FRAMEBUFFER,
-        GL_DEPTH_STENCIL_ATTACHMENT,
-        GL_RENDERBUFFER,
-        rbs[1],
-      );
-
-      let status = gl_CheckFramebufferStatus(GL_FRAMEBUFFER);
-      assert_eq!(
-        status, GL_FRAMEBUFFER_COMPLETE,
-        "FBO incomplete: {status:#x}"
-      );
-
-      gl_BindRenderbuffer(GL_RENDERBUFFER, 0);
-      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-
-    Self {
-      fbo,
-      color_rb: rbs[0],
-      depth_stencil_rb: rbs[1],
-      width: w,
-      height: h,
-    }
-  }
-
-  /// Resize the FBO if dimensions changed. Returns true if resized.
-  pub fn ensure_size(&mut self, width: u32, height: u32) -> bool {
-    let w = width.max(1);
-    let h = height.max(1);
-    if w == self.width && h == self.height {
-      return false;
-    }
-    unsafe {
-      gl_BindFramebuffer(GL_FRAMEBUFFER, self.fbo);
-
-      gl_BindRenderbuffer(GL_RENDERBUFFER, self.color_rb);
-      gl_RenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w as i32, h as i32);
-
-      gl_BindRenderbuffer(GL_RENDERBUFFER, self.depth_stencil_rb);
-      gl_RenderbufferStorage(
-        GL_RENDERBUFFER,
-        GL_DEPTH24_STENCIL8,
-        w as i32,
-        h as i32,
-      );
-
-      gl_BindRenderbuffer(GL_RENDERBUFFER, 0);
-      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-    self.width = w;
-    self.height = h;
-    true
-  }
-
-  /// Bind this FBO for rendering. Sets viewport to (0, 0, w, h).
-  pub fn bind(&self) {
-    unsafe {
-      gl_BindFramebuffer(GL_FRAMEBUFFER, self.fbo);
-      gl_Viewport(0, 0, self.width as i32, self.height as i32);
-    }
-  }
-
-  /// Unbind (switch back to default framebuffer).
-  pub fn unbind(&self) {
-    unsafe {
-      gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-  }
-
-  /// Blit the FBO contents to a region of the default framebuffer, filtering
-  /// the supersampled image down to the destination size.
-  /// `dst_x`, `dst_y` are in GL coordinates (bottom-left origin, physical pixels).
-  ///
-  /// Only the color buffer is copied: a scaling blit with `GL_LINEAR` is invalid
-  /// if depth or stencil bits are set, and nothing drawn afterwards (egui) reads
-  /// the default framebuffer's depth or stencil.
-  pub fn blit_to_screen(&self, dst_x: i32, dst_y: i32, dst_w: u32, dst_h: u32) {
-    unsafe {
-      gl_BindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo);
-      gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-      gl_BlitFramebuffer(
-        0,
-        0,
-        self.width as i32,
-        self.height as i32,
-        dst_x,
-        dst_y,
-        dst_x + dst_w as i32,
-        dst_y + dst_h as i32,
-        GL_COLOR_BUFFER_BIT,
-        GL_LINEAR,
-      );
-      gl_BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    }
-  }
-}
-
-impl Drop for SceneFbo {
-  fn drop(&mut self) {
-    unsafe {
-      gl_DeleteRenderbuffers(
-        2,
-        [self.color_rb, self.depth_stencil_rb].as_ptr(),
-      );
-      gl_DeleteFramebuffers(1, &self.fbo);
-    }
-  }
-}
-
-/// Clear the framebuffer with a background color and reset depth + stencil.
-pub fn gl_clear_screen(r: f32, g: f32, b: f32) {
-  unsafe {
-    gl_ClearColor(r, g, b, 1.0);
-    gl_ClearDepth(1.0);
-    gl_ClearStencil(0);
-    gl_Clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    gl_Enable(GL_DEPTH_TEST);
-    gl_DepthFunc(GL_LESS);
-  }
-}
-
-/// Force every pixel of the framebuffer to full alpha, leaving the colours
-/// untouched.
-///
-/// The window's pixel format has an alpha channel, and the compositor honours
-/// it: wherever alpha ends up below 1 the window is see-through there, and
-/// those pixels take their brightness from whatever sits behind the window
-/// rather than from what was drawn. Alpha blending writes exactly that —
-/// `GL_SRC_ALPHA`/`GL_ONE_MINUS_SRC_ALPHA` leaves `dst_a = src_a² +
-/// (1 - src_a)·dst_a`, which is below 1 for any see-through fragment. So the
-/// transparent view, whose whole point is to blend, punches the model's own
-/// silhouette out of the window.
-///
-/// Colours are already composited by the time this runs; only the alpha the
-/// compositor reads has to be repaired, hence the write mask.
-pub fn gl_make_framebuffer_opaque() {
-  unsafe {
-    gl_ColorMask(0, 0, 0, 1);
-    gl_ClearColor(0.0, 0.0, 0.0, 1.0);
-    gl_Clear(GL_COLOR_BUFFER_BIT);
-    gl_ColorMask(1, 1, 1, 1);
-  }
-}
-
-/// Set the GL viewport.
-pub fn gl_set_viewport(x: i32, y: i32, w: i32, h: i32) {
-  unsafe {
-    gl_Viewport(x, y, w, h);
-  }
+  let m: [[f32; 4]; 4] = camera.view().into();
+  bytemuck::cast(m)
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use luacad::material::MaterialSpec;
 
   const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, //
@@ -1690,12 +1341,25 @@ mod tests {
   /// painted before the near one no matter which order the scene lists them.
   #[test]
   fn transparent_solids_are_painted_from_the_back() {
-    let solids = vec![solid_at_z(1.0), solid_at_z(-1.0)];
+    let centers = [
+      bounding_center(&solid_at_z(1.0).vertices),
+      bounding_center(&solid_at_z(-1.0).vertices),
+    ];
+    let order = back_to_front_centers(&centers, &view_matrix());
+    assert_eq!(order, vec![1, 0], "the near solid was painted first");
+  }
 
-    let sorted = depth_sorted_solids(&solids, &view_matrix());
+  /// The bounding center is what the transparent sort keys on.
+  #[test]
+  fn the_bounding_center_is_the_middle_of_the_extent() {
     assert_eq!(
-      sorted[0].vertices[0][2], -1.0,
-      "the near solid was painted first"
+      bounding_center(&[[0.0, 0.0, 2.0], [4.0, 2.0, 2.0]]),
+      [2.0, 1.0, 2.0]
+    );
+    assert_eq!(
+      bounding_center(&[]),
+      [0.0; 3],
+      "an empty mesh sits at the origin"
     );
   }
 
@@ -1708,5 +1372,27 @@ mod tests {
 
     assert_eq!(compute_scene_extent(&[solid_at_z(1.0), far]), Some(5.0));
     assert_eq!(compute_scene_extent(&[]), None, "an empty scene has no fit");
+  }
+
+  /// WebCSG works in WebGPU clip space, where the near plane is at depth 0
+  /// rather than at GL's -1.
+  #[test]
+  fn gl_depth_is_mapped_to_the_webgpu_range() {
+    let near = GL_TO_WGPU_DEPTH * glam::Vec4::new(0.0, 0.0, -1.0, 1.0);
+    let far = GL_TO_WGPU_DEPTH * glam::Vec4::new(0.0, 0.0, 1.0, 1.0);
+    assert_eq!(near.z, 0.0);
+    assert_eq!(far.z, 1.0);
+  }
+
+  /// The CAD → GL permutation has to move the translation along with the
+  /// axes.
+  #[test]
+  fn cad_transform_permutes_translation() {
+    let mut cad = IDENTITY;
+    cad[12] = 1.0; // x
+    cad[13] = 2.0; // y
+    cad[14] = 3.0; // z
+    let gl = cad_to_gl_transform(&cad);
+    assert_eq!(&gl[12..15], &[2.0, 3.0, 1.0]);
   }
 }

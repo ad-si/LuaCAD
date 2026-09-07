@@ -1,17 +1,22 @@
+//! egui on wgpu: the window surface, the egui renderer and the translation
+//! of the input events.
+
 use crate::camera::Viewport;
 use crate::input::*;
 use std::sync::Arc;
 
 pub struct EguiIntegration {
-  painter: egui_glow::Painter,
+  painter: egui_wgpu::winit::Painter,
   egui_context: egui::Context,
   output: Option<egui::FullOutput>,
   viewport: Viewport,
   modifiers: Modifiers,
+  window: Arc<winit::window::Window>,
 }
 
 impl EguiIntegration {
-  pub fn new(gl: Arc<glow::Context>) -> Self {
+  /// Bring up wgpu on the window. Blocks until the device is ready.
+  pub fn new(window: Arc<winit::window::Window>) -> Self {
     let egui_context = egui::Context::default();
     egui_context.options_mut(|o| {
       // egui only counts a double click when both clicks are released within
@@ -24,13 +29,75 @@ impl EguiIntegration {
       o.input_options.max_click_dist = 10.0;
     });
 
+    let mut setup =
+      egui_wgpu::WgpuSetupCreateNew::from_display_handle(window.clone());
+    // A 32 bit float depth buffer keeps the CSG result exact where the
+    // hardware offers one (see `webcsg::recommended_depth_format`)
+    setup.device_descriptor =
+      Arc::new(|adapter: &wgpu::Adapter| wgpu::DeviceDescriptor {
+        label: Some("LuaCAD Studio"),
+        required_features: adapter.features()
+          & wgpu::Features::DEPTH32FLOAT_STENCIL8,
+        required_limits: adapter.limits(),
+        ..Default::default()
+      });
+    let config = egui_wgpu::WgpuConfiguration {
+      wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(setup),
+      ..Default::default()
+    };
+    let mut painter = pollster::block_on(egui_wgpu::winit::Painter::new(
+      egui_context.clone(),
+      config,
+      false,
+      egui_wgpu::RendererOptions::default(),
+    ));
+    pollster::block_on(
+      painter.set_window(egui::ViewportId::ROOT, Some(window.clone())),
+    )
+    .expect("failed to create the wgpu surface");
+
     Self {
       egui_context,
-      painter: egui_glow::Painter::new(gl, "", None, true).unwrap(),
+      painter,
       output: None,
       viewport: Viewport::new_at_origo(1, 1),
       modifiers: Modifiers::default(),
+      window,
     }
+  }
+
+  /// The device, queue and renderer egui paints with.
+  pub fn render_state(&self) -> egui_wgpu::RenderState {
+    self
+      .painter
+      .render_state()
+      .expect("the render state exists once the window is set")
+  }
+
+  /// Follow a change of the window's size in physical pixels.
+  pub fn on_window_resized(&mut self, width: u32, height: u32) {
+    if let (Some(width), Some(height)) = (
+      std::num::NonZeroU32::new(width),
+      std::num::NonZeroU32::new(height),
+    ) {
+      self
+        .painter
+        .on_window_resized(egui::ViewportId::ROOT, width, height);
+    }
+  }
+
+  /// Screenshots requested from earlier frames that have arrived from the
+  /// GPU, as whole-window images in physical pixels.
+  pub fn take_screenshots(&self) -> Vec<Arc<egui::ColorImage>> {
+    let mut events = Vec::new();
+    self.painter.handle_screenshots(&mut events);
+    events
+      .into_iter()
+      .filter_map(|event| match event {
+        egui::Event::Screenshot { image, .. } => Some(image),
+        _ => None,
+      })
+      .collect()
   }
 
   /// Process events and run the egui UI callback.
@@ -126,24 +193,32 @@ impl EguiIntegration {
       || self.egui_context.egui_wants_keyboard_input()
   }
 
-  /// Render the egui output. Call after update().
-  pub fn render(&mut self) {
+  /// Render the egui output to the window and present it. Call after
+  /// `update()`.
+  ///
+  /// With `capture` set, the frame is also read back; it arrives through
+  /// [`Self::take_screenshots`] a frame or two later.
+  pub fn render(&mut self, clear_color: [f32; 4], capture: bool) {
     let mut output = self
       .output
       .take()
       .expect("call EguiIntegration::update before render");
     let scale = self.egui_context.pixels_per_point();
     let clipped_meshes = self.egui_context.tessellate(output.shapes, scale);
+    let capture_data = if capture {
+      vec![egui::UserData::default()]
+    } else {
+      vec![]
+    };
     self.painter.paint_and_update_textures(
-      [self.viewport.width, self.viewport.height],
+      egui::ViewportId::ROOT,
       scale,
+      clear_color,
       &clipped_meshes,
       &mut output.textures_delta,
+      capture_data,
+      &self.window,
     );
-    unsafe {
-      use glow::HasContext as _;
-      self.painter.gl().disable(glow::FRAMEBUFFER_SRGB);
-    }
   }
 }
 

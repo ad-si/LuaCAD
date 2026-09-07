@@ -22,8 +22,10 @@ checkout, so a local build can be traced back to its commit. The same
 information, plus the target the binary was built for, is in
 Settings → About.
 
-Building requires a C++ toolchain and OpenGL development headers, because the
-CSG preview is rendered through [OpenCSG](http://www.opencsg.org/).
+Building requires a C++ toolchain and CMake for the Manifold geometry
+kernel. The CSG preview is rendered through
+[WebCSG](https://github.com/ad-si/WebCSG) on [wgpu](https://wgpu.rs), so
+the machine needs a Metal, Vulkan or DirectX 12 capable GPU driver.
 
 For the command line interface and the scripting engine, see
 [`luacad`](https://crates.io/crates/luacad).

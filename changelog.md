@@ -10,6 +10,23 @@ any release.
 
 ## Unreleased
 
+### Changed
+
+- Studio's 3D preview moved from OpenCSG on legacy OpenGL to
+  [WebCSG](https://github.com/ad-si/WebCSG), an image-based CSG renderer on
+  [wgpu](https://wgpu.rs), and egui now paints through wgpu as well. The
+  viewport runs on Metal, Vulkan or DirectX 12 instead of the OpenGL 2.1
+  compatibility profile Apple deprecated, the hand-rolled macOS context setup
+  is gone, and building `luacad-studio` no longer needs OpenGL development
+  headers. The `opencsg-sys` crate is retired.
+
+  The picture is the same: the same three lights, materials, modifier
+  overlays, transparent mode and supersampling. A deeply concave subtracted
+  primitive, such as a ten-turn thread, now renders correctly in the shaded
+  preview (its layers were lost in facet-aligned stripes before). Large
+  models redraw faster: the 490,802-triangle MuSHR racecar in about 5 ms
+  per view instead of 10 ms.
+
 ### Added
 
 - Lua's `surface()` now builds real geometry on the Manifold backend, so a

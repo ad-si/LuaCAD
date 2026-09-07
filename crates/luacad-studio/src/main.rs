@@ -3,7 +3,6 @@ mod camera;
 mod csg_tree;
 mod editor;
 mod egui_integration;
-mod gl_context;
 mod input;
 mod pdf;
 mod scene;
@@ -25,16 +24,16 @@ use luacad::export::ExportFormat;
 #[cfg(feature = "csgrs")]
 use luacad::scad_export;
 use scene::{
-  SSAA_FACTOR, SceneFbo, build_camera, camera_projection_matrix,
-  camera_view_matrix, compute_camera_vectors, fit_distance_for_extent,
-  gl_clear_screen, gl_make_framebuffer_opaque, gl_set_viewport, render_axes,
-  render_opencsg_scene,
+  SSAA_FACTOR, SceneRenderer, SceneView, build_camera,
+  camera_projection_matrix, camera_view_matrix, compute_camera_vectors,
+  fit_distance_for_extent,
 };
 use theme::ThemeMode;
 use ui::{PanelLayout, render_ui};
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Return the path to the state file (`~/.config/luacad/state.json`).
 fn state_file_path() -> Option<PathBuf> {
@@ -255,10 +254,11 @@ fn egui_to_winit_cursor(cursor: egui::CursorIcon) -> winit::window::CursorIcon {
   }
 }
 
-/// Everything the image in the scene FBO depends on.
+/// Everything the image in the scene texture depends on.
 ///
-/// The FBO keeps its contents between frames, so as long as this is unchanged
-/// the previous render is still valid and can simply be blitted again.
+/// The texture keeps its contents between frames, so as long as this is
+/// unchanged the previous render is still valid and egui simply paints it
+/// again.
 #[derive(PartialEq)]
 struct SceneSignature {
   projection: [f32; 16],
@@ -268,17 +268,17 @@ struct SceneSignature {
   transparent: bool,
 }
 
-/// Everything that exists once the window and its GL context are up.
+/// Everything that exists once the window and its GPU surface are up.
 ///
-/// Field order is drop order: the egui painter and the GL context both hold
-/// resources owned by the window, so they have to go before it.
+/// Field order is drop order: the scene renderer registers its texture with
+/// the egui renderer, and the egui painter holds the window's surface, so
+/// both go before the window.
 struct Studio {
+  scene: SceneRenderer,
   gui: EguiIntegration,
-  gl: gl_context::GlWindowContext,
   app: AppState,
   camera: Camera,
-  scene_fbo: SceneFbo,
-  /// What the scene FBO currently holds, or `None` while it is undefined
+  /// What the scene texture currently holds, or `None` while it is undefined
   last_scene_signature: Option<SceneSignature>,
   frame_input_generator: FrameInputGenerator,
   clipboard: Option<arboard::Clipboard>,
@@ -288,7 +288,11 @@ struct Studio {
   last_watch_check: f64,
   dragging_scene: bool,
   panning_scene: bool,
-  window: winit::window::Window,
+  /// A screenshot region (in screen points) whose frame has been sent to the
+  /// GPU for read-back but has not come back yet, with the settings the shot
+  /// was taken under
+  pending_screenshot: Option<(egui::Rect, screenshot::Settings)>,
+  window: Arc<winit::window::Window>,
 }
 
 /// winit only hands out a window once the event loop is running, so the whole
@@ -307,14 +311,14 @@ impl winit::application::ApplicationHandler for StudioApp {
     let window_attributes = winit::window::Window::default_attributes()
       .with_title("LuaCAD Studio")
       .with_maximized(true);
-    let winit_window = event_loop
-      .create_window(window_attributes)
-      .expect("failed to create window");
+    let winit_window = Arc::new(
+      event_loop
+        .create_window(window_attributes)
+        .expect("failed to create window"),
+    );
     winit_window.focus_window();
 
-    // Create GL context with Compatibility/Legacy profile (required by OpenCSG)
-    let gl = gl_context::GlWindowContext::new(&winit_window, 8);
-    let gui = EguiIntegration::new(gl.gl.clone());
+    let gui = EguiIntegration::new(winit_window.clone());
     let mut app = AppState::new(self.initial_file.take());
     app.editor_visible = !load_hide_editor();
     app.auto_reload = load_auto_reload();
@@ -328,9 +332,6 @@ impl winit::application::ApplicationHandler for StudioApp {
       save_last_file(Some(path));
     }
 
-    // Initialize OpenCSG's GLAD loader
-    opencsg_sys::init_gl();
-
     // The initial Lua execution runs on a background thread; the redraw loop
     // auto-zooms to fit as soon as its geometry arrives (needs_fit_to_view).
 
@@ -339,7 +340,8 @@ impl winit::application::ApplicationHandler for StudioApp {
       Viewport::new_at_origo(w, h)
     };
     let camera = build_camera(initial_viewport, &app);
-    let scene_fbo = SceneFbo::new(
+    let scene = SceneRenderer::new(
+      &gui.render_state(),
       initial_viewport.width * SSAA_FACTOR,
       initial_viewport.height * SSAA_FACTOR,
     );
@@ -347,11 +349,10 @@ impl winit::application::ApplicationHandler for StudioApp {
       FrameInputGenerator::from_winit_window(&winit_window);
 
     self.studio = Some(Studio {
+      scene,
       gui,
-      gl,
       app,
       camera,
-      scene_fbo,
       last_scene_signature: None,
       frame_input_generator,
       clipboard: arboard::Clipboard::new().ok(),
@@ -359,6 +360,7 @@ impl winit::application::ApplicationHandler for StudioApp {
       last_watch_check: 0.0,
       dragging_scene: false,
       panning_scene: false,
+      pending_screenshot: None,
       window: winit_window,
     });
   }
@@ -389,11 +391,10 @@ impl winit::application::ApplicationHandler for StudioApp {
 impl Studio {
   fn redraw(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
     let Studio {
+      scene,
       gui,
-      gl,
       app,
       camera,
-      scene_fbo,
       last_scene_signature,
       frame_input_generator,
       clipboard,
@@ -401,6 +402,7 @@ impl Studio {
       last_watch_check,
       dragging_scene,
       panning_scene,
+      pending_screenshot,
       window: winit_window,
     } = self;
     {
@@ -645,6 +647,26 @@ impl Studio {
 
       let dpr = frame_input.device_pixel_ratio;
 
+      // A screenshot frame read back from the GPU: cut the selected region
+      // out of it. The frame was captured without the selection overlay,
+      // so the image shows the window as it was before the selection
+      // started.
+      if let Some((region, settings)) = pending_screenshot.as_ref()
+        && let Some(frame) = gui.take_screenshots().pop()
+      {
+        match screenshot::capture_region(&frame, *region, dpr) {
+          Some(capture) => {
+            app.screenshot.settings = settings.clone();
+            app.screenshot.capture = Some(capture);
+          }
+          None => {
+            app.export_status =
+              Some(("Screenshot failed: empty selection".to_string(), true))
+          }
+        }
+        *pending_screenshot = None;
+      }
+
       // Process GUI (consumes events over egui panels)
       let mut panel_layout = PanelLayout {
         scene_rect: egui::Rect::NOTHING,
@@ -703,6 +725,24 @@ impl Studio {
           }
 
           panel_layout = render_ui(root_ui, app);
+
+          // The 3D scene, rendered into a texture, fills the area the panels
+          // left. It is painted in the background layer, under everything
+          // the UI puts over the viewport.
+          let scene_rect = panel_layout.scene_rect;
+          if scene_rect.is_positive() {
+            gui_context
+              .layer_painter(egui::LayerId::background())
+              .image(
+                scene.texture_id(),
+                scene_rect,
+                egui::Rect::from_min_max(
+                  egui::pos2(0.0, 0.0),
+                  egui::pos2(1.0, 1.0),
+                ),
+                egui::Color32::WHITE,
+              );
+          }
 
           // Draw axis labels as overlay within the 3D scene area — unless a
           // raytraced still covers it (they would be misplaced) or one is
@@ -1227,9 +1267,9 @@ impl Studio {
       // --- Render ---
       let (bg_r, bg_g, bg_b) = app.theme_colors.bg;
 
-      // Resize the offscreen FBO if the scene area changed. A resize leaves its
-      // contents undefined, so it always forces a re-render.
-      let resized = scene_fbo.ensure_size(render_w, render_h);
+      // Resize the scene texture if the scene area changed. A resize leaves
+      // its contents undefined, so it always forces a re-render.
+      let resized = scene.ensure_size(render_w, render_h);
 
       let proj = camera_projection_matrix(camera);
       let view = camera_view_matrix(camera);
@@ -1242,72 +1282,61 @@ impl Studio {
       };
 
       // Redraw the 3D scene only when it would actually differ from what the
-      // FBO already holds. The frame loop runs at vsync regardless, so without
-      // this the whole OpenCSG pass — supersampled, and fill-rate bound by
-      // construction — would run every frame even while the app sits idle.
+      // texture already holds. The frame loop runs at vsync regardless, so
+      // without this the whole CSG pass — supersampled, and fill-rate bound
+      // by construction — would run every frame even while the app sits idle.
       if resized || last_scene_signature.as_ref() != Some(&signature) {
-        // Render the 3D scene into the offscreen FBO at (0,0).
-        // OpenCSG's internal FBO/blit logic requires viewport at origin.
-        scene_fbo.bind();
-        gl_clear_screen(bg_r, bg_g, bg_b);
-
-        render_opencsg_scene(
-          &app.csg_groups,
-          &app.overlay_meshes,
-          &app.solid_meshes,
-          &proj,
-          &view,
-          app.transparent_view,
-        );
-        render_axes();
-
-        scene_fbo.unbind();
+        // `LUACAD_STUDIO_TIMING=1` prints how long each render of the 3D
+        // scene takes, GPU work included
+        let timing = std::env::var_os("LUACAD_STUDIO_TIMING")
+          .map(|_| std::time::Instant::now());
+        scene.render(&SceneView {
+          groups: &app.csg_groups,
+          overlays: &app.overlay_meshes,
+          solids: &app.solid_meshes,
+          scene_revision: app.scene_revision,
+          projection: proj,
+          view,
+          orthographic: app.orthogonal_view,
+          transparent: app.transparent_view,
+          background: app.theme_colors.bg,
+          // Past the far plane at any zoom, so the axes span the whole view
+          axis_length: 200.0 * app.camera_distance,
+        });
+        if let Some(start) = timing {
+          scene.wait_idle();
+          let triangles: usize = app
+            .csg_groups
+            .iter()
+            .flat_map(|g| &g.primitives)
+            .map(|p| p.vertices.len() / 3)
+            .sum();
+          eprintln!(
+            "scene render: {:.1} ms ({render_w}x{render_h}, {triangles} triangles)",
+            start.elapsed().as_secs_f64() * 1000.0
+          );
+        }
         *last_scene_signature = Some(signature);
       }
 
-      // Clear the default framebuffer, then blit the FBO to the scene area.
-      // GL blit coordinates use bottom-left origin, so convert from top-left.
-      gl_set_viewport(full.x, full.y, full.width as i32, full.height as i32);
-      gl_clear_screen(bg_r, bg_g, bg_b);
-
-      let dst_x = (sr.left() * dpr).round() as i32;
-      let dst_y = (full.height as f32 - sr.bottom() * dpr).round() as i32;
-      scene_fbo.blit_to_screen(dst_x, dst_y, scene_w, scene_h);
-
-      // Render egui overlay
-      gui.render();
-
-      // Take the screenshot the selection asked for. This has to happen with
-      // the frame fully drawn but not yet swapped — and the pass that queued
-      // the region already left the selection overlay out of it, so the image
-      // shows the window as it was before the selection started.
-      if let Some(region) = app.screenshot.pending_capture.take() {
-        match screenshot::capture_region(
-          &gl.gl,
-          region,
-          dpr,
-          full.width,
-          full.height,
-        ) {
-          Some(capture) => {
-            // Recorded here, with the shot: the toggles it describes stay
-            // reachable while the mark-up dialog is open.
-            app.screenshot.settings = screenshot::describe_settings(app);
-            app.screenshot.capture = Some(capture);
-          }
-          None => {
-            app.export_status =
-              Some(("Screenshot failed: empty selection".to_string(), true))
-          }
+      // Take the screenshot the selection asked for. The frame is read back
+      // asynchronously and picked up at the start of a later redraw; the
+      // pass that queued the region already left the selection overlay out
+      // of it. The settings are recorded now, with the shot: the toggles
+      // they describe stay reachable while the mark-up dialog is open.
+      let capture = match app.screenshot.pending_capture.take() {
+        Some(region) => {
+          *pending_screenshot =
+            Some((region, screenshot::describe_settings(app)));
+          true
         }
-      }
+        None => false,
+      };
 
-      // Hand the compositor a fully opaque frame. Everything above is done
-      // drawing, and the blended passes have left see-through alpha behind.
-      gl_make_framebuffer_opaque();
+      // Render egui (with the scene texture in the viewport area) and present
+      gui.render([bg_r, bg_g, bg_b, 1.0], capture);
 
       winit_window.set_cursor(egui_to_winit_cursor(egui_cursor));
-      gl.swap_buffers();
       event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
       winit_window.request_redraw();
     }
@@ -1319,7 +1348,7 @@ impl Studio {
     event: &winit::event::WindowEvent,
   ) {
     let Studio {
-      gl,
+      gui,
       app,
       frame_input_generator,
       window: winit_window,
@@ -1329,12 +1358,13 @@ impl Studio {
       frame_input_generator.handle_winit_window_event(event);
       match event {
         winit::event::WindowEvent::Resized(physical_size) => {
-          gl.resize(*physical_size)
+          gui.on_window_resized(physical_size.width, physical_size.height)
         }
         // winit 0.30 resizes the window itself before delivering this, so the
         // surface only has to follow the window's new size.
         winit::event::WindowEvent::ScaleFactorChanged { .. } => {
-          gl.resize(winit_window.inner_size())
+          let size = winit_window.inner_size();
+          gui.on_window_resized(size.width, size.height)
         }
         winit::event::WindowEvent::CloseRequested => {
           if app.has_unsaved_changes() {

@@ -18,6 +18,7 @@ or generates [SCAD] code for external rendering.
 
 [Manifold]: https://github.com/elalish/manifold
 [SCAD]: https://openscad.org/documentation.html
+[WebCSG]: https://github.com/ad-si/WebCSG
 
 
 ## Installation
@@ -54,14 +55,15 @@ make install
 ### Build requirements
 
 Both crates vendor their C/C++ dependencies, so no system libraries need to
-be installed — but a C++ compiler and CMake must be available to build them:
+be installed — but a C++ compiler and CMake must be available to build
+[Manifold] and Clipper2.
 
-- `luacad` builds [Manifold] and Clipper2
-- `luacad-studio` additionally builds [OpenCSG], which needs OpenGL
-  development headers (on Debian/Ubuntu: `libgl1-mesa-dev`, `libx11-dev`,
-  `libxcb1-dev`, `libxkbcommon-dev`, `libxrandr-dev`, `libwayland-dev`)
+`luacad-studio` renders its viewport through [wgpu], which at runtime needs
+Metal (macOS), Vulkan or DirectX 12 (Windows), or Vulkan (Linux). On Linux
+the window system libraries are loaded at runtime as well; nothing has to
+be installed to build.
 
-[OpenCSG]: http://www.opencsg.org/
+[wgpu]: https://wgpu.rs
 
 
 ## Usage
@@ -116,7 +118,8 @@ luacad-studio --version  # Show the version and exit
 
 Desktop app with a code editor and 3D viewport.
 Edit Lua code on the right, see the model update on the left.
-The viewport draws the CSG tree itself through [OpenCSG],
+The viewport draws the CSG tree itself through [WebCSG],
+an image-based CSG renderer on the GPU,
 so a boolean shows up as soon as the script runs,
 without waiting for a mesh to be built for it.
 Settings → About shows the same version information as `--version`,
