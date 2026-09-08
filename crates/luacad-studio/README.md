@@ -28,4 +28,6 @@ kernel. The CSG preview is rendered through
 the machine needs a Metal, Vulkan or DirectX 12 capable GPU driver.
 
 For the command line interface and the scripting engine, see
-[`luacad`](https://crates.io/crates/luacad).
+[`luacad`](https://crates.io/crates/luacad); for the preview the viewport
+and the browser playground share, see
+[`luacad-preview`](https://crates.io/crates/luacad-preview).

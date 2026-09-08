@@ -159,19 +159,30 @@ no installation, and nothing is uploaded.
 Write a script, see the model, download it as STL, 3MF, OBJ, PLY, OFF or AMF.
 *Copy link* puts the script in the URL fragment, which makes a model
 shareable without a server ever seeing it.
+The preview is Studio's: the CSG tree drawn by [WebCSG] on WebGPU,
+so a script shows up without waiting for its booleans to be computed.
+A browser without WebGPU says so in place of the viewport and keeps
+everything else — running scripts and exporting them included.
 
-Building it locally needs [Emscripten](https://emscripten.org/) and a Rust
-toolchain with the `wasm32-unknown-emscripten` target. The dev shell brings
-both:
+Building it locally needs [Emscripten](https://emscripten.org/) for the
+engine, `wasm-bindgen` for the viewer, and a Rust toolchain with the
+`wasm32-unknown-emscripten` and `wasm32-unknown-unknown` targets. The dev
+shell brings all of them:
 
 ```sh
 nix develop        # Or: source <emsdk>/emsdk_env.sh
-make test-wasm     # Build the module and check that it still runs a script
+make test-wasm     # Build both modules and check the engine still runs a script
 make serve-website # Serve the site at http://localhost:8000/playground/
 ```
 
-Without Nix, install the target with
-`rustup target add wasm32-unknown-emscripten`.
+Open that address rather than an equivalent one: WebGPU exists only in a
+secure context, which over plain HTTP means `localhost`, `127.0.0.1` or
+`[::1]`. A page served from `http://[::]:8000` or from a LAN address has no
+`navigator.gpu` at all, and the playground says so in place of the viewport.
+
+Without Nix, install the targets with `rustup target add
+wasm32-unknown-emscripten wasm32-unknown-unknown` and the CLI with
+`cargo install wasm-bindgen-cli --version <the one in Cargo.lock>`.
 
 The deployed copy is rebuilt by CI on every push to `main`.
 

@@ -14,24 +14,24 @@ categories = ["graphics"]
 
 [features]
 default = []
-csgrs = ["dep:csgrs", "luacad/csgrs"]
+csgrs = ["dep:csgrs", "luacad/csgrs", "luacad-preview/csgrs"]
 
 [dependencies]
 # `raytrace` is spelled out (it is also `luacad`'s default feature) because
 # the viewport's Raytrace button depends on it unconditionally.
 luacad = { workspace = true, features = ["raytrace"] }
+# Both halves of the preview: the studio flattens the model and draws it in
+# the same process.
+luacad-preview = { workspace = true, features = ["flatten", "render"] }
 clap = { workspace = true }
 egui = "0.36"
 # The `winit` feature brings the surface-managing `Painter`
 egui-wgpu = { version = "0.36", features = ["winit"] }
 egui_extras = { version = "0.36", features = ["default", "syntect"] }
-# The version egui-wgpu 0.36 is built against
-wgpu = "30"
-# Image-based CSG for the live preview, on the same wgpu device as egui
-webcsg = "0.1"
-# WebCSG's matrix type; the camera keeps using cgmath
-glam = "0.33"
-bytemuck = { version = "1", features = ["derive"] }
+# The version egui-wgpu 0.36 is built against, and the one the preview
+# renders on
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
 pollster = "0.4"
 cgmath = "0.18"
 csgrs = { version = "0.20", default-features = false, features = ["f32"], optional = true }

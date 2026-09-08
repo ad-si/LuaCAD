@@ -1,7 +1,9 @@
 [workspace]
 members = [
   "crates/luacad",
+  "crates/luacad-preview",
   "crates/luacad-studio",
+  "crates/luacad-viewer",
   "crates/luacad-wasm",
   "crates/luacad-manifold-sys",
   "crates/luacad-prime-core",
@@ -31,6 +33,10 @@ rust-version = "1.89"
 # `raytrace` default (prime-core's rand/getrandom does not compile for
 # wasm32). Members that want it name it: `features = ["raytrace"]`.
 luacad = { version = "1.1.0", path = "crates/luacad", default-features = false }
+# The preview: the studio takes both of its halves, the playground's engine
+# only `flatten` and the playground's viewer only `render` — so, like `luacad`,
+# it arrives with its defaults off and every member names what it needs.
+luacad-preview = { version = "1.1.0", path = "crates/luacad-preview", default-features = false }
 # Published as `luacad-manifold-sys`; the plain `manifold-sys` name on
 # crates.io belongs to an unrelated crate. Renamed back here so the FFI paths
 # read as `manifold_sys::` throughout.
@@ -48,8 +54,27 @@ openrscad-eval = { package = "luacad-scad-eval", version = "1.1.0", path = "crat
 # their own dependency lines, so their manifests stay diffable against
 # upstream.
 clap = { version = "4", features = ["derive"] }
+# The preview stack: image-based CSG, the GPU API under it, WebCSG's matrix
+# type and the cast to the byte slices the buffers are filled from.
+webcsg = "0.1"
+wgpu = "30"
+glam = "0.33"
+bytemuck = { version = "1", features = ["derive"] }
 
 # An unoptimized path tracer makes `luacad render --raytrace` painfully slow
 # in dev builds; upstream Prime sets opt-level 2 for its whole workspace.
 [profile.dev.package.luacad-prime-core]
 opt-level = 2
+
+# The playground's viewer module is downloaded before anything can be drawn,
+# so it is built for size rather than for the last few percent of speed: the
+# work in it is on the GPU either way. `make wasm-viewer` selects this.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# Nothing unwinds in a browser tab; the panic hook still prints to the
+# console before the module aborts.
+panic = "abort"

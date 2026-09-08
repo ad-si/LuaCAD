@@ -21,3 +21,7 @@ path = "src/main.rs"
 # off: that drops `raytrace`, whose rand/getrandom dependency does not build
 # on wasm32-unknown-unknown.
 luacad = { workspace = true }
+# Only the flattening half: the drawing happens in `luacad-viewer`, a module
+# of its own on the page, because wgpu needs a canvas and this one runs in a
+# worker.
+luacad-preview = { workspace = true, features = ["flatten"] }

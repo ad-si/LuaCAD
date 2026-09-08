@@ -27,7 +27,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-emscripten
+          # The engine is built with Emscripten, the viewer with wasm-bindgen.
+          targets: wasm32-unknown-emscripten, wasm32-unknown-unknown
 
       # Pinned rather than tracking `latest`: the emsdk decides how the wasm
       # is linked, and the site should not change underneath a commit that
@@ -43,9 +44,25 @@ jobs:
         with:
           key: wasm32-unknown-emscripten
 
-      # Builds the playground's engine into ./website/playground and checks
-      # that it still runs a script, so a broken module is never published.
-      - name: Build the playground engine
+      # The CLI has to be the exact version of the `wasm-bindgen` crate the
+      # viewer is built against, so it is read off Cargo.lock rather than
+      # written down a second time. `make wasm-viewer` refuses to run when the
+      # two differ anyway.
+      - name: Read the wasm-bindgen version
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { found = 1 }
+            found && /^version = / { gsub(/[",]/, ""); print $3; exit }' Cargo.lock)
+          echo "WASM_BINDGEN_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ env.WASM_BINDGEN_VERSION }}
+
+      # Builds both playground modules into ./website/playground and checks
+      # that the engine still runs a script, so a broken module is never
+      # published.
+      - name: Build the playground
         run: make test-wasm
 
       - name: Setup Pages

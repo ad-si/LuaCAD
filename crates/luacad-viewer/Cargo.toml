@@ -1,0 +1,46 @@
+[package]
+name = "luacad-viewer"
+version.workspace = true
+repository.workspace = true
+# Higher than the workspace default: `luacad-preview` is built for edition
+# 2024 against the same toolchain the rest of the workspace needs.
+rust-version = "1.96"
+edition = "2024"
+description = "WebAssembly viewer of the LuaCAD playground: WebCSG on wgpu, drawing into the page's canvas"
+license = "AGPL-3.0-or-later"
+# The artifact is a wasm module served by the website, not a crate anyone
+# depends on.
+publish = false
+
+[lib]
+# `cdylib` is the wasm module wasm-bindgen post-processes; `rlib` keeps
+# `cargo test` able to build the crate for the host.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Only the drawing half: flattening needs Manifold, and that happens in the
+# engine module, which is a separate Emscripten build.
+luacad-preview = { workspace = true, features = ["render"] }
+# WebGPU is the only backend the viewer asks for; see `create_viewer` for why
+# WebGL2 cannot stand in for it.
+#
+# `fragile-send-sync-non-atomic-wasm` marks the wasm handles `Send + Sync`,
+# which WebCSG's `Primitive` trait requires. Sound here and only here: the
+# module is built without atomics and runs on the page's single thread, so
+# there is no second thread a handle could reach.
+wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
+# Pinned exactly, because the CLI that post-processes the module has to be the
+# very same version. 0.2.126 is what the nixpkgs the flake locks offers as a
+# `wasm-bindgen-cli_0_2_*` attribute and what egui's web-sys asks for at the
+# bottom. Raising it means raising that attribute in flake.nix too —
+# `make wasm-viewer` compares the two and refuses to run when they differ.
+wasm-bindgen = "=0.2.126"
+# What `#[wasm_bindgen]` turns the asynchronous setup into a promise with.
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+  "HtmlCanvasElement",
+  "console",
+] }
+# A panic in the renderer otherwise arrives in the console as
+# "unreachable executed" with no clue where it came from.
+console_error_panic_hook = "0.1"

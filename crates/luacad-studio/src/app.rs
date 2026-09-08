@@ -4,12 +4,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::SystemTime;
 
-use crate::csg_tree::{
-  CsgGroup, CsgScene, OverlayMesh, SolidMesh, flatten_geometries, solid_meshes,
-};
 use crate::editor::EditorAction;
 use crate::screenshot::ScreenshotState;
 use crate::theme::{ThemeColors, ThemeMode, system_is_dark_mode};
+use luacad_preview::{
+  CsgGroup, CsgScene, OverlayMesh, SolidMesh, flatten_geometries, solid_meshes,
+};
 
 /// Where the code editor panel is placed relative to the 3D viewport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

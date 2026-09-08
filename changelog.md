@@ -27,6 +27,20 @@ any release.
   models redraw faster: the 490,802-triangle MuSHR racecar in about 5 ms
   per view instead of 10 ms.
 
+- The browser playground draws the same preview. Its viewport was a
+  hand-written WebGL2 pass over the booleaned meshes; it is now WebCSG on
+  wgpu — WebGPU where the browser has it, WebGL2 otherwise — with Studio's
+  shading, materials and `#`/`%` modifier overlays. Running a script no
+  longer waits for Manifold to boolean the model: the engine sends the CSG
+  products and the GPU resolves them, so a difference shows up as soon as the
+  script has run. Only exporting materializes the geometry.
+
+  The preview moved into a new `luacad-preview` crate that both front ends
+  share. The playground now loads two WebAssembly modules: the engine as
+  before (Emscripten, in a worker) and the viewer next to it (wasm-bindgen,
+  on the page, 856 KB gzipped), which is what `make wasm` builds and
+  `make wasm-viewer` builds on its own.
+
 ### Added
 
 - Lua's `surface()` now builds real geometry on the Manifold backend, so a

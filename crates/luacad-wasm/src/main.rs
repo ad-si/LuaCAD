@@ -8,6 +8,12 @@
 //! handful of megabytes of floats, which JSON would triple in size and make
 //! the browser parse a character at a time.
 //!
+//! A run does not boolean the model. It flattens it into the CSG products
+//! that [`luacad_preview`] describes, and the page's viewer module draws
+//! those through WebCSG — the same preview the studio shows. Only an export
+//! materializes the geometry, and it does that from the geometries this
+//! module keeps, not from anything the page sends back.
+//!
 //! # Buffer layout
 //!
 //! Every buffer starts with its own length so the JavaScript side can copy it
@@ -22,16 +28,7 @@
 //!   u8[] message     UTF-8, fills the rest of the buffer
 //!
 //! run payload:
-//!   u32  mesh_count
-//!   per mesh:
-//!     u32     name_len
-//!     u8[]    name         UTF-8, zero-padded to a multiple of 4
-//!     u32     has_color    1 = the script called color(), 0 = use the default
-//!     f32[3]  color        RGB in 0..1, zeroed when has_color is 0
-//!     u32     vert_count
-//!     u32     tri_count
-//!     f32[]   vertices     vert_count * 3, in CAD axes (x, y, z)
-//!     u32[]   indices      tri_count * 3
+//!   u8[] scene       the flattened CSG scene, see `luacad_preview::wire`
 //!
 //! export payload:
 //!   u8[] file        the exported mesh file, verbatim
@@ -43,11 +40,11 @@ use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use luacad::export::{
-  ManifoldMesh, clear_subtree_cache, describe_unsupported,
-  geometries_unsupported_for_display, materialize_scad_display_mesh,
+  clear_subtree_cache, describe_unsupported, geometries_unsupported_for_display,
 };
 use luacad::geometry::CsgGeometry;
 use luacad::lua_engine::execute_lua;
+use luacad_preview::{flatten_geometries, wire};
 
 // The geometries of the most recent successful run, kept so that exporting
 // does not have to evaluate the script a second time. A thread local is
@@ -152,23 +149,14 @@ fn run(code: &str) -> Result<Vec<u8>, String> {
     return Err(describe_unsupported(&unsupported));
   }
 
-  let meshes: Vec<(ManifoldMesh, &CsgGeometry)> = geometries
-    .iter()
-    .filter_map(|geom| {
-      let scad = geom.scad.as_ref()?;
-      let mesh = materialize_scad_display_mesh(scad);
-      if mesh.triangles.is_empty() {
-        return None;
-      }
-      Some((mesh, geom))
-    })
-    .collect();
+  let scene = flatten_geometries(&geometries);
 
-  // Every mesh has been extracted, so the shared subtrees are dead weight —
-  // and in a 32-bit address space that weight is worth reclaiming eagerly.
+  // Whatever the flattening had to materialize is in the scene now, so the
+  // shared subtrees are dead weight — and in a 32-bit address space that
+  // weight is worth reclaiming eagerly.
   clear_subtree_cache();
 
-  if meshes.is_empty() {
+  if scene.triangle_count() == 0 {
     return Err(
       "The script produced no geometry. Pass a shape to render(), or leave \
        it as the last value of the script."
@@ -176,12 +164,7 @@ fn run(code: &str) -> Result<Vec<u8>, String> {
     );
   }
 
-  let mut payload = Vec::new();
-  push_u32(&mut payload, meshes.len() as u32);
-  for (mesh, geom) in &meshes {
-    encode_mesh(&mut payload, mesh, geom);
-  }
-
+  let payload = wire::encode(&scene);
   LAST_RUN.with(|last| *last.borrow_mut() = geometries);
   Ok(payload)
 }
@@ -205,42 +188,6 @@ fn export(format: &str) -> Result<Vec<u8>, String> {
   })
 }
 
-fn encode_mesh(out: &mut Vec<u8>, mesh: &ManifoldMesh, geom: &CsgGeometry) {
-  let name = geom.name.as_deref().unwrap_or_default();
-  push_u32(out, name.len() as u32);
-  out.extend_from_slice(name.as_bytes());
-  out.resize(out.len().next_multiple_of(4), 0);
-
-  // The material itself isn't transmitted yet; its default color keeps
-  // presets like "gold" recognizable in the playground viewer.
-  let color = geom.color.or(geom.material.and_then(|m| m.default_color));
-  match color {
-    Some(rgb) => {
-      push_u32(out, 1);
-      for channel in rgb {
-        push_f32(out, channel);
-      }
-    }
-    None => {
-      push_u32(out, 0);
-      out.extend_from_slice(&[0; 12]);
-    }
-  }
-
-  push_u32(out, mesh.vertices.len() as u32);
-  push_u32(out, mesh.triangles.len() as u32);
-  for vertex in &mesh.vertices {
-    for coord in vertex {
-      push_f32(out, *coord);
-    }
-  }
-  for triangle in &mesh.triangles {
-    for index in triangle {
-      push_u32(out, *index);
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Buffer plumbing
 // ---------------------------------------------------------------------------
@@ -251,10 +198,6 @@ const LEN_PREFIX: usize = 4;
 const HEADER_LEN: usize = 8;
 
 fn push_u32(out: &mut Vec<u8>, value: u32) {
-  out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn push_f32(out: &mut Vec<u8>, value: f32) {
   out.extend_from_slice(&value.to_le_bytes());
 }
 

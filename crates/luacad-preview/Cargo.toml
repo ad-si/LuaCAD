@@ -1,0 +1,35 @@
+[package]
+name = "luacad-preview"
+version.workspace = true
+repository.workspace = true
+# Higher than the workspace default: the `flatten` half depends on `luacad`,
+# which requires 1.96, and cargo checks that regardless of the features.
+rust-version = "1.96"
+edition = "2024"
+description = "The 3D preview of LuaCAD: flattens a model into WebCSG products and shades them on wgpu"
+license = "AGPL-3.0-or-later"
+readme = "README.md"
+keywords = ["cad", "csg", "webcsg", "wgpu", "preview"]
+categories = ["graphics", "rendering"]
+
+[features]
+default = ["flatten", "render"]
+# Turn a model into CSG products. Needs the engine and, through it, Manifold,
+# so a renderer-only build — the playground's viewer module, compiled for
+# `wasm32-unknown-unknown` — leaves this off.
+flatten = ["dep:luacad"]
+# Draw those products through WebCSG on wgpu. Needs a GPU, so the playground's
+# engine module, which only flattens, leaves this off.
+render = ["dep:webcsg", "dep:wgpu", "dep:glam", "dep:bytemuck"]
+# Preview a geometry that exists only as a csgrs mesh.
+csgrs = ["dep:csgrs", "luacad?/csgrs"]
+
+[dependencies]
+luacad = { workspace = true, optional = true }
+webcsg = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
+glam = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+csgrs = { version = "0.20", default-features = false, features = [
+  "f32",
+], optional = true }

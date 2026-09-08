@@ -5,7 +5,8 @@
 // That also gives the page a way out of a runaway script: terminate the
 // worker and start a new one.
 //
-// The buffer layout decoded here is documented in crates/luacad-wasm/src/main.rs.
+// The buffers passed on from here are documented in
+// crates/luacad-wasm/src/main.rs.
 
 importScripts("luacad-wasm.js")
 
@@ -40,10 +41,11 @@ function handleRun(module, code) {
     postMessage({ type: "error", message: decoder.decode(payload) })
     return
   }
-  const meshes = decodeMeshes(payload)
+  // The payload is the flattened CSG scene; the viewer module on the page
+  // decodes and draws it. It is transferred rather than cloned.
   postMessage(
-    { type: "meshes", meshes, milliseconds: performance.now() - started },
-    meshes.flatMap((mesh) => [mesh.vertices.buffer, mesh.indices.buffer]),
+    { type: "scene", scene: payload, milliseconds: performance.now() - started },
+    [payload.buffer],
   )
 }
 
@@ -75,54 +77,4 @@ function call(module, name, argument) {
       module.ccall("luacad_free", null, ["number"], [pointer])
     }
   }
-}
-
-function decodeMeshes(payload) {
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
-  let at = 0
-  const meshCount = view.getUint32(at, true)
-  at += 4
-
-  const meshes = []
-  for (let index = 0; index < meshCount; index += 1) {
-    const nameLength = view.getUint32(at, true)
-    at += 4
-    const name = decoder.decode(payload.subarray(at, at + nameLength))
-    at += Math.ceil(nameLength / 4) * 4
-
-    const hasColor = view.getUint32(at, true) === 1
-    at += 4
-    const color = hasColor
-      ? [
-          view.getFloat32(at, true),
-          view.getFloat32(at + 4, true),
-          view.getFloat32(at + 8, true),
-        ]
-      : null
-    at += 12
-
-    const vertexCount = view.getUint32(at, true)
-    const triangleCount = view.getUint32(at + 4, true)
-    at += 8
-
-    // Copied into buffers of their own so they can be transferred to the page
-    // instead of cloned.
-    const vertices = new Float32Array(
-      payload.buffer.slice(
-        payload.byteOffset + at,
-        payload.byteOffset + at + vertexCount * 12,
-      ),
-    )
-    at += vertexCount * 12
-    const indices = new Uint32Array(
-      payload.buffer.slice(
-        payload.byteOffset + at,
-        payload.byteOffset + at + triangleCount * 12,
-      ),
-    )
-    at += triangleCount * 12
-
-    meshes.push({ name, color, vertices, indices, triangleCount })
-  }
-  return meshes
 }

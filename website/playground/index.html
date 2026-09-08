@@ -71,7 +71,9 @@
     <p class="pg-note">
       The whole LuaCAD engine — Lua 5.4 and the
       <a href="https://github.com/elalish/manifold">Manifold</a> geometry
-      kernel — runs in this tab as WebAssembly. Nothing is uploaded: scripts
+      kernel — runs in this tab as WebAssembly, and the preview is drawn by
+      <a href="https://github.com/ad-si/WebCSG">WebCSG</a> on WebGPU, exactly
+      as LuaCAD Studio draws it. Nothing is uploaded: scripts
       stay in the browser, and <em>Copy link</em> puts the script in the
       fragment of the URL, which no server ever sees. For large assemblies, or
       to keep a live preview open beside your own editor, use

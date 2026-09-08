@@ -1,7 +1,7 @@
 // Wires the editor, the worker running the engine, and the 3D viewer together.
 
 import { EXAMPLES } from "./examples.js"
-import { Viewer } from "./viewer.js"
+import { createViewer } from "./viewer.js"
 
 const editor = document.querySelector("#code")
 const canvas = document.querySelector("#view")
@@ -17,17 +17,35 @@ const exampleSelect = document.querySelector("#examples")
 
 const STORAGE_KEY = "luacad-playground-script"
 
-let viewer
-try {
-  viewer = new Viewer(canvas)
-} catch (error) {
-  canvas.replaceWith(
-    Object.assign(document.createElement("p"), {
-      className: "pg-fallback",
-      textContent: error.message,
-    }),
-  )
-}
+// The viewer is a WebAssembly module of its own and needs a GPU adapter, so
+// it arrives a moment after the page does. A run that finishes first parks
+// its scene here until it does. Without a GPU it never does, and the page
+// carries on without a preview: scripts still run and still export.
+let viewer = null
+let viewerFailed = false
+let pendingScene = null
+
+createViewer(canvas)
+  .then((created) => {
+    viewer = created
+    if (pendingScene) {
+      showScene(pendingScene.scene, pendingScene.milliseconds)
+      pendingScene = null
+    }
+  })
+  .catch((error) => {
+    viewerFailed = true
+    canvas.replaceWith(
+      Object.assign(document.createElement("p"), {
+        className: "pg-fallback",
+        textContent: String(error?.message ?? error),
+      }),
+    )
+    if (pendingScene) {
+      showScene(pendingScene.scene, pendingScene.milliseconds)
+      pendingScene = null
+    }
+  })
 
 let worker = null
 let running = false
@@ -59,23 +77,11 @@ function handleMessage(message) {
       log(message.text)
       break
 
-    case "meshes": {
-      const triangles = message.meshes.reduce((sum, mesh) => sum + mesh.triangleCount, 0)
-      viewer.setMeshes(message.meshes)
-      if (shouldFit) {
-        viewer.fit()
-        shouldFit = false
-      }
-      viewer.draw()
-      const parts = message.meshes.length === 1 ? "1 part" : `${message.meshes.length} parts`
-      setStatus(
-        `${parts}, ${triangles.toLocaleString()} triangles, ` +
-          `${Math.round(message.milliseconds)} ms`,
-      )
+    case "scene":
+      showScene(message.scene, message.milliseconds)
       exportButton.disabled = false
       setRunning(false)
       break
-    }
 
     case "error":
       log(message.message, "error")
@@ -88,6 +94,33 @@ function handleMessage(message) {
       setStatus(`Exported model.${message.format}`)
       break
   }
+}
+
+/// Draw the scene of a finished run and report what it holds.
+function showScene(scene, milliseconds) {
+  if (!viewer) {
+    if (!viewerFailed) {
+      pendingScene = { scene, milliseconds }
+      return
+    }
+    // No preview to draw it in, but the run itself is worth reporting: the
+    // script worked, and Download will export it.
+    setStatus(`Built in ${Math.round(milliseconds)} ms`)
+    return
+  }
+  viewer.setScene(scene)
+  if (shouldFit) {
+    viewer.fit()
+    shouldFit = false
+  }
+  viewer.draw()
+  // One part per CSG product: a difference is one, a union of two shapes two.
+  const parts = viewer.partCount()
+  setStatus(
+    `${parts === 1 ? "1 part" : `${parts} parts`}, ` +
+      `${viewer.triangleCount().toLocaleString()} triangles, ` +
+      `${Math.round(milliseconds)} ms`,
+  )
 }
 
 // --- Actions ----------------------------------------------------------------
@@ -212,8 +245,8 @@ runButton.addEventListener("click", run)
 stopButton.addEventListener("click", stop)
 shareButton.addEventListener("click", share)
 fitButton.addEventListener("click", () => {
-  viewer.fit()
-  viewer.draw()
+  viewer?.fit()
+  viewer?.draw()
 })
 exportButton.addEventListener("click", () => {
   setStatus(`Exporting ${exportFormat.value.toUpperCase()}…`)

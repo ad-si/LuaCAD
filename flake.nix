@@ -32,7 +32,12 @@
             "rust-src"
             "rustfmt"
           ];
-          targets = [ "wasm32-unknown-emscripten" ];
+          # The playground's engine is built with Emscripten (Manifold's C++),
+          # its viewer with wasm-bindgen (wgpu).
+          targets = [
+            "wasm32-unknown-emscripten"
+            "wasm32-unknown-unknown"
+          ];
         };
       in
       {
@@ -47,6 +52,13 @@
             gnumake
             # `make test-wasm` runs the smoke test on the built module.
             nodejs
+            # `make wasm-viewer`: turns the viewer module into something the
+            # page can import. The CLI and the `wasm-bindgen` crate have to be
+            # the same version, which is why this names one rather than taking
+            # whatever `wasm-bindgen-cli` currently points at: bump it here and
+            # in `crates/luacad-viewer/Cargo.toml` together, and `make
+            # wasm-viewer` will tell you if they ever drift apart.
+            wasm-bindgen-cli_0_2_126
             # `make serve-website` serves ./website over HTTP.
             python3
             rust

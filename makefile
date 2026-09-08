@@ -66,15 +66,22 @@ website-examples:
 		&& LUACAD=../target/release/luacad lua build_examples.lua
 
 
-# The browser build behind https://luacad.ad-si.com/playground.
+# The browser build behind https://luacad.ad-si.com/playground, which is two
+# WebAssembly modules: the engine, which needs Manifold's C++ and therefore
+# Emscripten, and the viewer, which needs wgpu and therefore wasm-bindgen.
+.PHONY: wasm
+wasm: wasm-engine wasm-viewer
+
+
+# Lua and Manifold, run in the playground's worker.
 #
 # Needs Emscripten on the shell: `nix develop` provides it, as does sourcing
 # an emsdk's `emsdk_env.sh`. The per-target compiler variables are set because
 # a `CC` inherited from the environment — a Nix dev shell sets one, for
 # instance — otherwise wins over the `emcc` the `cc` crate would pick for this
 # target on its own.
-.PHONY: wasm
-wasm:
+.PHONY: wasm-engine
+wasm-engine:
 	@command -v emcc > /dev/null \
 		|| (echo "No emcc on this shell: run \`nix develop\`," \
 			"or source <emsdk>/emsdk_env.sh" && exit 1)
@@ -86,6 +93,31 @@ wasm:
 	cp target/wasm32-unknown-emscripten/release/luacad-wasm.js \
 		target/wasm32-unknown-emscripten/release/luacad_wasm.wasm \
 		website/playground/
+
+
+# WebCSG on wgpu, run on the page itself: the same preview the studio draws.
+#
+# The `wasm-bindgen` CLI has to be the exact version of the crate the module
+# was built against — a mismatch produces glue that does not fit the module —
+# so the build checks it instead of failing in the browser.
+WASM_BINDGEN_VERSION = $(shell awk '/^name = "wasm-bindgen"$$/ { found = 1 } \
+	found && /^version = / { gsub(/[",]/, ""); print $$3; exit }' Cargo.lock)
+
+.PHONY: wasm-viewer
+wasm-viewer:
+	@command -v wasm-bindgen > /dev/null \
+		|| (echo "No wasm-bindgen on this shell: run \`nix develop\`, or" \
+			"\`cargo install wasm-bindgen-cli --version" \
+			"$(WASM_BINDGEN_VERSION)\`" && exit 1)
+	@have=$$(wasm-bindgen --version | cut -d' ' -f2); \
+		[ "$$have" = "$(WASM_BINDGEN_VERSION)" ] \
+		|| (echo "wasm-bindgen $$have on this shell, but the viewer is" \
+			"built against $(WASM_BINDGEN_VERSION)" && exit 1)
+	cargo build --package luacad-viewer --profile wasm-release \
+		--target wasm32-unknown-unknown
+	wasm-bindgen --target web --no-typescript \
+		--out-dir website/playground/viewer \
+		target/wasm32-unknown-unknown/wasm-release/luacad_viewer.wasm
 
 
 # An activated emsdk puts its own root on `PATH`, and that root holds a
@@ -102,10 +134,15 @@ test-wasm: wasm
 # Serves the website exactly as GitHub Pages does, so the playground can be
 # tried out locally. The wasm module needs a real HTTP server; opening the
 # file directly does not work.
+#
+# Bound to the loopback address rather than to every interface, because that
+# is what the banner python prints then says. Its default banner offers
+# `http://[::]:8000/`, and that origin is not a secure context — WebGPU is
+# not exposed there, so the playground would report having no GPU to draw on.
 .PHONY: serve-website
 serve-website: wasm
 	@echo "→ http://localhost:8000/playground/"
-	cd website && python3 -m http.server 8000
+	cd website && python3 -m http.server 8000 --bind 127.0.0.1
 
 
 .PHONY: run
@@ -149,6 +186,7 @@ release:
 	@echo '     cargo publish -p luacad-scad-ir'
 	@echo '     cargo publish -p luacad-scad-eval'
 	@echo '     cargo publish -p luacad'
+	@echo '     cargo publish -p luacad-preview'
 	@echo '     cargo publish -p luacad-studio'
 	@echo '7. Push a `v*` tag, or create the release at' \
 		'https://github.com/ad-si/LuaCAD/releases/new'

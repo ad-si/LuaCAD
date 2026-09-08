@@ -1,6 +1,5 @@
 mod app;
 mod camera;
-mod csg_tree;
 mod editor;
 mod egui_integration;
 mod input;

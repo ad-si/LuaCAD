@@ -6,6 +6,9 @@
 //! CSG trees (nested unions, etc.) are decomposed into multiple render calls
 //! (one per [`CsgGroup`]).
 
+use crate::tree::{
+  CsgGroup, CsgLeaf, CsgScene, Operation, OverlayMesh, Shading, SolidMesh,
+};
 use luacad::export::{
   Dimension, extract_manifold_mesh, materialize_scad_display_mesh,
   materialize_scad_manifold, node_dimension,
@@ -14,61 +17,6 @@ use luacad::geometry::CsgGeometry;
 use luacad::material::MaterialSpec;
 use luacad::scad_export::{BoslPreviewParams, CylAxis, ModifierKind, ScadNode};
 use std::f32::consts::PI;
-use webcsg::Operation;
-
-/// A single leaf primitive ready for CSG rendering.
-pub struct CsgLeaf {
-  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up).
-  pub vertices: Vec<[f32; 3]>,
-  /// Accumulated model-to-world transform (column-major 4x4).
-  pub transform: [f32; 16],
-  /// Whether the leaf is intersected with or subtracted from its product.
-  pub operation: Operation,
-  /// Convexity (max front faces at a single point). 1 for convex shapes.
-  pub convexity: u32,
-  /// Per-primitive color (RGB, 0..1).
-  pub color: [f32; 3],
-  /// Per-primitive surface material (approximated by Blinn-Phong shading).
-  pub material: MaterialSpec,
-}
-
-/// A group of primitives that form a single CSG render call.
-pub struct CsgGroup {
-  pub primitives: Vec<CsgLeaf>,
-}
-
-/// A translucent mesh drawn over the CSG result in a blended pass:
-/// `#` (debug highlight) and `%` (background) modifier geometry.
-pub struct OverlayMesh {
-  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up).
-  pub vertices: Vec<[f32; 3]>,
-  /// Accumulated model-to-world transform (column-major 4x4, CAD space).
-  pub transform: [f32; 16],
-  /// RGBA color, 0..1.
-  pub color: [f32; 4],
-}
-
-/// The materialized surface of one colored part of the model: the boolean
-/// result rather than the CSG inputs, so it carries the surfaces inside a
-/// part (bore walls, enclosed cavities) that the preview's front-most-surface
-/// CSG never produces. Used by the transparent view mode.
-pub struct SolidMesh {
-  /// Triangle vertices (groups of 3 positions). GL coordinates (Y-up), with
-  /// every transform already applied.
-  pub vertices: Vec<[f32; 3]>,
-  /// Color (RGB, 0..1).
-  pub color: [f32; 3],
-  /// Surface material (approximated by Blinn-Phong shading).
-  pub material: MaterialSpec,
-}
-
-/// Everything needed to draw the preview: opaque CSG groups plus
-/// translucent modifier overlays.
-#[derive(Default)]
-pub struct CsgScene {
-  pub groups: Vec<CsgGroup>,
-  pub overlays: Vec<OverlayMesh>,
-}
 
 /// Side effects of OpenSCAD modifiers collected while flattening:
 /// `#`/`%` overlays and the first `!` (show-only) subtree.
@@ -113,11 +61,13 @@ pub fn flatten_geometries(geometries: &[CsgGeometry]) -> CsgScene {
                 transform: IDENTITY,
                 operation: Operation::Intersection,
                 convexity: 1,
-                color: geom
-                  .color
-                  .or(material.default_color)
-                  .unwrap_or(DEFAULT_COLOR),
-                material,
+                shading: Shading::from_material(
+                  geom
+                    .color
+                    .or(material.default_color)
+                    .unwrap_or(DEFAULT_COLOR),
+                  &material,
+                ),
               }],
             });
           }
@@ -145,8 +95,7 @@ pub fn solid_meshes(geometries: &[CsgGeometry]) -> Vec<SolidMesh> {
     .into_iter()
     .map(|solid| SolidMesh {
       vertices: cad_to_gl_vertices(solid.vertices),
-      color: solid.color,
-      material: solid.material,
+      shading: Shading::from_material(solid.color, &solid.material),
     })
     .collect()
 }
@@ -1143,8 +1092,7 @@ fn make_leaf_group(
       // The call site's value is the shape's own floor; an enclosing
       // `render(convexity = n)` can only raise it.
       convexity: convexity.max(ctx.convexity),
-      color: ctx.resolved_color(),
-      material: ctx.material,
+      shading: Shading::from_material(ctx.resolved_color(), &ctx.material),
     }],
   }]
 }
