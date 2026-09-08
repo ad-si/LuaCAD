@@ -201,7 +201,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-emscripten
+          # The engine is built with Emscripten, the viewer with wasm-bindgen.
+          targets: wasm32-unknown-emscripten, wasm32-unknown-unknown
 
       - name: Install Emscripten
         uses: emscripten-core/setup-emsdk@v16
@@ -213,6 +214,21 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: wasm32-unknown-emscripten
+
+      # The CLI has to be the exact version of the `wasm-bindgen` crate the
+      # viewer is built against, so it is read off Cargo.lock rather than
+      # written down a second time. `make wasm-viewer` refuses to run when the
+      # two differ anyway.
+      - name: Read the wasm-bindgen version
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { found = 1 }
+            found && /^version = / { gsub(/[",]/, ""); print $3; exit }' Cargo.lock)
+          echo "WASM_BINDGEN_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install wasm-bindgen
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ env.WASM_BINDGEN_VERSION }}
 
       - name: Build and smoke-test the wasm module
         run: make test-wasm
