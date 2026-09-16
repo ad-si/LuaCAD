@@ -157,8 +157,10 @@ Platform                  | Members
 
 ## Text to CAD
 
+- [CADAM] - Open source text-to-CAD web application.
 - [Nurb] - Agentic CAD for 3D printing.
 
+[CADAM]: https://github.com/Adam-CAD/CADAM
 [Nurb]: https://nurb.dev
 
 
