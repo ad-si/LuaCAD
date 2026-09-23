@@ -133,7 +133,7 @@ immediately:
 
 ```sh
 $ luacad --version
-luacad 1.1.0 (v1.1.0-3-g23a0ea2-dirty)
+luacad 1.2.0 (v1.2.0-3-g23a0ea2-dirty)
 ```
 
 A binary built from a git checkout appends
@@ -141,7 +141,7 @@ A binary built from a git checkout appends
 can be traced back to the commit it came from — the hash alone when the
 checkout has no tags, with `-dirty` marking a modified working tree.
 Released binaries and installs from crates.io print the plain version
-(`luacad 1.1.0`).
+(`luacad 1.2.0`).
 Set `LUACAD_GIT_DESCRIBE` at build time to pin the suffix (or to drop it,
 with an empty value) for reproducible builds:
 

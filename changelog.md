@@ -8,390 +8,135 @@ so that the CLI and Studio can share them; they are internal and may change in
 any release.
 
 
-## Unreleased
-
-### Changed
-
-- Studio's 3D preview moved from OpenCSG on legacy OpenGL to
-  [WebCSG](https://github.com/ad-si/WebCSG), an image-based CSG renderer on
-  [wgpu](https://wgpu.rs), and egui now paints through wgpu as well. The
-  viewport runs on Metal, Vulkan or DirectX 12 instead of the OpenGL 2.1
-  compatibility profile Apple deprecated, the hand-rolled macOS context setup
-  is gone, and building `luacad-studio` no longer needs OpenGL development
-  headers. The `opencsg-sys` crate is retired.
-
-  The picture is the same: the same three lights, materials, modifier
-  overlays, transparent mode and supersampling. A deeply concave primitive
-  now renders correctly in the shaded preview as long as it declares its
-  depth complexity — OpenCSG lost its layers in facet-aligned stripes
-  however high the convexity — so an `import(file, convexity)` and a shape
-  under `render_node(n)` stay in the CSG pass with their own colors and
-  interactive booleans, instead of dropping their product to Manifold to
-  be drawn as one mesh. A union in an intersected position now multiplies
-  the product out — `X ∩ (A ∪ B)` draws as `(X ∩ A) ∪ (X ∩ B)` and
-  `(A ∪ B) − S` as `(A − S) ∪ (B − S)` — so a BOSL thread, whose expansion
-  is a union trimmed by a bounding cylinder, is interactive as well; only a
-  subtracted thread is still materialized, since `X − (A ∩ B)` is not one
-  product. Large models redraw faster: the 490,802-triangle MuSHR racecar
-  in about 5 ms per view instead of 10 ms.
-
-- The browser playground draws the same preview. Its viewport was a
-  hand-written WebGL2 pass over the booleaned meshes; it is now WebCSG on
-  wgpu, with Studio's shading, materials and `#`/`%` modifier overlays. It
-  needs WebGPU — the CSG pass reads the depth buffer back in a way WebGL2
-  cannot express — and a browser without it says so in place of the
-  viewport while the editor and the exports keep working. Running a script no
-  longer waits for Manifold to boolean the model: the engine sends the CSG
-  products and the GPU resolves them, so a difference shows up as soon as the
-  script has run. Only exporting materializes the geometry.
-
-  The preview moved into a new `luacad-preview` crate that both front ends
-  share. The playground now loads two WebAssembly modules: the engine as
-  before (Emscripten, in a worker) and the viewer next to it (wasm-bindgen,
-  on the page, 856 KB gzipped), which is what `make wasm` builds and
-  `make wasm-viewer` builds on its own.
-
-- The images next to every example, and the previews on the website's
-  examples page, are WebP files now rather than PNG. A path-traced PNG is a
-  megabyte of sampling noise that changes on every render, so each release
-  added some 20 MB to the repository for pictures that look the same; at
-  quality 90 the WebP is a tenth of that. `make example-images` and
-  `make website-examples` convert with `cwebp`, which `nix develop` now
-  provides (`libwebp` elsewhere). `luacad render` itself still writes PNG.
-
-- `--via-openscad` runs the binary named by the `OPENSCAD` environment
-  variable when it is set, and `openscad` from `PATH` otherwise — so a
-  development snapshot can be used without displacing a distribution's
-  release. The differential tests against BOSL2 take the same variable, and
-  now skip themselves against OpenSCAD 2021.01 rather than measuring LuaCAD
-  against a reference five years behind the behavior it tracks.
-
-- The minimum supported Rust version of `luacad` and `luacad-studio` is now
-  1.96, raised by the vendored path tracer behind `--raytrace`.
-  `luacad-manifold-sys` and the three `luacad-scad-*` crates still build on
-  1.89.
-
-- `import()` of an SVG reads unitless coordinates at 72 dpi rather than 96,
-  the default OpenSCAD uses, so a drawing without physical units no longer
-  comes in 4/3 too small compared to the same file there. An SVG that states
-  its size in mm, cm or inches is unaffected.
-
-- The `legacy_lua/` directory — the pure Lua implementation the project was
-  rewritten from in February 2026 — is no longer part of the repository. It
-  had not been touched since the rewrite; it can be read at the `v1.1.0` tag
-  and lives on at
-  [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
-
-- `polygon()` in the SCAD tree carries optional contour index lists, resolved
-  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
-  unchanged; this is what lets an imported `polygon(points, paths)` — and the
-  counters in an OpenSCAD `text()` — come through as holes rather than
-  filling in.
+## 2026-09-23 - 1.2.0
 
 ### Added
 
-- Lua's `surface()` now builds real geometry on the Manifold backend, so a
-  heightmap model previews in Studio, renders to PNG and exports with
-  `--via-manifold` instead of needing `--via-openscad`. It goes through the
-  same code that already evaluated `surface()` in an opened `.scad` file, so
-  both languages produce identical solids. The binding also gains the
-  `invert` parameter and a table form —
-  `surface{ "relief.png", center = true, invert = true }` — alongside the
-  positional one, and the SCAD export writes `invert = true` through. A
-  missing file is reported like a missing `import()` file. `physibles/medal`
-  is the model that drove this: its engraving came from a
-  `scad('surface(...)')` literal that only OpenSCAD could build, and was
-  simply absent from the Studio preview.
+- OpenSCAD files open directly: `.scad` works wherever `.lua` does, on the
+  command line and in Studio. LuaCAD evaluates the language itself, so no
+  OpenSCAD installation is involved.
+  - The front end is a vendored copy of [OpenRSCAD], as the new
+    `luacad-scad-syntax`, `luacad-scad-ir` and `luacad-scad-eval` crates.
+  - `include`/`use` resolve relative to the file, then against
+    `OPENSCADPATH`.
+  - `linear_extrude` with a non-uniform `scale`, `resize(auto = …)` and an
+    `import()` in an unreadable format warn instead of quietly differing.
+  - The playground stays Lua-only.
+- `luacad render --raytrace` path-traces the model: soft shadows, ambient
+  occlusion, smooth shading with sharp creases.
+  - `--samples N` sets the samples per pixel (default 128).
+  - `--camera AZ,EL` sets the view.
+  - Renders are 2048×1536 and fit to the model by default.
+- Surface materials via `shape:material(...)`.
+  - Kinds: `matte`, `plastic`, `metal`, `glass`, `emissive`, each with its
+    own parameters, e.g. `material("glass", { ior = 1.5 })`.
+  - Presets with a default color: `steel`, `chrome`, `gold`, `copper`,
+    `brass`, `rubber`, `wood`, `ivory`.
+  - `wood` draws procedural growth rings, tuned with `ring_width`,
+    `grain_axis`, `grain_offset`, `grain_contrast` and `grain_distortion`.
+  - `--raytrace` maps the kinds onto real BSDFs; the rasterizer and Studio
+    approximate them. See `examples/materials/`.
+- `surface()` builds real geometry on the Manifold backend, so a heightmap
+  previews, renders and exports without `--via-openscad`.
+  - New `invert` parameter and table form:
+    `surface{ "relief.png", center = true, invert = true }`.
+- Every example lives in its own directory with a rasterized and a
+  path-traced image next to it, regenerated by `make example-images`.
+  - `examples/chess/` is the first example written in OpenSCAD: a game laid
+    out from a FEN string, with pieces from [scad-chess] (CC-BY-4.0).
+- Studio:
+  - `Raytrace` button: path-traces the current view.
+  - `Screenshot` button: captures a region into a PDF with pen, arrow,
+    rectangle and ellipse markup, a note, and the studio's settings listed
+    under the image.
+  - `Transparent` button: draws every object see-through, from the
+    materialized booleans, so cavities and enclosed parts stay visible.
+  - The opened file is reloaded when another program changes it
+    ([#14](https://github.com/ad-si/LuaCAD/issues/14)).
+  - The code editor can be hidden, with `Cmd`/`Ctrl` + `E`
+    ([#12](https://github.com/ad-si/LuaCAD/issues/12)).
+  - The projection is remembered across restarts
+    ([#18](https://github.com/ad-si/LuaCAD/issues/18)).
+  - `--help` and `--version` exit instead of starting the GUI; Settings →
+    About shows the same ([#15](https://github.com/ad-si/LuaCAD/issues/15)).
+  - Scripts run on a background thread, so the window stays responsive.
+- Both binaries append `git describe` to their version when built from a
+  checkout. `LUACAD_GIT_DESCRIBE` overrides the suffix.
 
-  In Studio's shaded preview the heightmap is materialized by Manifold
-  rather than drawn as a CSG leaf: its depth complexity is the number of
-  ridges a grazing ray crosses — unbounded, and nothing like the default
-  convexity of 1 — so the CSG pass would drop most of its ridges. (The leaf
-  walker previously dropped `surface()` nodes while still counting them
-  into the CSG product, so the emblem showed in transparent mode but not in
-  the normal view.)
+[OpenRSCAD]: https://github.com/matthova/openrscad
+[scad-chess]: https://github.com/quaternionmedia/scad-chess
 
-- OpenSCAD files can be opened directly: `.scad` works anywhere `.lua` does,
-  on the command line (`run`, `info`, `convert`, `watch`, `render`) and in
-  Studio, through File → Open or by dropping one on the window. LuaCAD parses
-  and evaluates the language itself, so no OpenSCAD installation is involved
-  and this is unrelated to `--via-openscad`. `include`/`use` resolve relative
-  to the file and then against `OPENSCADPATH`.
+### Changed
 
-  The front end is a vendored copy of [OpenRSCAD]'s — a clean-room
-  reimplementation of OpenSCAD 2021.01, Apache-2.0 OR MIT — as the new
-  `luacad-scad-syntax`, `luacad-scad-ir` and `luacad-scad-eval` crates. Only
-  its parser and evaluator are taken; Manifold still does the meshing. It
-  bundles no fonts, unlike upstream, so `text()` uses installed system fonts
-  the way LuaCAD's own `text()` already does.
-
-  Both languages lower to the same tree, so an opened `.scad` file reaches
-  every export format, the PNG renderer, the path tracer and Studio's live
-  preview unchanged. `luacad convert model.scad out.scad` round-trips it with
-  modules inlined and `$fn`/`$fa`/`$fs` resolved to facet counts.
-
-  Three constructs cannot be carried across exactly and warn rather than
-  quietly differing: `linear_extrude` with a non-uniform `scale`,
-  `resize(auto = …)`, and an `import()` in a format LuaCAD cannot read.
-  Studio does not lint `.scad` buffers, and the browser playground stays
-  Lua-only.
-
-  [OpenRSCAD]: https://github.com/matthova/openrscad
-
-- The new `examples/chess/` is the first example written in OpenSCAD rather
-  than Lua: a game in progress, laid out from a FEN string parsed by a
-  recursive function in the `.scad` file itself. It puts SVG import, mesh
-  import, `rotate_extrude`, `linear_extrude`, booleans, `search()` and
-  recursion through the new front end in one model, and is meant to be seen
-  with `--raytrace`. The pieces are from [scad-chess], CC-BY-4.0; the board,
-  the parser and the position are new. `make example-images` now regenerates
-  images for `.scad` entry points too, not only `.lua` ones.
-
-  [scad-chess]: https://github.com/quaternionmedia/scad-chess
-
-- Studio: the new `Screenshot` button in the bottom bar takes a picture of a
-  part of the window and turns it into a marked-up PDF. Drag out the area to
-  capture — the model, the code that made it, or both — and it opens in a
-  dialog with pen, arrow, rectangle and ellipse tools in six colors, plus a
-  field for a note. `Save PDF` writes it next to the model file under a
-  timestamped name, like every other export (`2026-03-01t2051_gear.pdf`); an
-  unsaved document asks where to put it. The marks and the note go into the
-  PDF as vectors and text, not as pixels, so they stay sharp and the note can
-  be searched and copied. A note too long for the first page continues on
-  further ones.
-
-  Under the image the PDF lists, as `key: value` pairs, what the studio was
-  set to when the shot was taken: the time, the file, the theme, the
-  projection, whether `Transparent` was on, the camera pose and the LuaCAD
-  version — plus `Viewport: raytraced still` when the picture is a path-traced
-  still rather than the live preview. The list describes the picture, not the
-  window: a still is reported as the perspective it is, at the distance the
-  path tracer used, even when the viewport itself was orthographic. It is
-  recorded with the capture, not with the save, since the toggles stay
-  reachable while the dialog is open — which also shows the same list under
-  the image.
-
-- Studio: the new `Transparent` button in the bottom bar draws every object
-  see-through, so geometry hidden inside or behind other geometry stays
-  visible without editing the model — an enclosed cavity, the wall of a bore,
-  a part sitting in a housing. The mode swaps the preview's CSG pass, which
-  can only produce the surfaces facing the camera, for the materialized
-  boolean results (the same ones `luacad render` draws, split per color), so
-  what shows up inside a part is its real surface rather than the cutting
-  tool that made it. The choice is remembered across restarts
-  (`transparent_view` in the state file).
-
-  Fitting the view to the model now measures that same materialization
-  instead of running its own, which also makes loading a heavy model faster
-  (`examples/mushr_racecar/` went from 3.6 s to 1.3 s of meshing per run).
-
-- Studio: the selected projection is remembered across restarts
-  ([#18](https://github.com/ad-si/LuaCAD/issues/18)), so a perspective view
-  no longer falls back to orthogonal on every launch (`orthogonal_view` in
-  the state file, next to `hide_editor` and `auto_reload`). Resetting the
-  camera now also uses the distance that matches the current projection
-  instead of always the orthogonal one.
-
-- Studio: `-h` / `--help` and `-v` / `--version` print their information and
-  exit instead of starting the GUI
-  ([#15](https://github.com/ad-si/LuaCAD/issues/15)). The file to open is now
-  a declared argument (`luacad-studio [file.lua]`), so an unknown flag is
-  reported instead of being taken for a file name. The same version
-  information is in the GUI under Settings → About, reachable through the new
-  `ℹ About` button (which is also in the bottom bar while the code editor is
-  hidden), together with the target the binary was built for and a button
-  that copies it all for a bug report.
-
-- Both binaries append `git describe --always --dirty --tags` to their version
-  when they are built from a git checkout, e.g.
-  `luacad 1.1.0 (v1.1.0-3-g23a0ea2-dirty)`, so a locally built binary can be
-  traced back to its commit. Builds from crates.io (and from a clean release
-  tag) print the plain version. `LUACAD_GIT_DESCRIBE` overrides the suffix at
-  build time — set it to an empty value to drop it, e.g. for a reproducible
-  distro package.
-
-- Studio: the opened file is watched and reloaded automatically when another
-  program changes it on disk
-  ([#14](https://github.com/ad-si/LuaCAD/issues/14)), matching `luacad watch`
-  and OpenSCAD's automatic reload. Auto-reload is skipped while the editor has
-  unsaved changes (the existing "File Changed on Disk" dialog resolves the
-  conflict on the next save). It can be turned off in Settings → General; the
-  choice is remembered across restarts (`auto_reload` in the state file).
-
-- Studio: the code editor panel can be hidden to use an external editor and
-  keep the whole window for the model
-  ([#12](https://github.com/ad-si/LuaCAD/issues/12)). Toggle it with the
-  checkbox in Settings → General, the `Editor` button in the bottom bar, or
-  `Cmd`/`Ctrl` + `E`. The choice is remembered across restarts
-  (`hide_editor` in the state file, like OpenSCAD's `hideEditor`). While the
-  panel is hidden, its `Run` and `Reload` buttons move into the bottom bar
-  (which now wraps in narrow windows), and errors show up there as well.
-
-- Surface materials via `shape:material(...)`, on 3D geometry and on 2D
-  sketches (where they survive extrusion). The kinds are `matte`, `plastic`
-  (the implicit default look), `metal`, `glass`, and `emissive`, with
-  parameter overrides per kind: `material("glass", {ior = 1.5, roughness =
-  0.1})`, `material({kind = "emissive", strength = 4})`. The presets `steel`,
-  `chrome`, `gold`, `copper`, `brass`, `rubber`, `wood`, and `ivory` also
-  carry a default color, used only when no `color()` is set. `luacad render --raytrace` maps
-  each kind onto a real BSDF (metals reflect, glass refracts, emissive shapes
-  light the scene); the rasterizer and the Studio preview approximate them
-  with per-object highlight parameters. Materials have no OpenSCAD
-  equivalent, so a `.scad` export omits them. An unknown material name is an
-  error rather than a silent fallback. See the new `examples/materials/`.
-- Procedural wood grain: the `wood` preset now shows noise-warped growth
-  rings instead of a flat color, in both the rasterizer and `--raytrace`.
-  The rings are concentric around a configurable axis and darken the base
-  color (an explicit `color()` is kept as the earlywood tone). Options:
-  `material("wood", {ring_width = 4, grain_axis = {1, 0, 0}, grain_offset =
-  {0, 0, -250}, grain_contrast = 0.5, grain_distortion = 0.3, grain =
-  false})` — `ring_width` in model units, `grain_axis` the log's long
-  direction (default z), `grain_offset` a point that axis passes through
-  (the log's center line; move it away from a part for flatter, more even
-  rings), `grain_contrast` how dark the latewood bands are,
-  `grain_distortion` the ring waviness, and `grain = false` restores the
-  flat color. Setting any grain option on
-  another matte/plastic/metal material enables grain there too. The grain is
-  anchored in world space, so a moved part is "cut from a different spot in
-  the log".
+- Studio's preview moved from OpenCSG on legacy OpenGL to
+  [WebCSG](https://github.com/ad-si/WebCSG) on [wgpu](https://wgpu.rs).
+  - Runs on Metal, Vulkan or DirectX 12; building no longer needs OpenGL
+    headers, and `opencsg-sys` is retired.
+  - Lives in the new `luacad-preview` crate, shared with the playground.
+  - Deeply concave shapes with a declared convexity, and unions inside an
+    intersection, stay interactive instead of being materialized.
+  - Large models redraw about twice as fast.
+- The playground draws the same preview, on WebGPU, from a second
+  WebAssembly module.
+  - A script no longer waits for its booleans to be computed.
+  - A browser without WebGPU says so and keeps everything else working.
+- The example images and the website's previews are WebP instead of PNG,
+  a tenth of the size. `make example-images` needs `cwebp`.
+- `--via-openscad` runs the binary named by `OPENSCAD` when it is set. The
+  BOSL2 differential tests take the same variable and skip themselves
+  against OpenSCAD 2021.01.
+- The minimum supported Rust version of `luacad` and `luacad-studio` is
+  1.96. `luacad-manifold-sys` and the `luacad-scad-*` crates still build
+  on 1.89.
+- `import()` of an SVG reads unitless coordinates at 72 dpi rather than 96,
+  as OpenSCAD does.
+- `polygon()` in the SCAD tree carries optional contour index lists, so an
+  imported `polygon(points, paths)` and the counters of an OpenSCAD
+  `text()` come through as holes.
+- `legacy_lua/` is no longer part of the repository. It can be read at the
+  `v1.1.0` tag and lives on at
+  [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
 
 ### Fixed
 
-- A `polyhedron()` was drawn inside-out by the CSG pass of Studio and the
-  playground. Its faces follow OpenSCAD's convention — clockwise seen from
-  outside — which is what Manifold and csgrs take as outward, but the
-  preview handed them to the GPU as given, whose front face is the other
-  way round. A polyhedron on its own looked right, since the lighting is
-  two-sided, but in a boolean the layer peeling took its far side for the
-  front: a concave polyhedron subtracted from a cylinder lost its cavity to
-  slivers. The four hand-built solids behind the BOSL previews (prismoid,
-  wedge, octahedron, torus) had the opposite problem — wound for the GPU,
-  they were inverted whenever Manifold materialized them. Every polyhedron
-  now uses OpenSCAD's winding and the leaf tessellation reverses it once.
-
-- Building on macOS inside `nix develop` failed in Clipper2, on `<vector>` of
-  all things. CMake asks `xcrun` for the macOS sysroot, which names the SDK
-  inside Xcode whatever compiler is in front of it, and the `-isysroot` it
-  then passed overrode the one the Nix compiler wrapper adds — leaving that
-  toolchain's libc++ looking for a C `stdint.h` that was not there.
-  `luacad-manifold-sys` now honours `SDKROOT` when the environment sets one.
-
-- `square { {10, 20}, center = true }` — the spelling the OpenSCAD-to-LuaCAD
-  guide shows — built a 1×1 square. `square`/`rect` read the size straight out
-  of the argument table, so a nested size list was not a number where it
-  looked, and the fallback made a unit square without saying anything.
-  `cube` already handled the nested form; both now go through one size parser,
-  which also gives them `size = n` (a square, or a cube, of that length) —
-  `cube { size = 10 }` used to be a 1mm cube.
-
-- `obj:multmatrix(m)` collapsed the model to a point when `m` was the nested
-  4×4 the OpenSCAD-to-LuaCAD guide describes, because it read 16 values from
-  the top level of the table and substituted zero for each one it could not
-  convert — an all-zero matrix. It now takes either the nested rows (4 of
-  them, or 3 with `[0, 0, 0, 1]` implied, as OpenSCAD's `multmatrix` does) or
-  the same numbers flattened, and reports what it could not read instead of
-  quietly zeroing it. The dead 16-element length check that was supposed to
-  catch this is gone.
-
-- `luacad lint` reported `settings` as an undefined variable, so every script
-  that sets its resolution the way the cheatsheet says — `settings.fa = 4` —
-  had to be written around the linter. The special variables are now part of
-  the bundled standard library, which also means a misspelled one
-  (`settings.fragments`) is reported rather than silently doing nothing.
-
-- Studio: a boolean operand far larger than the shape it carves — a
-  500-radius sphere scooping a shallow recess out of a 75-radius medal, a
-  huge cube cutting a model in half — made the carved-away stock pop back
-  into view at some camera angles in the shaded preview. The CSG pass needs
-  both the front and the back faces of every primitive inside the view
-  frustum, but the camera orbits at a distance set by the *result's* size,
-  so it routinely ended up inside the oversized operand; its front faces
-  fell behind the near plane, the parity count broke, and the subtraction
-  quietly dropped out. A product whose operand extends past its base's
-  bounding box by more than that box's diagonal (measured without
-  materializing, via a new conservative `ScadNode` bbox walk) is now
-  computed by Manifold and drawn as a plain mesh — correct at every angle,
-  like the transparent view always was. Proportionate cutters (a bolt hole
-  overshooting its plate) keep the interactive per-primitive path.
-
-- `surface(invert = true)` on an image built the wrong solid in the OpenSCAD
-  front end: it flipped brightness (`100 - height`), but OpenSCAD *negates*
-  the height, putting an inverted relief in −100..0. Models position an
-  inverted surface expecting exactly that — `medal.scad` translates its
-  emblem up by the emboss depth, and with the flipped heights the relief
-  landed 100 units too high and vanished from the boolean that clips it.
-
-- `convert --via-openscad` silently dropped `surface()` images and `import()`
-  files given as relative paths: the generated `.scad` was staged in a temp
-  directory, and OpenSCAD resolves such paths only against the directory of
-  the file it is rendering (not the working directory), so the assets were
-  never found — OpenSCAD warns but still exports, so the model came out
-  missing those parts. The staged file now goes next to the input model under
-  a unique hidden name (removed after the run), so relative asset references
-  resolve exactly as they do when OpenSCAD opens the source file itself.
-
-- A part whose transform chain ends in an odd number of `mirror()` calls (or
-  reflects through negative scale axes) was invisible in Studio's shaded
-  preview and only appeared in transparent mode. The preview keeps each CSG
-  leaf as untransformed triangles plus its accumulated matrix, and a
-  reflecting matrix flips the drawn winding, so back-face culling dropped the
-  whole surface — while the export, `render`, and raytrace paths re-orient
-  their meshes and were never affected. A boolean anywhere after the mirror
-  hid the bug, which is why only lone-mirrored parts vanished. Such a
-  transform is now baked into the leaf's vertices with every triangle
-  reversed, restoring both the winding and the outward face normals.
-
-- A part that cannot be built — `linear_extrude()` with a height of zero or
-  less, `cube(0)`, `sphere(r = 0)`, `cylinder(h = 0)` — emptied everything it
-  was combined with instead of just contributing nothing, in both languages:
-  `union() { cube(2); sphere(r = 0); }` came out empty, and a single such part
-  anywhere in a `.scad` file could leave the whole model blank. Manifold
-  refuses to build a solid from a non-positive measurement and reports the
-  result as an error rather than as empty, and every boolean an error solid
-  reaches inherits it. Such a part is now dropped before it gets that far, as
-  OpenSCAD does with the same input. Anything that builds keeps its exact
-  geometry — the measurements are checked directly rather than by asking
-  Manifold afterwards, which would force its deferred evaluation and shift the
-  triangulation of models that are perfectly fine.
-
-- `linear_extrude()` in a `.scad` file warns when its height is zero,
-  negative or not a number, rather than silently producing nothing. OpenSCAD
-  leaves the object empty without a word; a height that came out of a
-  parameter is easy to get wrong, and a part that quietly disappears is hard
-  to trace back to the call that dropped it.
-
-- `render --raytrace` drew the triangulation of large flat faces into the
-  image as thin dark lines, most visible where the light grazes the face —
-  a fan of them across the side of a big brick, a seam down a baseplate.
-  Manifold cuts such a face into long, thin triangles, and hits on those
-  land far enough beneath the plane of the face that a shadow or bounce ray
-  leaving at a shallow angle was blocked by the triangle next door. Secondary
-  rays now start further off the surface, by an amount that also grows as the
-  ray leaves more shallowly.
-- A C-style list comprehension with an empty init or update clause —
-  `[for (; is_list(l); l = l[0]) len(l)]`, which BOSL2 writes to walk a
-  variable from the enclosing scope — was a parse error, taking the whole
-  library down with it. Both clauses may now be empty, as in OpenSCAD.
-- `import()` of an SVG in a `.scad` file warned that the format cannot be read
-  and imported nothing. It now returns a 2D sketch ready for
-  `linear_extrude()`, with the contours read even-odd — so a shape drawn
-  inside another one is a hole, however the two wind, which is what OpenSCAD
-  makes of the same file. `import(center = true)` is honored too, on 2D
-  formats only, as in OpenSCAD.
-- An OpenSCAD `text()` naming a font with no outlines to give — a bitmap-only
-  face such as macOS's "GB18030 Bitmap" — warned "no font found" and emitted
-  nothing, even with hundreds of usable fonts installed. Font resolution now
-  walks on past a face it cannot read to the next candidate.
-- Studio crashed on scripts containing multi-byte characters — a Cyrillic
-  letter, `ß`, an emoji: the status line turned the caret, which counts
-  characters, into a byte offset directly and sliced the text in the middle of
-  a character. In an alphabet that is multi-byte throughout this took the
-  window down on the first letter typed. The column it shows now counts
-  characters too, as does the character count next to it.
-- A case-insensitive find in Studio searched a lowercased copy of the text,
-  whose byte offsets drift away from the original wherever lowercasing
-  changes a character's length (`İ`, `ẞ`, …), so matches were highlighted at
-  the wrong place, or crashed the editor outright.
+- Studio preview:
+  - A `polyhedron()` was drawn inside-out, so a concave one lost its
+    cavity in a boolean. The solids behind the BOSL previews had the
+    opposite problem. Every polyhedron now uses OpenSCAD's winding.
+  - A boolean operand far larger than the shape it carves made the
+    carved-away stock reappear at some camera angles.
+  - A part under an odd number of `mirror()` calls was invisible.
+- Studio editor:
+  - Crashed on multi-byte characters in the status line.
+  - Case-insensitive find highlighted the wrong place for characters whose
+    lowercase changes length.
+- Lua API:
+  - `square { {10, 20}, center = true }` built a 1×1 square and
+    `cube { size = 10 }` a 1 mm cube.
+  - `obj:multmatrix(m)` collapsed the model to a point for a nested 4×4
+    matrix.
+  - `luacad lint` reported `settings` as undefined; a misspelled special
+    variable is now reported instead.
+- Geometry:
+  - A part that cannot be built — `cube(0)`, `sphere(r = 0)`, a
+    `linear_extrude()` of height zero — emptied everything it was combined
+    with. It now contributes nothing, and a `.scad` `linear_extrude()`
+    warns.
+  - `render --raytrace` drew the triangulation of large flat faces as thin
+    dark lines.
+- OpenSCAD front end:
+  - `surface(invert = true)` flipped the brightness instead of negating
+    the height.
+  - `import()` of an SVG imported nothing; it now returns a sketch with
+    even-odd holes and honours `center = true`.
+  - A C-style list comprehension with an empty init or update clause was
+    a parse error, which took BOSL2 down with it.
+  - `text()` naming a bitmap-only font emitted nothing instead of moving
+    on to the next candidate.
+- `convert --via-openscad` dropped `surface()` and `import()` assets given
+  as relative paths.
+- Building on macOS inside `nix develop` failed in Clipper2;
+  `luacad-manifold-sys` now honours `SDKROOT`.
 
 
 ## 2026-08-17 - 1.1.0
