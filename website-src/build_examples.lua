@@ -267,11 +267,26 @@ local function process_example(example)
   end
 
   -- Render the preview. A script that only OpenSCAD can build has no mesh to
-  -- render; the template falls back to a placeholder image for those.
+  -- render; the template falls back to a placeholder image for those. The
+  -- render is a PNG, converted to WebP like the images next to the examples
+  -- (see `make example-images`) so the checked-in site stays small.
   local png_file = IMAGES_DIR .. "/" .. example.name .. ".png"
-  print("⏳ Rendering " .. png_file)
-  if run(string.format("%s render %s %s", LUACAD, example.path, png_file)) then
-    print("✅ Generated " .. png_file)
+  local image_file = IMAGES_DIR .. "/" .. example.name .. ".webp"
+  print("⏳ Rendering " .. image_file)
+  if
+    run(
+      string.format(
+        "%s render %s %s && cwebp -quiet -q 90 -m 6 %s -o %s && rm -f %s",
+        LUACAD,
+        example.path,
+        png_file,
+        png_file,
+        image_file,
+        png_file
+      )
+    )
+  then
+    print("✅ Generated " .. image_file)
   else
     print("⚠️  Could not render " .. example.name .. ", using placeholder")
   end
@@ -292,6 +307,10 @@ local function main()
   if not run(LUACAD .. " --version") then
     print("❌ Could not run `" .. LUACAD .. "`. Install it with `make install`")
     print("   or point LUACAD at a built binary.")
+    return false
+  end
+  if not run("cwebp -version") then
+    print("❌ No `cwebp` on this shell: run `nix develop`, or install libwebp.")
     return false
   end
 

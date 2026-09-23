@@ -3,7 +3,7 @@
 A LuaCAD port of the [MuSHR](https://mushr.io) open-source robotic racecar
 from the University of Washington Personal Robotics Lab.
 
-![The assembled car](racecar.png)
+![The assembled car](racecar.webp)
 
 Converted from the OpenSCAD original at
 [prl-mushr/mushr_cad](https://github.com/prl-mushr/mushr_cad), which is

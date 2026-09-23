@@ -3,13 +3,16 @@
 A game in progress, set up from a FEN string — written in OpenSCAD, not Lua,
 and meshed and lit by LuaCAD without OpenSCAD installed.
 
-![The position, path traced](chess_raytraced.png)
+![The position, path traced](chess_raytraced.webp)
 
 ```sh
 luacad render --raytrace chess.scad chess_raytraced.png
 luacad render            chess.scad chess.png
 luacad convert           chess.scad chess.3mf
 ```
+
+(`make example-images` at the repository root is what regenerates the two
+checked-in images, as WebP.)
 
 23 pieces on a 296 mm board, 234k triangles, about half a second to build.
 

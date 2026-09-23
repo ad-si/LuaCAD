@@ -51,6 +51,14 @@ any release.
   on the page, 856 KB gzipped), which is what `make wasm` builds and
   `make wasm-viewer` builds on its own.
 
+- The images next to every example, and the previews on the website's
+  examples page, are WebP files now rather than PNG. A path-traced PNG is a
+  megabyte of sampling noise that changes on every render, so each release
+  added some 20 MB to the repository for pictures that look the same; at
+  quality 90 the WebP is a tenth of that. `make example-images` and
+  `make website-examples` convert with `cwebp`, which `nix develop` now
+  provides (`libwebp` elsewhere). `luacad render` itself still writes PNG.
+
 - `--via-openscad` runs the binary named by the `OPENSCAD` environment
   variable when it is set, and `openscad` from `PATH` otherwise — so a
   development snapshot can be used without displacing a distribution's

@@ -38,18 +38,30 @@ test:
 
 
 # Regenerate the rasterized and path-traced image next to every example's
-# entry point (literal_openscad has none: it only emits OpenSCAD code)
+# entry point (literal_openscad has none: it only emits OpenSCAD code).
+#
+# They are stored as WebP: a path-traced PNG is a megabyte of sampling noise
+# that changes on every render, and at quality 90 the WebP is a tenth of that
+# with no visible difference, so a release stops adding 20 MB of images to the
+# repository. `luacad render` writes PNG, so `cwebp` (libwebp) converts.
 .PHONY: example-images
 example-images:
+	@command -v cwebp > /dev/null \
+		|| (echo "No cwebp on this shell: run \`nix develop\`," \
+			"or install libwebp" && exit 1)
 	cargo build --package luacad --release
 	@for entry in examples/*/*.lua examples/*/*.scad; do \
 		case $$entry in examples/literal_openscad/*) continue;; esac; \
 		base=$${entry%.*}; \
-		echo "→ $$base.png"; \
-		target/release/luacad render "$$entry" "$$base.png"; \
-		echo "→ $${base}_raytraced.png"; \
-		target/release/luacad render --raytrace "$$entry" \
-			"$${base}_raytraced.png"; \
+		for suffix in "" _raytraced; do \
+			case $$suffix in _raytraced) flag=--raytrace;; *) flag=;; esac; \
+			echo "→ $$base$$suffix.webp"; \
+			target/release/luacad render $$flag "$$entry" "$$base$$suffix.png" \
+				&& cwebp -quiet -q 90 -m 6 "$$base$$suffix.png" \
+					-o "$$base$$suffix.webp" \
+				|| exit 1; \
+			rm -f "$$base$$suffix.png"; \
+		done; \
 	done
 
 

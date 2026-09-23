@@ -50,6 +50,9 @@
             # `make wasm`: compiles Lua and Manifold for the browser.
             emscripten
             gnumake
+            # `make example-images` and `make website-examples`: `cwebp`
+            # converts the rendered PNGs to the WebP files that are checked in.
+            libwebp
             # `make test-wasm` runs the smoke test on the built module.
             nodejs
             # `make wasm-viewer`: turns the viewer module into something the
