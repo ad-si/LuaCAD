@@ -27,10 +27,13 @@ any release.
   however high the convexity — so an `import(file, convexity)` and a shape
   under `render_node(n)` stay in the CSG pass with their own colors and
   interactive booleans, instead of dropping their product to Manifold to
-  be drawn as one mesh. (A BOSL thread is still materialized, for a
-  different reason: its expansion is a union trimmed by an intersection,
-  which is not one product.) Large models redraw faster: the
-  490,802-triangle MuSHR racecar in about 5 ms per view instead of 10 ms.
+  be drawn as one mesh. A union in an intersected position now multiplies
+  the product out — `X ∩ (A ∪ B)` draws as `(X ∩ A) ∪ (X ∩ B)` and
+  `(A ∪ B) − S` as `(A − S) ∪ (B − S)` — so a BOSL thread, whose expansion
+  is a union trimmed by a bounding cylinder, is interactive as well; only a
+  subtracted thread is still materialized, since `X − (A ∩ B)` is not one
+  product. Large models redraw faster: the 490,802-triangle MuSHR racecar
+  in about 5 ms per view instead of 10 ms.
 
 - The browser playground draws the same preview. Its viewport was a
   hand-written WebGL2 pass over the booleaned meshes; it is now WebCSG on
@@ -245,6 +248,18 @@ any release.
   the log".
 
 ### Fixed
+
+- A `polyhedron()` was drawn inside-out by the CSG pass of Studio and the
+  playground. Its faces follow OpenSCAD's convention — clockwise seen from
+  outside — which is what Manifold and csgrs take as outward, but the
+  preview handed them to the GPU as given, whose front face is the other
+  way round. A polyhedron on its own looked right, since the lighting is
+  two-sided, but in a boolean the layer peeling took its far side for the
+  front: a concave polyhedron subtracted from a cylinder lost its cavity to
+  slivers. The four hand-built solids behind the BOSL previews (prismoid,
+  wedge, octahedron, torus) had the opposite problem — wound for the GPU,
+  they were inverted whenever Manifold materialized them. Every polyhedron
+  now uses OpenSCAD's winding and the leaf tessellation reverses it once.
 
 - Building on macOS inside `nix develop` failed in Clipper2, on `<vector>` of
   all things. CMake asks `xcrun` for the macOS sysroot, which names the SDK

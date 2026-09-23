@@ -554,12 +554,16 @@ fn dwarfs(operand: &ScadNode, reference: Aabb) -> bool {
 /// single WebCSG product `I1 ∩ … ∩ In − S1 − … − Sm` that its enclosing
 /// boolean is flattened into.
 ///
-/// Only some tree shapes fit. A union is a *sum* of products and a subtracted
-/// difference expands to two products (`X − (A − B) = (X − A) ∪ (X ∩ B)`), so
-/// neither can be appended to the enclosing product's operand list.
-/// Non-tessellatable primitives (hull, Minkowski, extrusions) don't fit either
-/// — they have no leaf tessellation to hand WebCSG. Whatever doesn't fit is
-/// computed by Manifold instead and rendered as a plain mesh.
+/// Only some tree shapes fit. A union is a *sum* of products: subtracted, it
+/// collapses into the product (`X − (A ∪ B) = X − A − B`); intersected, it
+/// multiplies the product out into one per member (`X ∩ (A ∪ B) =
+/// (X ∩ A) ∪ (X ∩ B)`), which `flatten_inner` does, so "fits" there means
+/// "expands to products". A subtracted difference expands to two products
+/// that cannot be told apart that way (`X − (A − B) = (X − A) ∪ (X ∩ B)`),
+/// so it does not fit. Non-tessellatable primitives (hull, Minkowski,
+/// extrusions) don't fit either — they have no leaf tessellation to hand
+/// WebCSG. Whatever doesn't fit is computed by Manifold instead and rendered
+/// as a plain mesh.
 fn fits_in_product(node: &ScadNode, op: Operation) -> bool {
   // A 2D shape has no WebCSG form at all: its booleans combine areas, which
   // is Manifold's job, and the result draws as one flat mesh.
@@ -614,14 +618,13 @@ fn fits_in_product(node: &ScadNode, op: Operation) -> bool {
       ModifierKind::Only => false,
     },
 
-    // `X − (A ∪ B)` = `X − A − B`, so a union collapses into the product
-    // when every operand is subtracted — but not in an intersected position,
-    // where it would turn into `A ∩ B`.
+    // A union is a sum of products. Subtracted, it collapses into the
+    // product (`X − (A ∪ B)` = `X − A − B`); intersected, it multiplies the
+    // product out into one per member (`X ∩ (A ∪ B)` = `(X ∩ A) ∪ (X ∩ B)`),
+    // which is what keeps a BOSL thread — `(band ∪ core) ∩ bound` —
+    // interactive. Either way every member has to fit at the same position.
     ScadNode::Union(children) => {
-      op == Operation::Subtraction
-        && children
-          .iter()
-          .all(|child| fits_in_product(child, Operation::Subtraction))
+      children.iter().all(|child| fits_in_product(child, op))
     }
 
     // `X ∩ (A − B)` = `X ∩ A − B` keeps one product; subtracting the same
@@ -694,28 +697,29 @@ fn flatten_inner(
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
-      // First remaining child = Intersection, rest = Subtraction, all in one
-      // group. `*`/`%` children are removed from the boolean entirely, so
-      // they never become the base (OpenSCAD semantics).
-      let mut leaves = Vec::new();
+      // The first remaining child is the base, the rest are subtracted.
+      // `*`/`%` children are removed from the boolean entirely, so they
+      // never become the base (OpenSCAD semantics). A base that is a sum of
+      // products — a union, or an intersection with one inside — comes back
+      // as several groups, and the subtracted leaves go into each of them:
+      // `(A ∪ B) − S` = `(A − S) ∪ (B − S)`.
       let mut base_found = false;
+      let mut groups = Vec::new();
+      let mut subtracted = Vec::new();
       for child in children {
-        let child_op = if !base_found && !child.is_csg_dropped() {
+        if !base_found && !child.is_csg_dropped() {
           base_found = true;
-          Operation::Intersection
+          groups = flatten_inner(child, ctx, Operation::Intersection, sink);
         } else {
-          Operation::Subtraction
-        };
-        let child_groups = flatten_inner(child, ctx, child_op, sink);
-        for g in child_groups {
-          leaves.extend(g.primitives);
+          for g in flatten_inner(child, ctx, Operation::Subtraction, sink) {
+            subtracted.extend(g.primitives);
+          }
         }
       }
-      if leaves.is_empty() {
-        vec![]
-      } else {
-        vec![CsgGroup { primitives: leaves }]
+      for group in &mut groups {
+        group.primitives.extend(subtracted.iter().cloned());
       }
+      groups
     }
     ScadNode::Intersection(children) => {
       // Same fallback as for differences.
@@ -723,20 +727,35 @@ fn flatten_inner(
         collect_modifier_effects(node, ctx, sink);
         return manifold_preview(node, ctx, op, 1);
       }
-      // All children are Intersection, in one group.
-      let mut leaves = Vec::new();
+      // Every child is intersected. A child that is a sum of products
+      // multiplies the result out — `(A ∪ B) ∩ (C ∪ D)` is four products —
+      // and a child that draws nothing (`*`, an empty shape) is left out
+      // of the boolean rather than emptying it, as before.
+      let mut groups: Option<Vec<CsgGroup>> = None;
       for child in children {
         let child_groups =
           flatten_inner(child, ctx, Operation::Intersection, sink);
-        for g in child_groups {
-          leaves.extend(g.primitives);
+        if child_groups.is_empty() {
+          continue;
         }
+        groups = Some(match groups {
+          None => child_groups,
+          Some(acc) => acc
+            .iter()
+            .flat_map(|a| {
+              child_groups.iter().map(move |b| CsgGroup {
+                primitives: a
+                  .primitives
+                  .iter()
+                  .chain(&b.primitives)
+                  .cloned()
+                  .collect(),
+              })
+            })
+            .collect(),
+        });
       }
-      if leaves.is_empty() {
-        vec![]
-      } else {
-        vec![CsgGroup { primitives: leaves }]
-      }
+      groups.unwrap_or_default()
     }
 
     // --- Transforms ---
@@ -1285,17 +1304,22 @@ fn tessellate_polyhedron(
   points: &[[f32; 3]],
   faces: &[Vec<usize>],
 ) -> Vec<[f32; 3]> {
+  // A polyhedron's faces follow OpenSCAD's convention — vertices clockwise
+  // seen from outside — which is what Manifold and csgrs take as outward.
+  // The GPU pipeline's front face is counter-clockwise, like the triangles
+  // `tessellate_cube` and friends emit, so each fan triangle is reversed
+  // here; drawn as given, every user polyhedron was inside-out in the CSG
+  // pass and lost the far side of a subtraction.
   let mut verts = Vec::new();
   for face in faces {
     if face.len() < 3 {
       continue;
     }
-    // Fan-triangulate
     let v0 = points[face[0]];
     for i in 1..face.len() - 1 {
       verts.push(v0);
-      verts.push(points[face[i]]);
       verts.push(points[face[i + 1]]);
+      verts.push(points[face[i]]);
     }
   }
   verts
@@ -1477,12 +1501,13 @@ fn torus_polyhedron(
     let i_next = (i + 1) % n_maj;
     for j in 0..n_min {
       let j_next = (j + 1) % n_min;
-      // Quad as two triangles — but polyhedron supports quads via face lists
+      // One quad per cell, wound clockwise seen from outside like every
+      // `Polyhedron` (see `tessellate_polyhedron`).
       faces.push(vec![
-        i * n_min + j,
-        i_next * n_min + j,
-        i_next * n_min + j_next,
         i * n_min + j_next,
+        i_next * n_min + j_next,
+        i_next * n_min + j,
+        i * n_min + j,
       ]);
     }
   }
@@ -1514,13 +1539,14 @@ fn prismoid_polyhedron(
     [-hw2, hd2, z_off + h],
   ];
 
+  // Clockwise seen from outside, as OpenSCAD winds a polyhedron.
   let faces = vec![
-    vec![3, 2, 1, 0], // bottom (CCW from below)
-    vec![4, 5, 6, 7], // top
-    vec![0, 1, 5, 4], // front
-    vec![2, 3, 7, 6], // back
-    vec![0, 4, 7, 3], // left
-    vec![1, 2, 6, 5], // right
+    vec![0, 1, 2, 3], // bottom
+    vec![7, 6, 5, 4], // top
+    vec![4, 5, 1, 0], // front
+    vec![6, 7, 3, 2], // back
+    vec![3, 7, 4, 0], // left
+    vec![5, 6, 2, 1], // right
   ];
 
   ScadNode::Polyhedron { points, faces }
@@ -1545,12 +1571,13 @@ fn wedge_polyhedron(w: f32, d: f32, h: f32, center: bool) -> ScadNode {
     [ox, oy + d, oz + h], // 5: top-back-left
   ];
 
+  // Clockwise seen from outside, as OpenSCAD winds a polyhedron.
   let faces = vec![
-    vec![3, 2, 1, 0], // bottom
-    vec![4, 5, 3, 0], // left
-    vec![0, 1, 4],    // front (triangle)
-    vec![2, 3, 5],    // back (triangle)
-    vec![1, 2, 5, 4], // slope
+    vec![0, 1, 2, 3], // bottom
+    vec![0, 3, 5, 4], // left
+    vec![4, 1, 0],    // front (triangle)
+    vec![5, 3, 2],    // back (triangle)
+    vec![4, 5, 2, 1], // slope
   ];
 
   ScadNode::Polyhedron { points, faces }
@@ -1569,15 +1596,16 @@ fn octahedron_polyhedron(size: f32) -> ScadNode {
     [0.0, 0.0, -s], // 5: -Z
   ];
 
+  // Clockwise seen from outside, as OpenSCAD winds a polyhedron.
   let faces = vec![
-    vec![0, 2, 4], // +X +Y +Z
-    vec![2, 1, 4], // -X +Y +Z
-    vec![1, 3, 4], // -X -Y +Z
-    vec![3, 0, 4], // +X -Y +Z
-    vec![2, 0, 5], // +X +Y -Z
-    vec![1, 2, 5], // -X +Y -Z
-    vec![3, 1, 5], // -X -Y -Z
-    vec![0, 3, 5], // +X -Y -Z
+    vec![4, 2, 0], // +X +Y +Z
+    vec![4, 1, 2], // -X +Y +Z
+    vec![4, 3, 1], // -X -Y +Z
+    vec![4, 0, 3], // +X -Y +Z
+    vec![5, 0, 2], // +X +Y -Z
+    vec![5, 2, 1], // -X +Y -Z
+    vec![5, 1, 3], // -X -Y -Z
+    vec![5, 3, 0], // +X -Y -Z
   ];
 
   ScadNode::Polyhedron { points, faces }
@@ -1887,10 +1915,20 @@ mod product_tests {
     assert_single_mesh(&scene, "X - (A ∩ B)");
   }
 
+  /// The operations of every group's leaves, in order.
+  fn group_ops(scene: &CsgScene) -> Vec<Vec<Operation>> {
+    scene
+      .groups
+      .iter()
+      .map(|g| g.primitives.iter().map(|p| p.operation).collect())
+      .collect()
+  }
+
   #[test]
-  fn union_base_of_difference_is_materialized() {
-    // `(A ∪ B) - S` is a sum of two products, not one: flattening it in place
-    // would render `A ∩ B - S`.
+  fn union_base_of_difference_multiplies_out() {
+    // `(A ∪ B) - S` is a sum of two products, `(A − S) ∪ (B − S)`: one
+    // group per member, each carrying the subtracted leaf. Flattened into
+    // one product it would render `A ∩ B − S`.
     let scene = flatten_lua(
       r#"
       local a = cube({ 20, 20, 20 })
@@ -1898,11 +1936,13 @@ mod product_tests {
       render((a + b) - cylinder({ r = 4, h = 40 }):translate(10, 10, -10))
       "#,
     );
-    assert_single_mesh(&scene, "(A ∪ B) - S");
+    use Operation::{Intersection as I, Subtraction as S};
+    assert_eq!(group_ops(&scene), vec![vec![I, S], vec![I, S]]);
   }
 
   #[test]
-  fn union_inside_intersection_is_materialized() {
+  fn union_inside_intersection_multiplies_out() {
+    // `X ∩ (A ∪ B)` = `(X ∩ A) ∪ (X ∩ B)`.
     let scene = flatten_lua(
       r#"
       local a = cube({ 20, 20, 20 })
@@ -1910,7 +1950,146 @@ mod product_tests {
       render(cube({ 40, 40, 40 }) * (a + b))
       "#,
     );
-    assert_single_mesh(&scene, "X ∩ (A ∪ B)");
+    use Operation::Intersection as I;
+    assert_eq!(group_ops(&scene), vec![vec![I, I], vec![I, I]]);
+  }
+
+  #[test]
+  fn two_unions_intersected_multiply_into_four_products() {
+    let scene = flatten_lua(
+      r#"
+      local a = cube({ 20, 20, 20 })
+      local b = cube({ 20, 20, 20 }):translate(10, 0, 0)
+      local c = sphere({ r = 12 })
+      local d = sphere({ r = 12 }):translate(0, 10, 0)
+      render((a + b) * (c + d))
+      "#,
+    );
+    use Operation::Intersection as I;
+    assert_eq!(group_ops(&scene), vec![vec![I, I]; 4]);
+  }
+
+  #[test]
+  fn threaded_rod_stays_in_the_product() {
+    // A rod expands to `(band ∪ core) ∩ bound`: one product per member,
+    // each trimmed by the bound, with the thread's own convexity — one
+    // layer per pitch — on the band so the CSG pass draws every flank.
+    let scene =
+      flatten_lua("render(bosl.threaded_rod({ d = 12, l = 30, pitch = 1.5 }))");
+    assert!(
+      scene.groups.len() >= 2,
+      "band and core as separate products"
+    );
+    for group in &scene.groups {
+      assert_eq!(group.primitives.len(), 2, "a member and the bound");
+      assert!(
+        group
+          .primitives
+          .iter()
+          .all(|p| p.operation == Operation::Intersection)
+      );
+    }
+    let deepest = scene
+      .groups
+      .iter()
+      .flat_map(|g| &g.primitives)
+      .map(|p| p.convexity)
+      .max()
+      .unwrap();
+    assert!(
+      deepest >= 20,
+      "20 turns promise at least 20 layers: {deepest}"
+    );
+  }
+
+  #[test]
+  fn intersected_thread_stays_in_the_product() {
+    // `X ∩ ((band ∪ core) ∩ bound)` = `(X ∩ band ∩ bound) ∪ (X ∩ core ∩ bound)`.
+    let scene = flatten_lua(
+      r#"
+      render(
+        cube({ { 20, 20, 10 }, center = true })
+        * bosl.threaded_rod({ d = 12, l = 30, pitch = 1.5 })
+      )
+      "#,
+    );
+    assert!(scene.groups.len() >= 2);
+    for group in &scene.groups {
+      assert_eq!(group.primitives.len(), 3, "cube, a member and the bound");
+    }
+  }
+
+  /// Signed volume of a triangle soup: positive when the triangles wind
+  /// counter-clockwise seen from outside, which is what the pipeline's front
+  /// face is. (`cad_to_gl_vertices` permutes axes cyclically, so the sign
+  /// survives the trip into GL space.)
+  fn signed_volume(vertices: &[[f32; 3]]) -> f64 {
+    vertices
+      .chunks_exact(3)
+      .map(|t| {
+        let [a, b, c] = [t[0], t[1], t[2]].map(|v| v.map(f64::from));
+        let cross = [
+          b[1] * c[2] - b[2] * c[1],
+          b[2] * c[0] - b[0] * c[2],
+          b[0] * c[1] - b[1] * c[0],
+        ];
+        (a[0] * cross[0] + a[1] * cross[1] + a[2] * cross[2]) / 6.0
+      })
+      .sum()
+  }
+
+  #[test]
+  fn openscad_wound_polyhedron_faces_outward_in_the_preview() {
+    // The right triangular prism from `export.rs`'s winding test, in
+    // OpenSCAD's clockwise-from-outside order, volume 240. Manifold and
+    // csgrs read it as a solid; so must the leaf tessellation.
+    let scene = flatten_lua(
+      r#"
+      render(polyhedron {
+        points = {
+          { 0, 0, 6 }, { 0, 0, 0 }, { 10, 0, 0 },
+          { 0, 8, 6 }, { 0, 8, 0 }, { 10, 8, 0 },
+        },
+        faces = {
+          { 0, 2, 1 }, { 3, 4, 5 }, { 0, 1, 4, 3 },
+          { 1, 2, 5, 4 }, { 0, 3, 5, 2 },
+        },
+      })
+      "#,
+    );
+    let leaf = &scene.groups[0].primitives[0];
+    let volume = signed_volume(&leaf.vertices);
+    assert!((volume - 240.0).abs() < 1e-3, "prism volume {volume}");
+  }
+
+  #[test]
+  fn bosl_preview_polyhedra_face_outward() {
+    // The hand-built helpers behind the BOSL previews are wound like a
+    // user's polyhedron, so they read as solids both when Manifold
+    // materializes them and when they are tessellated as leaves.
+    let shapes = [
+      (
+        "prismoid",
+        prismoid_polyhedron(&[20.0, 10.0], &[10.0, 5.0], 8.0, false),
+      ),
+      ("wedge", wedge_polyhedron(10.0, 6.0, 4.0, false)),
+      ("octahedron", octahedron_polyhedron(10.0)),
+      ("torus", torus_polyhedron(10.0, 3.0, 16, 8)),
+    ];
+    for (name, node) in shapes {
+      let ScadNode::Polyhedron { points, faces } = &node else {
+        unreachable!()
+      };
+      let volume = signed_volume(&tessellate_polyhedron(points, faces));
+      assert!(volume > 0.0, "{name} tessellates inside-out: {volume}");
+      let materialized =
+        luacad::export::materialize_scad_manifold(&node).volume();
+      assert!(materialized > 0.0, "{name} is inverted for Manifold");
+      assert!(
+        (materialized - volume).abs() < volume * 0.01,
+        "{name}: leaf {volume} vs Manifold {materialized}"
+      );
+    }
   }
 
   #[test]
