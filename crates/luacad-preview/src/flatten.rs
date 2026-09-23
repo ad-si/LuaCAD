@@ -2025,9 +2025,11 @@ mod product_tests {
   /// survives the trip into GL space.)
   fn signed_volume(vertices: &[[f32; 3]]) -> f64 {
     vertices
-      .chunks_exact(3)
+      .as_chunks::<3>()
+      .0
+      .iter()
       .map(|t| {
-        let [a, b, c] = [t[0], t[1], t[2]].map(|v| v.map(f64::from));
+        let [a, b, c] = t.map(|v| v.map(f64::from));
         let cross = [
           b[1] * c[2] - b[2] * c[1],
           b[2] * c[0] - b[0] * c[2],
