@@ -118,10 +118,8 @@ make install</code></pre>
 
       <p>Both crates vendor their C/C++ dependencies, so no system libraries need
         to be installed &mdash; but a C++ compiler and CMake must be available to
-        build them. <code>luacad</code> builds Manifold and Clipper2;
-        <code>luacad-studio</code> additionally builds
-        <a href="http://www.opencsg.org/">OpenCSG</a>, which needs OpenGL
-        development headers (on Debian/Ubuntu: <code>libgl1-mesa-dev</code>,
+        build Manifold and Clipper2. On Linux, <code>luacad-studio</code>
+        additionally needs the windowing headers (on Debian/Ubuntu:
         <code>libx11-dev</code>, <code>libxcb1-dev</code>,
         <code>libxkbcommon-dev</code>, <code>libxrandr-dev</code>,
         <code>libwayland-dev</code>).
@@ -150,8 +148,9 @@ luacad run model.lua                  # Execute (side-effects only)</code></pre>
       <p><code>luacad-studio</code> is a desktop app with a code editor and a
         3D viewport: edit the script on the right, watch the model update on
         the left. The viewport draws the CSG tree itself through
-        <a href="http://www.opencsg.org/">OpenCSG</a>, so a boolean shows up as
-        soon as the script runs, without waiting for a mesh to be built for it.
+        <a href="https://github.com/ad-si/WebCSG">WebCSG</a> on
+        <a href="https://wgpu.rs">wgpu</a>, so a boolean shows up as soon as
+        the script runs, without waiting for a mesh to be built for it.
         A file changed by another program is picked up automatically, and the
         Raytrace button path-traces whatever the viewport is currently showing.
       </p>

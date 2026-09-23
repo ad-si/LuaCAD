@@ -97,7 +97,7 @@ pub fn file_mtime(path: &Path) -> Option<SystemTime> {
 }
 
 /// What a background Lua execution produces: the geometries, the error to
-/// display (if any), and the scene already flattened for OpenCSG.
+/// display (if any), and the scene already flattened into CSG products.
 struct LuaJobResult {
   geometries: Vec<CsgGeometry>,
   lua_error: Option<String>,
@@ -199,7 +199,7 @@ pub struct AppState {
   pub editor_click: Option<EditorClick>,
   /// True when clipboard contains a whole-line copy (Cmd+C with no selection)
   pub clipboard_is_line: bool,
-  /// Flattened CSG groups for OpenCSG preview rendering
+  /// Flattened CSG groups for the WebCSG preview
   pub csg_groups: Vec<CsgGroup>,
   /// Translucent modifier overlays (`#` highlight, `%` background)
   pub overlay_meshes: Vec<OverlayMesh>,

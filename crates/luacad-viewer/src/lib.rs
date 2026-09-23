@@ -4,8 +4,8 @@
 //! The engine module — Lua and Manifold, compiled with Emscripten and run in
 //! a worker — flattens a script into CSG products and hands them over as the
 //! byte buffer [`luacad_preview::wire`] describes. This module decodes that
-//! buffer and renders it through wgpu, on WebGPU where the browser has it and
-//! on WebGL2 everywhere else.
+//! buffer and renders it through wgpu on WebGPU — and only WebGPU: see
+//! `create_viewer` for why WebGL2 cannot stand in for it.
 //!
 //! The page keeps the pointer handling (it owns the events) and this module
 //! keeps the camera (it owns the matrices), so a drag is a call to

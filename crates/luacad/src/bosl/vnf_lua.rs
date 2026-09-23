@@ -489,8 +489,8 @@ fn vnf_polyhedron(lua: &Lua, a: &Args) -> LuaResult<LuaValue> {
       .collect(),
     faces: vnf.faces.clone(),
   };
-  // A caller-declared depth complexity bounds the OpenCSG preview's
-  // layer peeling, like it does for `polyhedron()` in OpenSCAD.
+  // A caller-declared depth complexity tells the preview's CSG pass how
+  // many layers to peel, like it does for `polyhedron()` in OpenSCAD.
   if let Some(convexity) = a.int("convexity")
     && convexity > 1
   {

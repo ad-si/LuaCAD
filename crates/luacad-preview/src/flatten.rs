@@ -584,20 +584,18 @@ fn fits_in_product(node: &ScadNode, op: Operation) -> bool {
     | ScadNode::Color { child, .. }
     | ScadNode::Material { child, .. } => fits_in_product(child, op),
 
-    // A declared depth complexity above 1 marks a deeply concave shape
-    // (a thread, an imported mesh). WebCSG's layered Goldfeather pass
-    // garbles those on the GL stacks the studio runs on — surface layers
-    // drop out in facet-aligned stripes — so the product is computed by
-    // Manifold instead. This also matches OpenSCAD, where `render()`
-    // materializes its subtree at preview time.
-    ScadNode::Render { convexity, child } => {
-      *convexity <= 1 && fits_in_product(child, op)
-    }
-    ScadNode::Import { convexity, .. } => *convexity <= 1,
+    // A declared depth complexity (a thread's, an imported mesh's) is
+    // carried down to the leaves, where WebCSG peels that many layers, so a
+    // concave shape stays in the product as long as its convexity is
+    // honest. OpenCSG could not be trusted with that — it lost layers in
+    // facet-aligned stripes however high the convexity — which is why these
+    // used to go to Manifold.
+    ScadNode::Render { child, .. } => fits_in_product(child, op),
+    ScadNode::Import { .. } => true,
 
     // A heightmap's depth complexity is the number of ridges a grazing ray
-    // crosses — unbounded, and not knowable from the declared convexity —
-    // so it is always in the garbled class described above.
+    // crosses — unbounded, and nothing like the default convexity of 1, so
+    // it is materialized by Manifold rather than drawn as a leaf.
     ScadNode::Surface { .. } => false,
 
     // A native BOSL shape previews as its expansion, so whether it fits
@@ -1825,24 +1823,28 @@ mod product_tests {
   }
 
   #[test]
-  fn render_node_materializes_the_product() {
-    // `render(convexity = n)` with n > 1 declares a shape too deep for
-    // WebCSG's layered pass; the whole product drops to Manifold, like
-    // OpenSCAD materializing a `render()` subtree at preview time.
+  fn render_node_keeps_the_product_and_declares_its_convexity() {
+    // `render(convexity = n)` is a promise about depth complexity, not a
+    // request to materialize: the operand stays a WebCSG leaf and carries
+    // the declared layer count down to the pass that peels them.
     let scene = flatten_lua(
       "render(cube({ 20, 20, 20 })
         - cylinder({ r = 4, h = 30 }):render_node(7))",
     );
-    assert_single_mesh(&scene, "X - render(convexity = 7)");
+    assert_eq!(scene.groups.len(), 1);
+    let prims = &scene.groups[0].primitives;
+    let ops: Vec<_> = prims.iter().map(|p| p.operation).collect();
+    assert_eq!(ops, vec![Operation::Intersection, Operation::Subtraction]);
+    assert_eq!(prims[0].convexity, 1, "the cube declares nothing");
+    assert_eq!(prims[1].convexity, 7, "the cylinder carries render(7)");
   }
 
   #[test]
   fn subtracted_thread_is_materialized() {
-    // A threaded rod is deeply concave: a ray along the axis crosses one
-    // crest per pitch. Previewed as a subtracted WebCSG primitive, its
-    // deeper surface layers came out garbled, leaving brick-shaped holes
-    // across the bore wall — so the thread's own convexity declaration
-    // must drop the whole product to Manifold.
+    // A threaded rod expands to `(band ∪ core) ∩ bound`, and a union in an
+    // intersected position cannot nest into a product, so a thread drops
+    // its product to Manifold wherever it stands — not because of its
+    // convexity, which the CSG pass could honour.
     let scene = flatten_lua(
       r#"
       render(
@@ -1912,7 +1914,7 @@ mod product_tests {
   }
 
   #[test]
-  fn subtracted_union_still_uses_opencsg() {
+  fn subtracted_union_stays_in_the_product() {
     // `X - (A ∪ B)` = `X - A - B` does fit one product, so it must keep the
     // cheap WebCSG path instead of falling back to Manifold.
     let scene = flatten_lua(
@@ -1997,7 +1999,7 @@ mod product_tests {
   }
 
   #[test]
-  fn intersected_difference_still_uses_opencsg() {
+  fn intersected_difference_stays_in_the_product() {
     // `X ∩ (A - B)` = `X ∩ A - B` fits one product.
     let scene = flatten_lua(
       r#"

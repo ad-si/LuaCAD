@@ -21,16 +21,23 @@ any release.
   headers. The `opencsg-sys` crate is retired.
 
   The picture is the same: the same three lights, materials, modifier
-  overlays, transparent mode and supersampling. A deeply concave subtracted
-  primitive, such as a ten-turn thread, now renders correctly in the shaded
-  preview (its layers were lost in facet-aligned stripes before). Large
-  models redraw faster: the 490,802-triangle MuSHR racecar in about 5 ms
-  per view instead of 10 ms.
+  overlays, transparent mode and supersampling. A deeply concave primitive
+  now renders correctly in the shaded preview as long as it declares its
+  depth complexity — OpenCSG lost its layers in facet-aligned stripes
+  however high the convexity — so an `import(file, convexity)` and a shape
+  under `render_node(n)` stay in the CSG pass with their own colors and
+  interactive booleans, instead of dropping their product to Manifold to
+  be drawn as one mesh. (A BOSL thread is still materialized, for a
+  different reason: its expansion is a union trimmed by an intersection,
+  which is not one product.) Large models redraw faster: the
+  490,802-triangle MuSHR racecar in about 5 ms per view instead of 10 ms.
 
 - The browser playground draws the same preview. Its viewport was a
   hand-written WebGL2 pass over the booleaned meshes; it is now WebCSG on
-  wgpu — WebGPU where the browser has it, WebGL2 otherwise — with Studio's
-  shading, materials and `#`/`%` modifier overlays. Running a script no
+  wgpu, with Studio's shading, materials and `#`/`%` modifier overlays. It
+  needs WebGPU — the CSG pass reads the depth buffer back in a way WebGL2
+  cannot express — and a browser without it says so in place of the
+  viewport while the editor and the exports keep working. Running a script no
   longer waits for Manifold to boolean the model: the engine sends the CSG
   products and the GPU resolves them, so a difference shows up as soon as the
   script has run. Only exporting materializes the geometry.
@@ -40,6 +47,35 @@ any release.
   before (Emscripten, in a worker) and the viewer next to it (wasm-bindgen,
   on the page, 856 KB gzipped), which is what `make wasm` builds and
   `make wasm-viewer` builds on its own.
+
+- `--via-openscad` runs the binary named by the `OPENSCAD` environment
+  variable when it is set, and `openscad` from `PATH` otherwise — so a
+  development snapshot can be used without displacing a distribution's
+  release. The differential tests against BOSL2 take the same variable, and
+  now skip themselves against OpenSCAD 2021.01 rather than measuring LuaCAD
+  against a reference five years behind the behavior it tracks.
+
+- The minimum supported Rust version of `luacad` and `luacad-studio` is now
+  1.96, raised by the vendored path tracer behind `--raytrace`.
+  `luacad-manifold-sys` and the three `luacad-scad-*` crates still build on
+  1.89.
+
+- `import()` of an SVG reads unitless coordinates at 72 dpi rather than 96,
+  the default OpenSCAD uses, so a drawing without physical units no longer
+  comes in 4/3 too small compared to the same file there. An SVG that states
+  its size in mm, cm or inches is unaffected.
+
+- The `legacy_lua/` directory — the pure Lua implementation the project was
+  rewritten from in February 2026 — is no longer part of the repository. It
+  had not been touched since the rewrite; it can be read at the `v1.1.0` tag
+  and lives on at
+  [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
+
+- `polygon()` in the SCAD tree carries optional contour index lists, resolved
+  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
+  unchanged; this is what lets an imported `polygon(points, paths)` — and the
+  counters in an OpenSCAD `text()` — come through as holes rather than
+  filling in.
 
 ### Added
 
@@ -57,12 +93,12 @@ any release.
   simply absent from the Studio preview.
 
   In Studio's shaded preview the heightmap is materialized by Manifold
-  rather than handed to OpenCSG as a leaf: its depth complexity is the
-  number of ridges a grazing ray crosses — unbounded, and not knowable from
-  the declared convexity — which puts it in the same garbled-by-Goldfeather
-  class as a thread. (The leaf walker previously dropped `surface()` nodes
-  while still counting them into the OpenCSG product, so the emblem showed
-  in transparent mode but not in the normal view.)
+  rather than drawn as a CSG leaf: its depth complexity is the number of
+  ridges a grazing ray crosses — unbounded, and nothing like the default
+  convexity of 1 — so the CSG pass would drop most of its ridges. (The leaf
+  walker previously dropped `surface()` nodes while still counting them
+  into the CSG product, so the emblem showed in transparent mode but not in
+  the normal view.)
 
 - OpenSCAD files can be opened directly: `.scad` works anywhere `.lua` does,
   on the command line (`run`, `info`, `convert`, `watch`, `render`) and in
@@ -208,36 +244,6 @@ any release.
   anchored in world space, so a moved part is "cut from a different spot in
   the log".
 
-### Changed
-
-- `--via-openscad` runs the binary named by the `OPENSCAD` environment
-  variable when it is set, and `openscad` from `PATH` otherwise — so a
-  development snapshot can be used without displacing a distribution's
-  release. The differential tests against BOSL2 take the same variable, and
-  now skip themselves against OpenSCAD 2021.01 rather than measuring LuaCAD
-  against a reference five years behind the behavior it tracks.
-
-- The minimum supported Rust version of `luacad` and `luacad-studio` is now
-  1.96, raised by the vendored path tracer behind `--raytrace`. The
-  `luacad-manifold-sys` and `opencsg-sys` crates still build on 1.89.
-
-- `import()` of an SVG reads unitless coordinates at 72 dpi rather than 96,
-  the default OpenSCAD uses, so a drawing without physical units no longer
-  comes in 4/3 too small compared to the same file there. An SVG that states
-  its size in mm, cm or inches is unaffected.
-
-- The `legacy_lua/` directory — the pure Lua implementation the project was
-  rewritten from in February 2026 — is no longer part of the repository. It
-  had not been touched since the rewrite; it can be read at the `v1.1.0` tag
-  and lives on at
-  [thechillcode/Lua_CAD](https://github.com/thechillcode/Lua_CAD).
-
-- `polygon()` in the SCAD tree carries optional contour index lists, resolved
-  with the even-odd rule, so a polygon can have holes. The Lua `polygon()` is
-  unchanged; this is what lets an imported `polygon(points, paths)` — and the
-  counters in an OpenSCAD `text()` — come through as holes rather than
-  filling in.
-
 ### Fixed
 
 - Building on macOS inside `nix develop` failed in Clipper2, on `<vector>` of
@@ -273,17 +279,17 @@ any release.
 - Studio: a boolean operand far larger than the shape it carves — a
   500-radius sphere scooping a shallow recess out of a 75-radius medal, a
   huge cube cutting a model in half — made the carved-away stock pop back
-  into view at some camera angles in the shaded preview. OpenCSG needs both
-  the front and the back faces of every primitive inside the view frustum,
-  but the camera orbits at a distance set by the *result's* size, so it
-  routinely ended up inside the oversized operand; its front faces fell
-  behind the near plane, the stencil parity broke, and the subtraction
+  into view at some camera angles in the shaded preview. The CSG pass needs
+  both the front and the back faces of every primitive inside the view
+  frustum, but the camera orbits at a distance set by the *result's* size,
+  so it routinely ended up inside the oversized operand; its front faces
+  fell behind the near plane, the parity count broke, and the subtraction
   quietly dropped out. A product whose operand extends past its base's
   bounding box by more than that box's diagonal (measured without
   materializing, via a new conservative `ScadNode` bbox walk) is now
   computed by Manifold and drawn as a plain mesh — correct at every angle,
   like the transparent view always was. Proportionate cutters (a bolt hole
-  overshooting its plate) keep the interactive per-primitive OpenCSG path.
+  overshooting its plate) keep the interactive per-primitive path.
 
 - `surface(invert = true)` on an image built the wrong solid in the OpenSCAD
   front end: it flipped brightness (`100 - height`), but OpenSCAD *negates*

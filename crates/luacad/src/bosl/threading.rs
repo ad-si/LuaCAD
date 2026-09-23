@@ -430,10 +430,10 @@ fn build_thread(t: &Thread, facets: u32) -> ScadNode {
   };
   node = ScadNode::Intersection(vec![node, bound]);
 
-  // The OpenCSG preview peels one depth layer per unit of convexity. A ray
-  // along the axis crosses about one crest per pitch, so promise that many
-  // layers — without this, a subtracted thread previews with its deeper
-  // flanks dropped into background-colored holes.
+  // The preview's CSG pass peels one depth layer per unit of convexity. A
+  // ray along the axis crosses about one crest per pitch, so promise that
+  // many layers — without this, a subtracted thread previews with its
+  // deeper flanks dropped into background-colored holes.
   ScadNode::Render {
     convexity: (t.length / t.pitch).abs().ceil() as u32 + 2,
     child: Box::new(node),
