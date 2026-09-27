@@ -418,6 +418,7 @@ Other CAD software with programmatic model creation:
 - [CadQuery] - Python module for parametric 3D CAD models
 - [DSLCAD] - Programming language and interpreter for building 3D models
 - [Flowscad] - Rust interface to OpenSCAD
+- [FluidCAD] - Hybrid GUI and JavaScript parametric CAD
 - [ForgeCAD] - AI-native CAD for products, manufacturing, and robotics
 - [FreeCAD] - Python scripting
 - [HelloTriangle] - 3D modeling with Python
@@ -443,6 +444,7 @@ Other CAD software with programmatic model creation:
 [CadQuery]: https://github.com/CadQuery/cadquery
 [DSLCAD]: https://dslcad.com
 [Flowscad]: https://github.com/SmoothDragon/flowscad
+[FluidCAD]: https://fluidcad.io/
 [ForgeCAD]: https://forgecad.io/
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
 [HelloTriangle]: https://www.hellotriangle.io/
