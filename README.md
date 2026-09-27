@@ -450,6 +450,7 @@ Other CAD software with programmatic model creation:
 [FreeCAD]: https://wiki.freecad.org/Python_scripting_tutorial
 [HelloTriangle]: https://www.hellotriangle.io/
 [ImplicitCAD]: https://implicitcad.org/
+[LibreCAD]: https://github.com/LibreCAD/LibreCAD_3
 [Liquid CAD]: https://github.com/twitchyliquid64/liquid-cad
 [ManifoldCAD]: https://manifoldcad.org/
 [ModelRift]: https://modelrift.com/
