@@ -435,6 +435,7 @@ Other CAD software with programmatic model creation:
 - [SolidRS] - Rust OpenSCAD model generation
 - [SpaceCAD] - Model rocket design and simulation software
 - [SynapsCAD] - AI-powered 3D CAD IDE
+- [vcad] - Parametric CAD library for Rust with operator-overloaded CSG
 
 [3DScad]: https://github.com/42ne/3dscad
 [bevy_editor_cam]: https://github.com/aevyrie/bevy_editor_cam
@@ -458,6 +459,7 @@ Other CAD software with programmatic model creation:
 [SolidRS]: https://github.com/MnlPhlp/solidrs
 [SpaceCAD]: https://www.spacecad.de/
 [SynapsCAD]: https://github.com/ierror/synaps-cad
+[vcad]: https://campedersen.com/vcad
 
 
 ## History
