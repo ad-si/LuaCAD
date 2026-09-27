@@ -426,6 +426,7 @@ Other CAD software with programmatic model creation:
 - [LibreCAD] - Lua scripting
 - [Liquid CAD] - 2D constraint-solving CAD
 - [ManifoldCAD] - JavaScript-based online CAD
+- [ModelRift] - Browser-based AI modeler that generates OpenSCAD code
 - [NassCAD] - Browser-based parametric CAD with JavaScript scripting
 - [OpenSCAD Rust] - Rust OpenSCAD VM
 - [openscad-rs] - OpenSCAD parser library for Rust
@@ -451,6 +452,7 @@ Other CAD software with programmatic model creation:
 [ImplicitCAD]: https://implicitcad.org/
 [Liquid CAD]: https://github.com/twitchyliquid64/liquid-cad
 [ManifoldCAD]: https://manifoldcad.org/
+[ModelRift]: https://modelrift.com/
 [NassCAD]: https://www.nasscad.com/
 [OpenSCAD Rust]: https://github.com/Michael-F-Bryan/scad-rs
 [openscad-rs]: https://github.com/ierror/openscad-rs
