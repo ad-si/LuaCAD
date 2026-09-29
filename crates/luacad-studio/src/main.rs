@@ -364,8 +364,17 @@ impl winit::application::ApplicationHandler for StudioApp {
     });
   }
 
-  fn about_to_wait(&mut self, _: &winit::event_loop::ActiveEventLoop) {
-    if let Some(studio) = self.studio.as_ref() {
+  fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    let Some(studio) = self.studio.as_ref() else {
+      return;
+    };
+    // A hidden window is not redrawn at all. Nothing waits for vsync then:
+    // the surface hands out no frames, so the loop would spin and queue GPU
+    // work faster than the GPU retires it (issue #24). The event that shows
+    // the window again wakes the loop up.
+    if studio.is_hidden() {
+      event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    } else {
       studio.window.request_redraw();
     }
   }
@@ -388,7 +397,22 @@ impl winit::application::ApplicationHandler for StudioApp {
 }
 
 impl Studio {
+  /// Whether the window is minimized or has no area to draw into.
+  /// Windows reports a minimized window as 0×0; other platforms keep the
+  /// size.
+  fn is_hidden(&self) -> bool {
+    let size = self.window.inner_size();
+    size.width == 0
+      || size.height == 0
+      || self.window.is_minimized() == Some(true)
+  }
+
   fn redraw(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    // The OS can still ask a minimized window to paint
+    if self.is_hidden() {
+      event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+      return;
+    }
     let Studio {
       scene,
       gui,
@@ -1284,7 +1308,12 @@ impl Studio {
       // texture already holds. The frame loop runs at vsync regardless, so
       // without this the whole CSG pass — supersampled, and fill-rate bound
       // by construction — would run every frame even while the app sits idle.
-      if resized || last_scene_signature.as_ref() != Some(&signature) {
+      // A scene area without pixels has nothing to show, and its aspect ratio
+      // of 0/0 fills the projection with NaNs, which never compare equal.
+      let scene_visible = render_w > 0 && render_h > 0;
+      if scene_visible
+        && (resized || last_scene_signature.as_ref() != Some(&signature))
+      {
         // `LUACAD_STUDIO_TIMING=1` prints how long each render of the 3D
         // scene takes, GPU work included
         let timing = std::env::var_os("LUACAD_STUDIO_TIMING")
