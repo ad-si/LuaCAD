@@ -198,11 +198,23 @@ impl EguiIntegration {
   ///
   /// With `capture` set, the frame is also read back; it arrives through
   /// [`Self::take_screenshots`] a frame or two later.
-  pub fn render(&mut self, clear_color: [f32; 4], capture: bool) {
+  ///
+  /// Returns how long egui can do without another frame, e.g. until the next
+  /// step of an animation or a blink of the text cursor. `Duration::MAX`
+  /// means it only needs one on input.
+  pub fn render(
+    &mut self,
+    clear_color: [f32; 4],
+    capture: bool,
+  ) -> std::time::Duration {
     let mut output = self
       .output
       .take()
       .expect("call EguiIntegration::update before render");
+    let repaint_delay = output
+      .viewport_output
+      .get(&egui::ViewportId::ROOT)
+      .map_or(std::time::Duration::MAX, |viewport| viewport.repaint_delay);
     let scale = self.egui_context.pixels_per_point();
     let clipped_meshes = self.egui_context.tessellate(output.shapes, scale);
     let capture_data = if capture {
@@ -219,6 +231,7 @@ impl EguiIntegration {
       capture_data,
       &self.window,
     );
+    repaint_delay
   }
 }
 

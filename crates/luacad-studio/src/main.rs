@@ -27,12 +27,13 @@ use scene::{
   camera_projection_matrix, camera_view_matrix, compute_camera_vectors,
   fit_distance_for_extent,
 };
-use theme::ThemeMode;
+use theme::{ThemeColors, ThemeMode};
 use ui::{PanelLayout, render_ui};
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Return the path to the state file (`~/.config/luacad/state.json`).
 fn state_file_path() -> Option<PathBuf> {
@@ -267,6 +268,11 @@ struct SceneSignature {
   transparent: bool,
 }
 
+/// How often the opened file is checked for external changes (issue #14).
+/// 100 ms keeps the save-to-render delay below the point where it reads as
+/// lag, at a negligible 10 stat calls per second.
+const WATCH_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Everything that exists once the window and its GPU surface are up.
 ///
 /// Field order is drop order: the scene renderer registers its texture with
@@ -281,10 +287,13 @@ struct Studio {
   last_scene_signature: Option<SceneSignature>,
   frame_input_generator: FrameInputGenerator,
   clipboard: Option<arboard::Clipboard>,
-  last_theme_check: f64,
-  /// When the opened file's mtime was last compared against `disk_mtime`
-  /// (auto-reload watch), in egui accumulated time (ms)
-  last_watch_check: f64,
+  /// When the next frame is due even without input, or `None` if only input
+  /// calls for one. Frames are drawn on demand: redrawing the idle UI at
+  /// vsync kept the CPU and GPU busy for nothing (issue #23).
+  next_redraw: Option<Instant>,
+  /// When the opened file's mtime is next compared against `disk_mtime`
+  /// (auto-reload watch)
+  next_watch_check: Instant,
   dragging_scene: bool,
   panning_scene: bool,
   /// A screenshot region (in screen points) whose frame has been sent to the
@@ -355,8 +364,8 @@ impl winit::application::ApplicationHandler for StudioApp {
       last_scene_signature: None,
       frame_input_generator,
       clipboard: arboard::Clipboard::new().ok(),
-      last_theme_check: 0.0,
-      last_watch_check: 0.0,
+      next_redraw: Some(Instant::now()),
+      next_watch_check: Instant::now(),
       dragging_scene: false,
       panning_scene: false,
       pending_screenshot: None,
@@ -365,7 +374,7 @@ impl winit::application::ApplicationHandler for StudioApp {
   }
 
   fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-    let Some(studio) = self.studio.as_ref() else {
+    let Some(studio) = self.studio.as_mut() else {
       return;
     };
     // A hidden window is not redrawn at all. Nothing waits for vsync then:
@@ -374,9 +383,32 @@ impl winit::application::ApplicationHandler for StudioApp {
     // the window again wakes the loop up.
     if studio.is_hidden() {
       event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
-    } else {
+      return;
+    }
+
+    let now = Instant::now();
+    if studio.app.auto_reload && now >= studio.next_watch_check {
+      studio.next_watch_check = now + WATCH_INTERVAL;
+      studio.check_file_on_disk();
+    }
+
+    // Requested once; the frame that follows sets the next deadline
+    if studio.next_redraw.is_some_and(|at| at <= now) {
+      studio.next_redraw = None;
       studio.window.request_redraw();
     }
+
+    let watching = studio.app.auto_reload && studio.app.current_file.is_some();
+    let wake_at = match (studio.next_redraw, watching) {
+      (Some(redraw), true) => Some(redraw.min(studio.next_watch_check)),
+      (Some(redraw), false) => Some(redraw),
+      (None, true) => Some(studio.next_watch_check),
+      (None, false) => None,
+    };
+    event_loop.set_control_flow(match wake_at {
+      Some(at) => winit::event_loop::ControlFlow::WaitUntil(at),
+      None => winit::event_loop::ControlFlow::Wait,
+    });
   }
 
   fn window_event(
@@ -392,6 +424,8 @@ impl winit::application::ApplicationHandler for StudioApp {
       studio.redraw(event_loop);
     } else {
       studio.window_event(event_loop, &event);
+      // Any input can change what the UI shows
+      studio.window.request_redraw();
     }
   }
 }
@@ -405,6 +439,26 @@ impl Studio {
     size.width == 0
       || size.height == 0
       || self.window.is_minimized() == Some(true)
+  }
+
+  /// Reload the opened file if it changed on disk, polling the mtime like
+  /// `luacad watch` does. Skipped while the editor has unsaved changes —
+  /// those win, and the conflict surfaces through the existing "File Changed
+  /// on Disk" dialog on the next save.
+  fn check_file_on_disk(&mut self) {
+    let Some(path) = self.app.current_file.as_deref() else {
+      return;
+    };
+    let mtime = file_mtime(path);
+    // `None` usually means the file is mid-replace (editors save by
+    // rename); a later poll sees the new mtime.
+    if mtime.is_some()
+      && mtime != self.app.disk_mtime
+      && !self.app.has_unsaved_changes()
+    {
+      reload_current_file(&mut self.app);
+      self.window.request_redraw();
+    }
   }
 
   fn redraw(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
@@ -421,8 +475,8 @@ impl Studio {
       last_scene_signature,
       frame_input_generator,
       clipboard,
-      last_theme_check,
-      last_watch_check,
+      next_redraw,
+      next_watch_check: _,
       dragging_scene,
       panning_scene,
       pending_screenshot,
@@ -852,29 +906,6 @@ impl Studio {
         save_transparent_view(app.transparent_view);
       }
 
-      // Watch the opened file and pick up external changes (issue #14),
-      // polling the mtime like `luacad watch` does. 100 ms keeps the
-      // save-to-render delay below the point where it reads as lag, at a
-      // negligible 10 stat calls per second. Skipped while the editor
-      // has unsaved changes — those win, and the conflict surfaces through
-      // the existing "File Changed on Disk" dialog on the next save.
-      if app.auto_reload
-        && frame_input.accumulated_time - *last_watch_check > 100.0
-      {
-        *last_watch_check = frame_input.accumulated_time;
-        if let Some(path) = app.current_file.as_deref() {
-          let mtime = file_mtime(path);
-          // `None` usually means the file is mid-replace (editors save by
-          // rename); a later poll sees the new mtime.
-          if mtime.is_some()
-            && mtime != app.disk_mtime
-            && !app.has_unsaved_changes()
-          {
-            reload_current_file(app);
-          }
-        }
-      }
-
       // Handle csgrs export requests
       #[cfg(feature = "csgrs")]
       if let Some(fmt) = app.pending_export.take() {
@@ -1279,14 +1310,6 @@ impl Studio {
         );
       }
 
-      // Re-check system theme
-      if app.theme_mode == ThemeMode::System
-        && frame_input.accumulated_time - *last_theme_check > 2000.0
-      {
-        *last_theme_check = frame_input.accumulated_time;
-        app.theme_colors = app.resolve_theme();
-      }
-
       // --- Render ---
       let (bg_r, bg_g, bg_b) = app.theme_colors.bg;
 
@@ -1305,9 +1328,10 @@ impl Studio {
       };
 
       // Redraw the 3D scene only when it would actually differ from what the
-      // texture already holds. The frame loop runs at vsync regardless, so
-      // without this the whole CSG pass — supersampled, and fill-rate bound
-      // by construction — would run every frame even while the app sits idle.
+      // texture already holds. Most frames only change the UI (typing, a
+      // hover, the blinking cursor), so without this the whole CSG pass —
+      // supersampled, and fill-rate bound by construction — would run for
+      // each of them.
       // A scene area without pixels has nothing to show, and its aspect ratio
       // of 0/0 fills the projection with NaNs, which never compare equal.
       let scene_visible = render_w > 0 && render_h > 0;
@@ -1362,11 +1386,22 @@ impl Studio {
       };
 
       // Render egui (with the scene texture in the viewport area) and present
-      gui.render([bg_r, bg_g, bg_b, 1.0], capture);
+      let repaint_delay = gui.render([bg_r, bg_g, bg_b, 1.0], capture);
 
       winit_window.set_cursor(egui_to_winit_cursor(egui_cursor));
-      event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-      winit_window.request_redraw();
+
+      // Background work is polled once per frame, so it keeps the frames
+      // coming until it is done: a screenshot read back from the GPU, and a
+      // model build or raytrace whose result has to be picked up.
+      let now = Instant::now();
+      let busy = pending_screenshot.is_some()
+        || app.is_lua_executing()
+        || app.is_raytracing();
+      *next_redraw = if busy {
+        Some(now)
+      } else {
+        now.checked_add(repaint_delay)
+      };
     }
   }
 
@@ -1397,9 +1432,19 @@ impl Studio {
         winit::event::WindowEvent::CloseRequested => {
           if app.has_unsaved_changes() {
             app.show_close_confirm = true;
-            winit_window.request_redraw();
           } else {
             event_loop.exit()
+          }
+        }
+        // Reported on macOS and Windows. Elsewhere the system theme is not
+        // detected (see `theme::system_is_dark_mode`), so there is nothing
+        // to follow.
+        winit::event::WindowEvent::ThemeChanged(theme) => {
+          if app.theme_mode == ThemeMode::System {
+            app.theme_colors = match theme {
+              winit::window::Theme::Dark => ThemeColors::dark(),
+              winit::window::Theme::Light => ThemeColors::light(),
+            };
           }
         }
         winit::event::WindowEvent::DroppedFile(path) => {
