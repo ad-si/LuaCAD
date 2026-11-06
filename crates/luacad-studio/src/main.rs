@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod app;
 mod camera;
 mod editor;
@@ -1510,6 +1512,18 @@ fn without_launch_serial(
 }
 
 fn main() {
+  // Reuse a terminal when launched from one (including for --help/version),
+  // but do not allocate a console window when launched from Explorer.
+  #[cfg(target_os = "windows")]
+  unsafe {
+    // SAFETY: AttachConsole takes only a process identifier, no pointers.
+    // Failure is expected when the parent has no console.
+    use windows_sys::Win32::System::Console::{
+      ATTACH_PARENT_PROCESS, AttachConsole,
+    };
+    AttachConsole(ATTACH_PARENT_PROCESS);
+  }
+
   // Resolve initial file: CLI argument takes priority, then last opened file.
   let initial_file =
     Cli::parse_from(without_launch_serial(std::env::args_os()))
