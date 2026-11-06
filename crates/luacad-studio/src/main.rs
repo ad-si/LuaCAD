@@ -1332,8 +1332,7 @@ impl Studio {
       // hover, the blinking cursor), so without this the whole CSG pass —
       // supersampled, and fill-rate bound by construction — would run for
       // each of them.
-      // A scene area without pixels has nothing to show, and its aspect ratio
-      // of 0/0 fills the projection with NaNs, which never compare equal.
+      // A scene area without pixels has nothing to show.
       let scene_visible = render_w > 0 && render_h > 0;
       if scene_visible
         && (resized || last_scene_signature.as_ref() != Some(&signature))

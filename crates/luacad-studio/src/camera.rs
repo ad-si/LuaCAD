@@ -41,7 +41,9 @@ impl Viewport {
   }
 
   pub fn aspect(&self) -> f32 {
-    self.width as f32 / self.height as f32
+    // A collapsed panel still updates its camera before drawing is skipped.
+    // Keep both projections finite without changing the actual viewport.
+    self.width.max(1) as f32 / self.height.max(1) as f32
   }
 }
 
@@ -185,6 +187,56 @@ impl Camera {
     PixelPoint {
       x: u * self.viewport.width as f32 + self.viewport.x as f32,
       y: v * self.viewport.height as f32 + self.viewport.y as f32,
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn assert_valid_projection(camera: &Camera) {
+    let matrix = camera.projection();
+    let elements: &[f32; 16] = matrix.as_ref();
+    assert!(elements.iter().all(|value| value.is_finite()));
+    assert!(matrix.invert().is_some());
+  }
+
+  #[test]
+  fn collapsed_viewports_support_both_projections_and_restore() {
+    let normal = Viewport::new_at_origo(800, 600);
+    for (width, height) in [(0, 600), (800, 0), (0, 0), (1, 1)] {
+      let collapsed = Viewport::new_at_origo(width, height);
+      for perspective in [false, true] {
+        let make_camera = |viewport| {
+          let position = vec3(0.0, 0.0, 5.0);
+          let target = vec3(0.0, 0.0, 0.0);
+          let up = vec3(0.0, 1.0, 0.0);
+          if perspective {
+            Camera::new_perspective(
+              viewport,
+              position,
+              target,
+              up,
+              degrees(45.0),
+              0.1,
+              100.0,
+            )
+          } else {
+            Camera::new_orthographic(
+              viewport, position, target, up, 2.0, 0.1, 100.0,
+            )
+          }
+        };
+        assert_valid_projection(&make_camera(collapsed));
+        let mut camera = make_camera(normal);
+        let original = camera.projection();
+        camera.set_viewport(collapsed);
+        assert_eq!(camera.viewport(), collapsed);
+        assert_valid_projection(&camera);
+        camera.set_viewport(normal);
+        assert_eq!(camera.projection(), original);
+      }
     }
   }
 }
