@@ -8,6 +8,23 @@ so that the CLI and Studio can share them; they are internal and may change in
 any release.
 
 
+## 2026-11-06 - 1.2.1
+
+### Fixed
+
+- Collapsing Studio's viewport to zero width no longer crashes the camera.
+  Zero-height viewports also keep valid projections in both perspective and
+  orthographic modes ([#25](https://github.com/ad-si/LuaCAD/issues/25)).
+- Launching Studio on Windows no longer opens an extra console window.
+  Launches from a terminal reuse its console for help, version information
+  and diagnostics.
+
+### Changed
+
+- Studio redraws only when needed instead of continuously at vsync, and
+  stops redrawing while minimized, reducing idle CPU and GPU usage.
+
+
 ## 2026-09-23 - 1.2.0
 
 ### Added
